@@ -7,13 +7,15 @@ import os
 API_TOKEN = "8868383649:AAEVxFynrH7u_M8e9-wjxo6h8-NP8dtWNUQ"
 bot = telebot.TeleBot(API_TOKEN)
 
-# تحديد الإدارة بوضوح
+# الإدارة
 ADMIN_PRIMARY = 5145154527   # أنت (الآدمن الأول والأقوى)
 ADMIN_SECONDARY = 88782290572 # الآدمن الثانوي
 
-# ملفات حفظ البيانات (قاعدة بيانات بسيطة JSON)
+# ملفات قواعد البيانات
 DB_USERS = "users_data.json"
 DB_COUPONS = "coupons_data.json"
+DB_PRODUCTS = "products_data.json"
+DB_SETTINGS = "settings_data.json"
 
 # دوال إدارة قواعد البيانات
 def load_db(file_path, default_value):
@@ -26,11 +28,12 @@ def save_db(file_path, data):
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# تحميل البيانات عند بدء تشغيل البوت
+# تحميل البيانات
 users_db = load_db(DB_USERS, {})
 coupons_db = load_db(DB_COUPONS, {})
+products_db = load_db(DB_PRODUCTS, {}) # الهيكل: {"ProductA": {"price": 10, "keys": ["key1", "key2"]}}
+settings_db = load_db(DB_SETTINGS, {"invite_reward": 5}) # المكافأة الافتراضية للدعوة
 
-# دالة تسجيل المستخدم أو تحديث بياناته
 def register_user(user):
     uid = str(user.id)
     if uid not in users_db:
@@ -55,39 +58,30 @@ def get_language_keyboard():
 def get_main_keyboard(uid, lang):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
     
-    # الخانات الأساسية بناءً على اللغة
     if lang == "ar":
-        btn_id = types.KeyboardButton("عرض الآيدي الخاص بي 🆔")
-        btn_invite = types.KeyboardButton("🔗 نظام الدعوات (نقاط)")
-        btn_coupon = types.KeyboardButton("🎟️ شحن كابون (Redeem)")
+        keyboard.add(types.KeyboardButton("عرض الآيدي الخاص بي 🆔"))
+        keyboard.add(types.KeyboardButton("🔗 نظام الدعوات (نقاط)"), types.KeyboardButton("🎟️ شحن كابون (Redeem)"))
     else:
-        btn_id = types.KeyboardButton("show my id 🆔")
-        btn_invite = types.KeyboardButton("🔗 Referral System")
-        btn_coupon = types.KeyboardButton("🎟️ Redeem Coupon")
+        keyboard.add(types.KeyboardButton("show my id 🆔"))
+        keyboard.add(types.KeyboardButton("🔗 Referral System"), types.KeyboardButton("🎟️ Redeem Coupon"))
         
-    keyboard.add(btn_id)
-    keyboard.add(btn_invite, btn_coupon)
-    
-    # إذا كان المستخدم آدمن (أول أو ثانوي) تظهر له خانة لوحة التحكم تلقائياً
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
-        btn_admin = types.KeyboardButton("💻 لوحة التحكم الإدارية")
-        keyboard.add(btn_admin)
+        keyboard.add(types.KeyboardButton("⚙️ وضع الأدمن"))
         
     return keyboard
 
-def get_admin_keyboard(uid):
+# كيبورد الأدمن المطابق تماماً لصورة "image_2.png"
+def get_admin_keyboard():
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.add(types.KeyboardButton("➕ صنع كابون نقاط"), types.KeyboardButton("✍️ تعديل نقاط مستخدم"))
-    
-    # ميزة خاصة بالآدمن الأول والأقوى فقط (تصفير أو تعديل بيانات الكاملة)
-    if int(uid) == ADMIN_PRIMARY:
-        keyboard.add(types.KeyboardButton("👑 صلاحيات الآدمن الأقوى"))
-        
-    keyboard.add(types.KeyboardButton("🔙 العودة للقائمة الرئيسية"))
+    keyboard.add(types.KeyboardButton("➕ Add Product"), types.KeyboardButton("❌ Delete Product"))
+    keyboard.add(types.KeyboardButton("🔑 Manage Keys"), types.KeyboardButton("🏷️ Edit Price"))
+    keyboard.add(types.KeyboardButton("🔗 Edit Invite Reward"), types.KeyboardButton("🎫 Create Redeem"))
+    keyboard.add(types.KeyboardButton("💰 Add Balance"), types.KeyboardButton("📊 Statistics"))
+    keyboard.add(types.KeyboardButton("🔄 User Mode"))
     return keyboard
 
 # ==========================================
-# 3️⃣ الأوامر ومعالجة النصوص
+# 3️⃣ الأوامر الأساسية ومعالجة الدعوات
 # ==========================================
 
 @bot.message_handler(commands=['start'])
@@ -95,21 +89,17 @@ def send_welcome(message):
     uid = str(message.from_user.id)
     register_user(message.from_user)
     
-    # نظام الإحالة: التحقق إذا كان الرابط يحتوي على دعوة من شخص آخر
     args = message.text.split()
     if len(args) > 1 and users_db[uid]["invited_by"] is None:
         inviter_id = args[1]
-        # شروط الإحالة: أن يكون الحساب الداعي موجود وغير حساب المستخدم نفسه
         if inviter_id in users_db and inviter_id != uid:
             users_db[uid]["invited_by"] = inviter_id
-            # مكافأة الداعي بـ 5 نقاط كمثال
-            users_db[inviter_id]["points"] += 5
+            reward = settings_db.get("invite_reward", 5)
+            users_db[inviter_id]["points"] += reward
             users_db[inviter_id]["invite_count"] += 1
             save_db(DB_USERS, users_db)
-            try:
-                bot.send_message(int(inviter_id), f"🎉 <b>إشعار إحالة!</b>\nدخل شخص جديد عبر رابطك، حصلت على <code>+5</code> نقاط!")
-            except:
-                pass
+            try: bot.send_message(int(inviter_id), f"🎉 <b>إشعار إحالة!</b>\nدخل شخص جديد عبر رابطك، حصلت على <code>+{reward}</code> نقاط!", parse_mode="HTML")
+            except: pass
 
     bot.send_message(message.chat.id, "🌐 Please select your language / يرجى تحديد لغتك:", reply_markup=get_language_keyboard())
 
@@ -117,22 +107,17 @@ def send_welcome(message):
 def handle_language_choice(call):
     uid = str(call.from_user.id)
     selected_lang = call.data.split("_")[1]
-    
     users_db[uid]["lang"] = selected_lang
     save_db(DB_USERS, users_db)
     
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
     except: pass
 
-    if selected_lang == "ar":
-        reply_text = "✅ تم تفعيل الحساب بنجاح!\n\nأهلاً بك في القائمة الرئيسية، تفضل باختيار الخانة المطلوبة من الأسفل 👇"
-    else:
-        reply_text = "✅ Account activated successfully!\n\nWelcome to the main menu, please select an option from below 👇"
-
+    reply_text = "✅ تم تفعيل الحساب بنجاح!" if selected_lang == "ar" else "✅ Account activated successfully!"
     bot.send_message(call.message.chat.id, reply_text, reply_markup=get_main_keyboard(uid, selected_lang))
 
 # ==========================================
-# 4️⃣ مراقب أزرار الشاشة الرئيسية
+# 4️⃣ مراقب نصوص الأزرار (لوحة المستخدم والأدمن)
 # ==========================================
 
 @bot.message_handler(func=lambda message: True)
@@ -141,116 +126,174 @@ def main_router(message):
     register_user(message.from_user)
     txt = message.text
     lang = users_db[uid]["lang"]
+    is_admin = int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]
 
-    # --- خانة عرض الآيدي والنقاط الحالية ---
+    # --- أزرار المستخدم العادية ---
     if txt in ["show my id 🆔", "عرض الآيدي الخاص بي 🆔"]:
         pts = users_db[uid]["points"]
-        if lang == "ar":
-            msg_id = f"👤 <b>الآيدي الخاص بك:</b> <code>{uid}</code>\n💰 <b>رصيد نقاطك الحالي:</b> <code>{pts}</code> نقطة"
-        else:
-            msg_id = f"👤 <b>Your Telegram ID:</b> <code>{uid}</code>\n💰 <b>Your Current Points:</b> <code>{pts}</code> points"
+        msg_id = f"👤 <b>الآيدي الخاص بك:</b> <code>{uid}</code>\n💰 <b>رصيد نقاطك:</b> <code>{pts}</code>" if lang == "ar" else f"👤 <b>Your ID:</b> <code>{uid}</code>\n💰 <b>Your Points:</b> <code>{pts}</code>"
         bot.send_message(message.chat.id, msg_id, parse_mode="HTML")
 
-    # --- خانة نظام الإحالات والدعوات ---
     elif txt in ["🔗 نظام الدعوات (نقاط)", "🔗 Referral System"]:
         bot_username = bot.get_me().username
         ref_link = f"https://t.me/{bot_username}?start={uid}"
         invites = users_db[uid].get("invite_count", 0)
+        reward = settings_db.get("invite_reward", 5)
         if lang == "ar":
-            msg_ref = f"🔗 <b>نظام كسب النقاط عبر دعوة الأصدقاء:</b>\n\nقم بنسخ رابطك الخاص وإرساله لأصدقائك، ستحصل على <b>5 نقاط</b> عن كل صديق يقوم بتفعيل البوت!\n\n👥 عدد دعواتك الحالية: <code>{invites}</code>\n\n📌 رابط الدعوة الخاص بك:\n<code>{ref_link}</code>"
+            msg_ref = f"🔗 <b>اربح {reward} نقاط لكل دعوة!</b>\n\n👥 عدد دعواتك: <code>{invites}</code>\n📌 رابطك:\n<code>{ref_link}</code>"
         else:
-            msg_ref = f"🔗 <b>Referral & Earn Points System:</b>\n\nShare your link with your friends to get <b>5 points</b> for each successful referral!\n\n👥 Total Referrals: <code>{invites}</code>\n\n📌 Your Referral Link:\n<code>{ref_link}</code>"
+            msg_ref = f"🔗 <b>Earn {reward} points per referral!</b>\n\n👥 Total Referrals: <code>{invites}</code>\n📌 Your Link:\n<code>{ref_link}</code>"
         bot.send_message(message.chat.id, msg_ref, parse_mode="HTML")
 
-    # --- خانة شحن الكوبونات للمستخدمين ---
     elif txt in ["🎟️ شحن كابون (Redeem)", "🎟️ Redeem Coupon"]:
-        if lang == "ar":
-            prompt = "📥 يرجى إرسال رمز الكابون المراد شحنه الآن:"
-        else:
-            prompt = "📥 Please send the coupon code you want to redeem:"
-        m = bot.send_message(message.chat.id, prompt)
+        m = bot.send_message(message.chat.id, "📥 أرسل رمز الكابون:" if lang == "ar" else "📥 Send coupon code:")
         bot.register_next_step_handler(m, process_redeem_coupon)
 
-    # --- خانة الدخول للوحة التحكم الإدارية (للأدمن فقط) ---
-    elif txt == "💻 لوحة التحكم الإدارية" and int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
-        bot.send_message(message.chat.id, "⚙️ مرحباً بك في لوحة تحكم الإدارة الشاملة:", reply_markup=get_admin_keyboard(uid))
+    # --- دخول لوحة التحكم ---
+    elif txt == "⚙️ وضع الأدمن" and is_admin:
+        bot.send_message(message.chat.id, "⚙️ تم الدخول للوحة التحكم بنجاح!", reply_markup=get_admin_keyboard())
 
-    # --- العودة للقائمة الرئيسية من لوحة الإدارة ---
-    elif txt == "🔙 العودة للقائمة الرئيسية":
-        bot.send_message(message.chat.id, "🔙 تم الانتقال للقائمة الرئيسية للمستخدمين.", reply_markup=get_main_keyboard(uid, lang))
+    # ==========================================
+    # 5️⃣ أزرار لوحة التحكم (المطابقة لـ image_2.png)
+    # ==========================================
+    elif is_admin:
+        if txt == "🔄 User Mode":
+            bot.send_message(message.chat.id, "🔙 العودة لوضع المستخدم.", reply_markup=get_main_keyboard(uid, lang))
+            
+        elif txt == "📊 Statistics":
+            total_users = len(users_db)
+            bot.send_message(message.chat.id, f"📈 <b>إحصائيات المتجر:</b>\n\n👥 الأعضاء: <code>{total_users}</code>", parse_mode="HTML")
 
-    # --- أزرار داخل لوحة الإدارة ---
-    elif txt == "➕ صنع كابون نقاط" and int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
-        m = bot.send_message(message.chat.id, "✍️ أرسل كود الكابون المطلوب ثم قيمته (نقاطه) وبينهما مسافة واحدة فقط\nمثال: `VIP2026 50`")
-        bot.register_next_step_handler(m, process_create_coupon)
+        elif txt == "🎫 Create Redeem":
+            m = bot.send_message(message.chat.id, "✍️ أرسل كود الكابون متبوعاً بمسافة ثم قيمة النقاط (مثال: VIP 50)")
+            bot.register_next_step_handler(m, process_create_coupon)
 
-    elif txt == "✍️ تعديل نقاط مستخدم" and int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
-        m = bot.send_message(message.chat.id, "✍️ أرسل آيدي المستخدم (ID) ثم عدد النقاط المراد إضافتها أو خصمها وبينهما مسافة\nمثال لإضافة نقاط: `5145154527 100`\nمثال لخصم نقاط: `5145154527 -50`")
-        bot.register_next_step_handler(m, process_modify_points)
+        elif txt == "💰 Add Balance":
+            m = bot.send_message(message.chat.id, "✍️ أرسل الآيدي ثم مسافة ثم عدد النقاط لإضافتها (مثال: 5145154527 100)")
+            bot.register_next_step_handler(m, process_modify_points)
 
-    elif txt == "👑 صلاحيات الآدمن الأقوى" and int(uid) == ADMIN_PRIMARY:
-        total_users = len(users_db)
-        total_coupons = len(coupons_db)
-        bot.send_message(message.chat.id, f"👑 <b>مرحباً بك يا مالك البوت الأقوى!</b>\n\n📊 إحصائيات سريعة:\n👥 عدد المستخدمين الكلي: <code>{total_users}</code>\n🎟️ عدد الكوبونات الفعالة: <code>{total_coupons}</code>")
+        elif txt == "🔗 Edit Invite Reward":
+            m = bot.send_message(message.chat.id, f"🔗 الجائزة الحالية هي: {settings_db.get('invite_reward', 5)}\nأرسل عدد النقاط الجديد لكل دعوة:")
+            bot.register_next_step_handler(m, process_edit_invite_reward)
+
+        elif txt == "➕ Add Product":
+            m = bot.send_message(message.chat.id, "➕ أرسل اسم المنتج الجديد:")
+            bot.register_next_step_handler(m, process_add_product)
+
+        elif txt == "❌ Delete Product":
+            if not products_db: return bot.send_message(message.chat.id, "📭 لا يوجد منتجات لحذفها.")
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            for p in products_db: markup.add(types.KeyboardButton(p))
+            markup.add(types.KeyboardButton("إلغاء ❌"))
+            m = bot.send_message(message.chat.id, "❌ اختر المنتج الذي تريد حذفه:", reply_markup=markup)
+            bot.register_next_step_handler(m, process_delete_product)
+
+        elif txt == "🏷️ Edit Price":
+            if not products_db: return bot.send_message(message.chat.id, "📭 لا يوجد منتجات.")
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            for p in products_db: markup.add(types.KeyboardButton(p))
+            markup.add(types.KeyboardButton("إلغاء ❌"))
+            m = bot.send_message(message.chat.id, "🏷️ اختر المنتج لتعديل سعره:", reply_markup=markup)
+            bot.register_next_step_handler(m, process_select_product_price)
+
+        elif txt == "🔑 Manage Keys":
+            if not products_db: return bot.send_message(message.chat.id, "📭 لا يوجد منتجات.")
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            for p in products_db: markup.add(types.KeyboardButton(p))
+            markup.add(types.KeyboardButton("إلغاء ❌"))
+            m = bot.send_message(message.chat.id, "🔑 اختر المنتج لإضافة مفاتيح له:", reply_markup=markup)
+            bot.register_next_step_handler(m, process_select_product_keys)
 
 # ==========================================
-# 5️⃣ وظائف المعالجة والخلفية
+# 6️⃣ دوال المعالجة المساعدة (للمستخدم والأدمن)
 # ==========================================
 
-# دالة شحن الكوبون من قبل مستخدم
 def process_redeem_coupon(message):
     uid = str(message.from_user.id)
-    coupon_code = message.text.strip()
-    lang = users_db[uid]["lang"]
-
-    if coupon_code in coupons_db:
-        points_to_give = coupons_db[coupon_code]
-        users_db[uid]["points"] += points_to_give
-        del coupons_db[coupon_code] # مسح الكوبون حتى لا يستعمل مرة أخرى
+    code = message.text.strip()
+    if code in coupons_db:
+        pts = coupons_db.pop(code)
+        users_db[uid]["points"] += pts
         save_db(DB_USERS, users_db)
         save_db(DB_COUPONS, coupons_db)
-        
-        if lang == "ar":
-            bot.send_message(message.chat.id, f"🎉 <b>تم الشحن بنجاح!</b>\nتم إضافة <code>+{points_to_give}</code> نقاط إلى حسابك.", parse_mode="HTML")
-        else:
-            bot.send_message(message.chat.id, f"🎉 <b>Redeemed successfully!</b>\n<code>+{points_to_give}</code> points have been added to your account.", parse_mode="HTML")
+        bot.send_message(message.chat.id, f"🎉 <b>تم الشحن!</b>\nأضيفت <code>+{pts}</code> نقاط.", parse_mode="HTML")
     else:
-        if lang == "ar":
-            bot.send_message(message.chat.id, "❌ الكوبون خاطئ أو مستخدم مسبقاً، يرجى التحقق من الكود.")
-        else:
-            bot.send_message(message.chat.id, "❌ Invalid or already redeemed coupon code.")
+        bot.send_message(message.chat.id, "❌ الكوبون غير صحيح أو مستخدم.")
 
-# دالة صنع الكوبون من قبل الإدارة
 def process_create_coupon(message):
-    uid = str(message.from_user.id)
     try:
         code, points = message.text.split()
-        points = int(points)
-        coupons_db[code] = points
+        coupons_db[code] = int(points)
         save_db(DB_COUPONS, coupons_db)
-        bot.send_message(message.chat.id, f"✅ <b>تم إنشاء الكوبون بنجاح!</b>\n🎫 الكود: <code>{code}</code>\n💰 قيمته: <code>{points}</code> نقاط", parse_mode="HTML")
+        bot.send_message(message.chat.id, f"✅ تم إنشاء كوبون: <code>{code}</code> بقيمة {points} نقطة.", parse_mode="HTML")
     except:
-        bot.send_message(message.chat.id, "❌ خطأ في الإدخال، تأكد من كتابة الكود ثم مسافة ثم عدد النقاط بشكل صحيح.")
+        bot.send_message(message.chat.id, "❌ خطأ بالصيغة.")
 
-# دالة تعديل نقاط مستخدم من قبل الإدارة
 def process_modify_points(message):
     try:
-        target_id, points_change = message.text.split()
-        points_change = int(points_change)
-        
+        target_id, points = message.text.split()
+        points = int(points)
         if target_id in users_db:
-            users_db[target_id]["points"] += points_change
+            users_db[target_id]["points"] += points
             save_db(DB_USERS, users_db)
-            bot.send_message(message.chat.id, f"✅ تم تعديل النقاط للمستخدم بنجاح.\nالرصيد الجديد للحساب <code>{target_id}</code> هو: <code>{users_db[target_id]['points']}</code>", parse_mode="HTML")
-            try:
-                bot.send_message(int(target_id), f"🔔 <b>إشعار إداري:</b>\nتم تعديل رصيد نقاطك من قبل الإدارة بمقدار: <code>{points_change}</code>")
-            except: pass
-        else:
-            bot.send_message(message.chat.id, "❌ لم يتم العثور على هذا الآيدي في قاعدة بيانات البوت.")
-    except:
-        bot.send_message(message.chat.id, "❌ خطأ في الإدخال، يرجى الالتزام بالصيغة (الآيدي ثم مسافة ثم عدد النقاط).")
+            bot.send_message(message.chat.id, f"✅ تمت الإضافة. رصيد {target_id} الجديد: {users_db[target_id]['points']}")
+        else: bot.send_message(message.chat.id, "❌ المستخدم غير موجود.")
+    except: bot.send_message(message.chat.id, "❌ خطأ بالصيغة.")
 
-# تشغيل البوت
+def process_edit_invite_reward(message):
+    try:
+        settings_db["invite_reward"] = int(message.text.strip())
+        save_db(DB_SETTINGS, settings_db)
+        bot.send_message(message.chat.id, f"✅ تم تعديل جائزة الدعوة لتصبح: {settings_db['invite_reward']} نقاط.")
+    except: bot.send_message(message.chat.id, "❌ يرجى إرسال أرقام فقط.")
+
+def process_add_product(message):
+    name = message.text.strip()
+    if name not in products_db:
+        products_db[name] = {"price": 0, "keys": []}
+        save_db(DB_PRODUCTS, products_db)
+        bot.send_message(message.chat.id, f"✅ تمت إضافة المنتج: {name}")
+    else: bot.send_message(message.chat.id, "❌ المنتج موجود مسبقاً.")
+
+def process_delete_product(message):
+    name = message.text.strip()
+    if name == "إلغاء ❌": return bot.send_message(message.chat.id, "تم الإلغاء.", reply_markup=get_admin_keyboard())
+    if name in products_db:
+        del products_db[name]
+        save_db(DB_PRODUCTS, products_db)
+        bot.send_message(message.chat.id, f"✅ تم حذف {name} بنجاح.", reply_markup=get_admin_keyboard())
+    else: bot.send_message(message.chat.id, "❌ لم يتم العثور على المنتج.", reply_markup=get_admin_keyboard())
+
+def process_select_product_price(message):
+    name = message.text.strip()
+    if name == "إلغاء ❌": return bot.send_message(message.chat.id, "تم الإلغاء.", reply_markup=get_admin_keyboard())
+    if name in products_db:
+        m = bot.send_message(message.chat.id, f"🏷️ أرسل السعر الجديد بالنقاط للمنتج ({name}):", reply_markup=types.ReplyKeyboardRemove())
+        bot.register_next_step_handler(m, lambda msg: process_save_price(msg, name))
+    else: bot.send_message(message.chat.id, "❌ لم يتم العثور على المنتج.", reply_markup=get_admin_keyboard())
+
+def process_save_price(message, name):
+    try:
+        products_db[name]["price"] = int(message.text.strip())
+        save_db(DB_PRODUCTS, products_db)
+        bot.send_message(message.chat.id, f"✅ تم حفظ السعر للمنتج {name} ليصبح {products_db[name]['price']} نقاط.", reply_markup=get_admin_keyboard())
+    except: bot.send_message(message.chat.id, "❌ خطأ. يرجى إدخال أرقام فقط.", reply_markup=get_admin_keyboard())
+
+def process_select_product_keys(message):
+    name = message.text.strip()
+    if name == "إلغاء ❌": return bot.send_message(message.chat.id, "تم الإلغاء.", reply_markup=get_admin_keyboard())
+    if name in products_db:
+        m = bot.send_message(message.chat.id, f"🔑 أرسل المفاتيح للمنتج ({name}).\nيمكنك إرسال أكثر من مفتاح بجعل كل مفتاح في سطر جديد:", reply_markup=types.ReplyKeyboardRemove())
+        bot.register_next_step_handler(m, lambda msg: process_save_keys(msg, name))
+    else: bot.send_message(message.chat.id, "❌ لم يتم العثور على المنتج.", reply_markup=get_admin_keyboard())
+
+def process_save_keys(message, name):
+    keys = message.text.strip().split("\n")
+    products_db[name]["keys"].extend(keys)
+    save_db(DB_PRODUCTS, products_db)
+    bot.send_message(message.chat.id, f"✅ تم إضافة {len(keys)} مفتاح للمنتج {name}. الإجمالي: {len(products_db[name]['keys'])}", reply_markup=get_admin_keyboard())
+
+# التشغيل المستمر
 if __name__ == "__main__":
-    print("🚀 البوت المتكامل والذكي يعمل الآن..")
+    print("🚀 البوت يعمل الآن..")
     bot.infinity_polling()
