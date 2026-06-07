@@ -14,6 +14,7 @@ bot = telebot.TeleBot(API_TOKEN)
 ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 88782290572
 CHANNEL_USERNAME = "@EVEE7X_FMALIY"
+SUPPORT_USER_URL = "https://t.me/EVEE7XX_IOS" # رابط الدعم الفني المباشر
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
@@ -38,13 +39,11 @@ redeem_codes = load_json(DB_REDEEM, {})
 prices_config = load_json(DB_PRICES, {})
 bot_config = load_json(DB_CONFIG, {
     "maintenance": False, 
-    "discount": 0, 
     "invite_reward": 5, 
     "daily_bonus": 10,
     "total_sales": 0,
     "total_earnings": 0,
-    "sales_log": [],
-    "tickets": {}
+    "sales_log": []
 })
 
 user_last_msg = {}
@@ -197,11 +196,10 @@ def get_admin_keyboard():
     markup.add(types.KeyboardButton("🔑 إضافة مفاتيح"), types.KeyboardButton("👁️ استعراض المفاتيح"))
     markup.add(types.KeyboardButton("🔢 حذف مفتاح معين"), types.KeyboardButton("🗑️ مسح جميع المفاتيح"))
     markup.add(types.KeyboardButton("💵 إدارة الأسعار"), types.KeyboardButton("👥 إدارة الأعضاء"))
-    markup.add(types.KeyboardButton("💰 شحن الأعضاء"), types.KeyboardButton("🎫 إنشاء أكواد الشحن"))
-    markup.add(types.KeyboardButton("🔥 التخفيضات"), types.KeyboardButton("📢 الإذاعة الشاملة"))
+    markup.add(types.KeyboardButton("🎫 إنشاء أكواد الشحن"), types.KeyboardButton("📢 الإذاعة الشاملة"))
     markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
     markup.add(types.KeyboardButton("✨ تعديل المكافأة اليومية"), types.KeyboardButton("🔗 تعديل نقاط الدعوة"))
-    markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🔄 واجهة المستخدم"))
+    markup.add(types.KeyboardButton("🔄 واجهة المستخدم"))
     return markup
 
 @bot.message_handler(commands=['start', 'id'])
@@ -281,8 +279,9 @@ def main_router(message):
         bot.register_next_step_handler(m, process_redeem_user)
 
     elif txt in [LOCALES[l]["support_btn"] for l in LOCALES]:
-        m = bot.send_message(message.chat.id, "💬 اكتب رسالة الدعم الفني الخاصة بك الآن لفتح تذكرة:")
-        bot.register_next_step_handler(m, process_support_ticket)
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("💬 تواصل مع الدعم الفني", url=SUPPORT_USER_URL))
+        bot.send_message(message.chat.id, "👨‍💻 للتواصل مع الدعم الفني المباشر، يرجى الضغط على الزر أدناه:", reply_markup=markup)
 
     elif txt in [LOCALES[l]["shop_btn"] for l in LOCALES]:
         if not prices_config:
@@ -338,17 +337,9 @@ def main_router(message):
             m = bot.send_message(message.chat.id, "✍️ أرسل آيدي العضو لعرض تفاصيله والتحكم في رتبته وحظره بالأزرار:")
             bot.register_next_step_handler(m, admin_view_member_func)
 
-        elif txt == "💰 شحن الأعضاء":
-            m = bot.send_message(message.chat.id, "✍️ أرسل آيدي المستخدم ثم مسافة ثم القيمة (مثال: 123456789 500):")
-            bot.register_next_step_handler(m, admin_charge_member_func)
-
         elif txt == "🎫 إنشاء أكواد الشحن":
             m = bot.send_message(message.chat.id, "✍️ أرسل الكود المراد إنشاؤه متبوعاً بقيمته (مثال: FREE100 100):")
             bot.register_next_step_handler(m, admin_create_code_func)
-
-        elif txt == "🔥 التخفيضات":
-            m = bot.send_message(message.chat.id, "✍️ أرسل النسبة المئوية الجديدة للتخفيض العام (مثال: 10 أو 20 أو 50):")
-            bot.register_next_step_handler(m, admin_set_discount_func)
 
         elif txt == "📢 الإذاعة الشاملة":
             m = bot.send_message(message.chat.id, "✍️ أرسل نص الرسالة التي ترغب بإذاعتها لجميع الأعضاء:")
@@ -359,9 +350,7 @@ def main_router(message):
             for prod, plans in prices_config.items():
                 pub_text += f"📦 <b>المنتج: {prod}</b>\n"
                 for plan, b_price in plans.items():
-                    disc = bot_config["discount"]
-                    f_price = int(b_price * (1 - disc/100))
-                    pub_text += f" ├ {plan} ➡️ {f_price} نقطة \n"
+                    pub_text += f" ├ {plan} ➡️ {b_price} نقطة \n"
             pub_text += f"\n🤖 رابط البوت الرسمي للشراء الفوري: t.me/{bot.get_me().username}"
             try:
                 bot.send_message(CHANNEL_USERNAME, pub_text, parse_mode="HTML")
@@ -380,17 +369,6 @@ def main_router(message):
             m = bot.send_message(message.chat.id, f"⚙️ القيمة الحالية لنقاط الدعوة: {bot_config['invite_reward']} نقطة.\n\n✍️ أرسل القيمة الجديدة الآن (أرقام فقط):")
             bot.register_next_step_handler(m, admin_edit_invite_reward)
 
-        elif txt == "☁️ النسخ الاحتياطي":
-            stats = (f"📊 <b>إحصائيات وتقارير المتجر الحالية:</b>\n\n"
-                     f"👥 عدد المستخدمين المسجلين: {len(users)}\n"
-                     f"🛒 إجمالي عدد المبيعات: {bot_config.get('total_sales', 0)}\n"
-                     f"💰 إجمالي الأرباح المكتسبة: {bot_config.get('total_earnings', 0)} نقطة")
-            bot.send_message(message.chat.id, stats, parse_mode="HTML")
-            for file_name in [DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG]:
-                if os.path.exists(file_name):
-                    with open(file_name, "rb") as f_doc:
-                        bot.send_document(message.chat.id, f_doc)
-
 # ==========================================
 # 5️⃣ معالجة الكولباك والأزرار الشفافة التفاعلية الجديد
 # ==========================================
@@ -401,7 +379,7 @@ def handle_inline_callbacks(call):
     register_user(call.from_user)
     data = call.data
 
-    # أزرار الإدارة والترقية الفورية المضافة بناء على صورة image_4.png وصلاحيات الأعضاء
+    # أزرار الإدارة والترقية الفورية المضافة
     if data.startswith("adm_"):
         if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
             return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول لاستخدام هذا الزر.", show_alert=True)
@@ -481,19 +459,15 @@ def handle_inline_callbacks(call):
         markup = types.InlineKeyboardMarkup()
         for plan in ["1 Day", "7 Days", "30 Days"]:
             base_p = prices_config[prod].get(plan, 0)
-            disc = bot_config["discount"]
-            final_p = int(base_p * (1 - disc/100))
             stock_count = len(keys_store.get(prod, {}).get(plan, []))
-            markup.add(types.InlineKeyboardButton(f"⏱️ {plan} | {final_p} Pts (المخزن: {stock_count})", callback_data=f"buy_plan_{prod}_{plan}"))
+            markup.add(types.InlineKeyboardButton(f"⏱️ {plan} | {base_p} Pts (المخزن: {stock_count})", callback_data=f"buy_plan_{prod}_{plan}"))
         bot.edit_message_text(f"📦 المنتج المختار: <b>{prod}</b>\nاختر مدة الاشتراك الشراء التلقائي:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
 
     elif data.startswith("buy_plan_"):
         prod = data.split("_")[2]
         plan = data.split("_")[3] + " " + data.split("_")[4] if len(data.split("_")) > 4 else data.split("_")[3]
         
-        base_p = prices_config.get(prod, {}).get(plan, 0)
-        disc = bot_config["discount"]
-        final_p = int(base_p * (1 - disc/100))
+        final_p = prices_config.get(prod, {}).get(plan, 0)
         
         if users[uid]["points"] < final_p:
             return bot.answer_callback_query(call.id, "❌ عذراً! رصيد نقاطك الحالي غير كافٍ.", show_alert=True)
@@ -513,7 +487,7 @@ def handle_inline_callbacks(call):
         save_json(DB_KEYS, keys_store)
         save_json(DB_CONFIG, bot_config)
         
-        bot.edit_message_text(f"🎉 <b>تمت عملية الشراء التلقائي بنجاح!</b>\n\n📦 المنتج: <code>{prod}</code>\n⏱️ مدة الاشتراك: <code>{plan}</code>\n💰 السعر المخصوم: {final_p} نقطة\n\n🔐 <b>المفتاح الخاص بك هو:</b>\n<code>{delivered_key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        bot.edit_message_text(f"🎉 <b>تمت عملية الشراء التلقائي بنجاح!</b>\n\n📦 المنتج: <code>{prod}</code>\n⏱️ مدة الاشتراك: <code>{plan}</code>\n💰 السعر: {final_p} نقطة\n\n🔐 <b>المفتاح الخاص بك هو:</b>\n<code>{delivered_key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         
         try:
             pub_notif = f"🔥 <b>عملية بيع موثقة وناجحة!</b>\n\n📦 المنتج المشترى: <code>{prod}</code>\n⏱️ مدة الاشتراك الترخيصي: {plan}\n💰 الثمن المدفوع: {final_p} نقطة\n🤖 تم الشراء والتسليم الفوري عبر نظام البوت المتكامل."
@@ -583,16 +557,6 @@ def process_redeem_user(message):
         bot.send_message(message.chat.id, f"🎉 تم تفعيل كود الشحن وإضافة +{added_pts} نقطة إلى رصيدك.")
     else: bot.send_message(message.chat.id, "❌ كود الشحن المدخل غير صحيح أو مستعمل مسبقاً.")
 
-def process_support_ticket(message):
-    uid = str(message.from_user.id)
-    u_text = message.text.strip()
-    ticket_id = str(random.randint(10000, 99999))
-    bot_config["tickets"][ticket_id] = {"uid": uid, "text": u_text, "status": "open"}
-    save_json(DB_CONFIG, bot_config)
-    bot.send_message(message.chat.id, f"✅ تم فتح تذكرة دعم فني جديدة برقم: <code>#{ticket_id}</code>", parse_mode="HTML")
-    try: bot.send_message(ADMIN_PRIMARY, f"💬 تذكرة دعم جديدة برقم #{ticket_id} من {uid}:\n{u_text}")
-    except: pass
-
 def admin_add_product_func(message):
     prod = message.text.strip()
     if prod not in prices_config:
@@ -652,18 +616,6 @@ def admin_edit_price_func(message):
         else: bot.send_message(message.chat.id, "❌ المدة أو المنتج غير صحيح.")
     except: bot.send_message(message.chat.id, "❌ خطأ بالبيانات.")
 
-def admin_charge_member_func(message):
-    try:
-        t_id, pts = message.text.strip().split()
-        if t_id in users:
-            users[t_id]["points"] += int(pts)
-            save_json(DB_USERS, users)
-            bot.send_message(message.chat.id, f"💰 تم شحن الحساب {t_id} بمقدار +{pts} نقطة.")
-            try: bot.send_message(int(t_id), f"🔔 تم إضافة +{pts} رصيد لنقاطك من قبل الإدارة.")
-            except: pass
-        else: bot.send_message(message.chat.id, "❌ الآيدي غير موجود.")
-    except: bot.send_message(message.chat.id, "❌ خطأ بالإدخال.")
-
 def admin_create_code_func(message):
     try:
         code, pts = message.text.strip().split()
@@ -671,16 +623,6 @@ def admin_create_code_func(message):
         save_json(DB_REDEEM, redeem_codes)
         bot.send_message(message.chat.id, f"🎫 تم إنشاء كود شحن فعال:\n• الكود: <code>{code}</code>\n• قيمته: {pts} نقطة", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌ تعذر إنشاء الكود.")
-
-def admin_set_discount_func(message):
-    try:
-        disc = int(message.text.strip())
-        if 0 <= disc < 100:
-            bot_config["discount"] = disc
-            save_json(DB_CONFIG, bot_config)
-            bot.send_message(message.chat.id, f"🔥 تم تفعيل خصم عام بمقدار {disc}%")
-        else: bot.send_message(message.chat.id, "❌ أدخل رقم بين 0 و 99.")
-    except: bot.send_message(message.chat.id, "❌ أرسل أرقام فقط.")
 
 def admin_broadcast_func(message):
     txt = message.text
@@ -718,5 +660,5 @@ def admin_edit_invite_reward(message):
         bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل البوت وتحديث ميزات المكافآت ونظام الدعوة بنجاح (نسخة خام وبدون تشفير)...")
+    print("🚀 تم تشغيل البوت بنجاح...")
     bot.infinity_polling()
