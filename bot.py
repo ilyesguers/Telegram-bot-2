@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 # ==========================================
 # 1️⃣ الإعدادات الأساسية (تغيير المتغيرات)
 # ==========================================
-API_TOKEN = "YOUR_BOT_TOKEN_HERE" # ضع توكن البوت الخاص بك هنا
+API_TOKEN = "8334852539:AAHPw623oyuwcUQ5d9tkZY-2oJDiq51QiAQ"
+ # ضع توكن البوت الخاص بك هنا
 app_bot = telebot.TeleBot(API_TOKEN)
 
 MAIN_CHANNEL = "Elite_Cyber_Store"
