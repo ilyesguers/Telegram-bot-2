@@ -308,9 +308,31 @@ def main_router(message):
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج المراد حذفه بالكامل:")
             bot.register_next_step_handler(m, admin_delete_product_func)
 
+        # ---------------- التعديل الجذري هنا للسهولة ----------------
         elif txt == "🔑 إضافة مفاتيح":
-            m = bot.send_message(message.chat.id, "✍️ أرسل البيانات بالترتيب الموضح:\n[اسم_المنتج] [المدة: 1 Day أو 7 Days أو 30 Days] [المفتاح]")
-            bot.register_next_step_handler(m, admin_add_keys_func)
+            if not prices_config:
+                return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد، قم بإضافة منتج أولاً.")
+            markup = types.InlineKeyboardMarkup()
+            for prod in prices_config.keys():
+                markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_addkey_prod|{prod}"))
+            bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد إضافة مفاتيح له:</b>", reply_markup=markup, parse_mode="HTML")
+
+        elif txt == "💵 إدارة الأسعار":
+            if not prices_config:
+                return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد.")
+            markup = types.InlineKeyboardMarkup()
+            for prod in prices_config.keys():
+                markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_price_prod|{prod}"))
+            bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد تعديل أسعاره:</b>", reply_markup=markup, parse_mode="HTML")
+
+        elif txt == "🔢 حذف مفتاح معين":
+            if not prices_config:
+                return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد.")
+            markup = types.InlineKeyboardMarkup()
+            for prod in prices_config.keys():
+                markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_delkey_prod|{prod}"))
+            bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد حذف مفتاح منه:</b>", reply_markup=markup, parse_mode="HTML")
+        # -------------------------------------------------------------
 
         elif txt == "👁️ استعراض المفاتيح":
             status = "🔑 <b>جميع المفاتيح المخزنة في النظام:</b>\n\n"
@@ -320,19 +342,11 @@ def main_router(message):
                     status += f" ├ {plan}: {len(lst)} مفتاح متوفر\n"
             bot.send_message(message.chat.id, status, parse_mode="HTML")
 
-        elif txt == "🔢 حذف مفتاح معين":
-            m = bot.send_message(message.chat.id, "✍️ أرسل الإدخال لحذف مفتاح محدد:\n[اسم_المنتج] [المدة] [رقم_المفتاح]:")
-            bot.register_next_step_handler(m, admin_delete_specific_key)
-
         elif txt == "🗑️ مسح جميع المفاتيح":
             keys_store.clear()
             for prod in prices_config.keys(): keys_store[prod] = {"1 Day": [], "7 Days": [], "30 Days": []}
             save_json(DB_KEYS, keys_store)
             bot.send_message(message.chat.id, "🗑️ تم مسح جميع المفاتيح المخزنة دفعة واحدة بنجاح.")
-
-        elif txt == "💵 إدارة الأسعار":
-            m = bot.send_message(message.chat.id, "✍️ لتغيير سعر أي مدة أرسل بالترتيب:\n[اسم_المنتج] [المدة] [السعر]")
-            bot.register_next_step_handler(m, admin_edit_price_func)
 
         elif txt == "👥 إدارة الأعضاء":
             m = bot.send_message(message.chat.id, "✍️ أرسل آيدي العضو لعرض تفاصيله والتحكم في رتبته وحظره بالأزرار:")
@@ -392,7 +406,7 @@ def main_router(message):
                         bot.send_document(message.chat.id, f_doc)
 
 # ==========================================
-# 5️⃣ معالجة الكولباك والأزرار الشفافة التفاعلية الجديد
+# 5️⃣ معالجة الكولباك والأزرار الشفافة التفاعلية
 # ==========================================
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -401,8 +415,51 @@ def handle_inline_callbacks(call):
     register_user(call.from_user)
     data = call.data
 
-    # أزرار الإدارة والترقية الفورية المضافة بناء على صورة image_4.png وصلاحيات الأعضاء
-    if data.startswith("adm_"):
+    # --- الأزرار الشفافة الجديدة للوحة الإدارة السهلة ---
+    if data.startswith("step_addkey_prod|"):
+        prod = data.split("|")[1]
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for plan in ["1 Day", "7 Days", "30 Days"]:
+            markup.add(types.InlineKeyboardButton(f"⏱️ {plan}", callback_data=f"step_addkey_plan|{prod}|{plan}"))
+        bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n👇 <b>الرجاء اختيار المدة للمفتاح:</b>", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+
+    elif data.startswith("step_addkey_plan|"):
+        _, prod, plan = data.split("|")
+        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الآن:</b>\n(ملاحظة: يمكنك إرسال مفتاح واحد، أو عدة مفاتيح في رسالة واحدة بحيث يكون كل مفتاح في سطر جديد)", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        bot.register_next_step_handler(m, lambda msg: process_save_new_keys(msg, prod, plan))
+
+    elif data.startswith("step_price_prod|"):
+        prod = data.split("|")[1]
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for plan in ["1 Day", "7 Days", "30 Days"]:
+            curr_price = prices_config.get(prod, {}).get(plan, 0)
+            markup.add(types.InlineKeyboardButton(f"⏱️ {plan} (السعر الحالي: {curr_price})", callback_data=f"step_price_plan|{prod}|{plan}"))
+        bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n👇 <b>اختر المدة التي تريد تغيير سعرها:</b>", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+
+    elif data.startswith("step_price_plan|"):
+        _, prod, plan = data.split("|")
+        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل السعر الجديد الآن (أرقام فقط):</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        bot.register_next_step_handler(m, lambda msg: process_save_new_price(msg, prod, plan))
+
+    elif data.startswith("step_delkey_prod|"):
+        prod = data.split("|")[1]
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for plan in ["1 Day", "7 Days", "30 Days"]:
+            count = len(keys_store.get(prod, {}).get(plan, []))
+            markup.add(types.InlineKeyboardButton(f"⏱️ {plan} (المخزن: {count} مفتاح)", callback_data=f"step_delkey_plan|{prod}|{plan}"))
+        bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n👇 <b>اختر المدة التي تريد حذف مفتاح منها:</b>", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+
+    elif data.startswith("step_delkey_plan|"):
+        _, prod, plan = data.split("|")
+        keys = keys_store.get(prod, {}).get(plan, [])
+        if not keys:
+            return bot.answer_callback_query(call.id, "❌ لا توجد مفاتيح في هذا القسم لحذفها.", show_alert=True)
+            
+        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الذي تريد حذفه بدقة</b>،\nأو أرسل <b>رقمه التسلسلي</b> (مثال: أرسل رقم 1 لحذف أول مفتاح في المخزن):", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        bot.register_next_step_handler(m, lambda msg: process_delete_specific_key(msg, prod, plan))
+    # -------------------------------------------------------------
+
+    elif data.startswith("adm_"):
         if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
             return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول لاستخدام هذا الزر.", show_alert=True)
             
@@ -433,7 +490,6 @@ def handle_inline_callbacks(call):
             
         save_json(DB_USERS, users)
         
-        # تحديث الرسالة فورياً لتعكس الحالة الجديدة للعضو بعد الضغط على الزر
         u = users[target_id]
         role = "أدمن مالك" if int(target_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم عادي")
         ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
@@ -457,7 +513,6 @@ def handle_inline_callbacks(call):
         try: bot.edit_message_text(updated_msg, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
         except: pass
 
-    # بقية أزرار الكولباك (اللغات والشراء)
     elif data.startswith("setlang_"):
         lang = data.split("_")[1]
         users[uid]["lang"] = lang
@@ -521,8 +576,43 @@ def handle_inline_callbacks(call):
         except: pass
 
 # ==========================================
-# 6️⃣ دوال الاستعلام والتحكم المحدثة للوحة الأعضاء
+# 6️⃣ دوال الاستعلام والتحكم المستقلة (الجديدة)
 # ==========================================
+
+def process_save_new_keys(message, prod, plan):
+    keys = message.text.strip().split('\n')
+    added = 0
+    for k in keys:
+        if k.strip():
+            keys_store[prod][plan].append(k.strip())
+            added += 1
+    save_json(DB_KEYS, keys_store)
+    bot.send_message(message.chat.id, f"✅ تم حفظ المفاتيح بنجاح!\n📦 المنتج: {prod}\n⏱️ المدة: {plan}\n🔢 عدد المفاتيح المضافة: {added}")
+
+def process_save_new_price(message, prod, plan):
+    try:
+        new_price = int(message.text.strip())
+        prices_config[prod][plan] = new_price
+        save_json(DB_PRICES, prices_config)
+        bot.send_message(message.chat.id, f"✅ تم تحديث السعر بنجاح.\n📦 {prod} | {plan} ➡️ السعر الجديد: {new_price} نقطة.")
+    except:
+        bot.send_message(message.chat.id, "❌ حدث خطأ! يرجى إرسال أرقام صحيحة فقط (مثال: 50).")
+
+def process_delete_specific_key(message, prod, plan):
+    val = message.text.strip()
+    keys_list = keys_store.get(prod, {}).get(plan, [])
+    
+    if val.isdigit() and 0 < int(val) <= len(keys_list):
+        removed = keys_list.pop(int(val) - 1)
+        save_json(DB_KEYS, keys_store)
+        return bot.send_message(message.chat.id, f"✅ تم حذف المفتاح بنجاح:\n<code>{removed}</code>", parse_mode="HTML")
+        
+    if val in keys_list:
+        keys_list.remove(val)
+        save_json(DB_KEYS, keys_store)
+        return bot.send_message(message.chat.id, f"✅ تم حذف المفتاح بنجاح:\n<code>{val}</code>", parse_mode="HTML")
+        
+    bot.send_message(message.chat.id, "❌ لم يتم العثور على المفتاح، تأكد من نسخه بشكل صحيح أو إرسال رقمه التسلسلي المضبوط.")
 
 def admin_view_member_func(message):
     t_id = message.text.strip()
@@ -533,7 +623,6 @@ def admin_view_member_func(message):
         
         msg = f"👥 <b>بيانات العضو المستعلم عنه:</b>\n\n• ID: <code>{t_id}</code>\n• Username: @{u['username']}\n• الرصيد الحالي: {u['points']} نقطة\n• الرتبة الحالية: {role}\n• حالة الحظر: {ban_status}"
         
-        # إنشاء الأزرار التفاعلية لتغيير الرتب والحظر بكبسة زر واحدة
         markup = types.InlineKeyboardMarkup(row_width=2)
         if u.get("is_admin", False):
             markup.add(types.InlineKeyboardButton("❌ إزالة الإدارة", callback_data=f"adm_demote_{t_id}"))
@@ -613,45 +702,6 @@ def admin_delete_product_func(message):
         bot.send_message(message.chat.id, f"✅ تم حذف المنتج <b>{prod}</b> بالكامل.", parse_mode="HTML")
     else: bot.send_message(message.chat.id, "❌ المنتج غير موجود.")
 
-def admin_add_keys_func(message):
-    try:
-        parts = message.text.strip().split(" ", 2)
-        prod = parts[0]
-        plan = parts[1] + " " + parts[2].split(" ")[0] if "Day" in parts[1] or "Days" in parts[1] else parts[1]
-        key_content = message.text.strip().replace(prod, "").replace(plan, "").strip()
-        if prod in keys_store and plan in ["1 Day", "7 Days", "30 Days"]:
-            keys_store[prod][plan].append(key_content)
-            save_json(DB_KEYS, keys_store)
-            bot.send_message(message.chat.id, f"✅ تم إضافة المفتاح بنجاح لقسم {prod} ({plan}).")
-        else: bot.send_message(message.chat.id, "❌ خطأ بالاسم أو المدة.")
-    except: bot.send_message(message.chat.id, "❌ صيغة الإدخال خاطئة.")
-
-def admin_delete_specific_key(message):
-    try:
-        parts = message.text.strip().split()
-        prod = parts[0]
-        plan = parts[1] + " " + parts[2]
-        idx = int(parts[3]) - 1
-        if prod in keys_store and plan in keys_store[prod] and 0 <= idx < len(keys_store[prod][plan]):
-            removed = keys_store[prod][plan].pop(idx)
-            save_json(DB_KEYS, keys_store)
-            bot.send_message(message.chat.id, f"✅ تم حذف المفتاح بنجاح:\n<code>{removed}</code>", parse_mode="HTML")
-        else: bot.send_message(message.chat.id, "❌ تعذر العثور على المفتاح.")
-    except: bot.send_message(message.chat.id, "❌ صيغة الأمر خاطئة.")
-
-def admin_edit_price_func(message):
-    try:
-        parts = message.text.strip().split()
-        prod = parts[0]
-        plan = parts[1] + " " + parts[2]
-        new_price = int(parts[3])
-        if prod in prices_config and plan in ["1 Day", "7 Days", "30 Days"]:
-            prices_config[prod][plan] = new_price
-            save_json(DB_PRICES, prices_config)
-            bot.send_message(message.chat.id, f"💵 تم تعديل السعر لـ {prod} ({plan}) إلى {new_price} نقطة.")
-        else: bot.send_message(message.chat.id, "❌ المدة أو المنتج غير صحيح.")
-    except: bot.send_message(message.chat.id, "❌ خطأ بالبيانات.")
-
 def admin_charge_member_func(message):
     try:
         t_id, pts = message.text.strip().split()
@@ -662,7 +712,7 @@ def admin_charge_member_func(message):
             try: bot.send_message(int(t_id), f"🔔 تم إضافة +{pts} رصيد لنقاطك من قبل الإدارة.")
             except: pass
         else: bot.send_message(message.chat.id, "❌ الآيدي غير موجود.")
-    except: bot.send_message(message.chat.id, "❌ خطأ بالإدخال.")
+    except: bot.send_message(message.chat.id, "❌ خطأ بالإدخال، يرجى كتابة الآيدي ثم مسافة ثم المبلغ.")
 
 def admin_create_code_func(message):
     try:
@@ -670,7 +720,7 @@ def admin_create_code_func(message):
         redeem_codes[code] = int(pts)
         save_json(DB_REDEEM, redeem_codes)
         bot.send_message(message.chat.id, f"🎫 تم إنشاء كود شحن فعال:\n• الكود: <code>{code}</code>\n• قيمته: {pts} نقطة", parse_mode="HTML")
-    except: bot.send_message(message.chat.id, "❌ تعذر إنشاء الكود.")
+    except: bot.send_message(message.chat.id, "❌ خطأ! اكتب الكود ثم مسافة ثم القيمة.")
 
 def admin_set_discount_func(message):
     try:
@@ -718,5 +768,5 @@ def admin_edit_invite_reward(message):
         bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل البوت وتحديث ميزات المكافآت ونظام الدعوة بنجاح (نسخة خام وبدون تشفير)...")
+    print("🚀 تم تشغيل البوت بنظام الأزرار المتسلسلة التفاعلية للمشرفين بنجاح...")
     bot.infinity_polling()
