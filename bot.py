@@ -7,18 +7,17 @@ import time
 from datetime import datetime, timedelta
 
 # ==========================================
-# 1️⃣ الإعدادات الأساسية (تغيير المتغيرات)
+# 1️⃣ الإعدادات الأساسية (تم التحديث بناءً على صورة image.png)
 # ==========================================
-API_TOKEN = "8334852539:AAHPw623oyuwcUQ5d9tkZY-2oJDiq51QiAQ"
- # ضع توكن البوت الخاص بك هنا
+API_TOKEN = "8868383649:AAEVxFynrH7u_M8e9-wjxo6h8-NP8dtWNUQ"
 app_bot = telebot.TeleBot(API_TOKEN)
 
 MAIN_CHANNEL = "Elite_Cyber_Store"
 CHANNEL_URL = "https://t.me/Elite_Cyber_Store"
 HELP_DESK = "Elite_Support"
 
-MASTER_ID = 111111111  # ضع آيدي المالك
-SUB_MASTER_ID = 222222222  # ضع آيدي المساعد
+MASTER_ID = 111111111  # ضع آيدي المالك الخاص بك هنا
+SUB_MASTER_ID = 222222222  # ضع آيدي المساعد هنا (اختياري)
 
 DB_CLIENTS = "clients_database.json"
 DB_STOCK = "inventory_keys.json"
@@ -27,17 +26,17 @@ DB_RATES = "costs_config.json"
 DB_SETTINGS = "system_preferences.json"
 
 # ==========================================
-# 2️⃣ قاموس اللغات (عربي وانجليزي فقط بتعابير جديدة)
+# 2️⃣ قاموس اللغات (عربي وانجليزي بنصوص جديدة وجذابة)
 # ==========================================
 LOCALES = {
     "ar": {
         "locale_name": "العربية 🇸🇦",
-        "greeting": "🛡️ <b>أهلاً بك في الخزنة الرقمية للخدمات المميزة!</b> 👋\n\n📝 <b>رقم هويتك:</b> <code>{uid}</code>\n\n💎 نوفر لك هنا أفضل المفاتيح الرقمية مع نظام تسليم آلي فوري.",
-        "must_join": "🚨 <b>تنبيه نظام الحماية!</b>\n\nعزيزي العميل، لاستخدام خدماتنا يجب أن تكون ضمن مجتمعنا الرسمي.\n\n📌 يرجى الانضمام للقناة ثم النقر على زر التأكيد:",
+        "greeting": "🛡️ <b>أهلاً بك في الخزنة الرقمية للخدمات المميزة!</b> 👋\n\n📝 <b>رقم هويتك:</b> <code>{uid}</code>\n\n💎 نوفر لك هنا أفضل المفاتيح الرقمية مع نظام تسليم آلي فوري وسريع.",
+        "must_join": "🚨 <b>تنبيه نظام الحماية!</b>\n\nعزيزي العميل، لاستخدام خدماتنا يجب أن تكون ضمن مجتمعنا الرسمي لدعم استمرار التحديثات.\n\n📌 يرجى الانضمام للقناة ثم النقر على زر التأكيد أدناه:",
         "btn_join_ch": "📡 الانضمام للشبكة الرسمية",
         "btn_verify_ch": "🔄 تأكيد الدخول",
-        "not_in_ch": "⚠️ لم يتم رصد انضمامك. يرجى الاشتراك أولاً.",
-        "joined_ok": "✅ اكتمل التوثيق بنجاح! جميع الخدمات متاحة لك الآن.",
+        "not_in_ch": "⚠️ لم يتم رصد انضمامك حتى الآن. يرجى الاشتراك أولاً لتتمكن من العبور.",
+        "joined_ok": "✅ اكتمل التوثيق بنجاح! جميع الخدمات ومفاتيح المتجر متاحة لك الآن.",
         "btn_profile": "👤 هويتي",
         "btn_purchase": "🛒 شراء المنتجات 🛍️",
         "btn_voucher": "🎟️ شحن قسيمة 💳",
@@ -47,29 +46,29 @@ LOCALES = {
         "btn_switch_lang": "🌍 تعديل اللغة 🔄",
         "btn_dashboard": "💻 لوحة القيادة العليا",
         "btn_client_mode": "🔙 العودة كعميل",
-        "referral_msg": "🔗 <b>نظام الوكلاء الخاص بنا!</b>\n\n📌 رابطك الفريد:\n<code>{ref_link}</code>\n\n💸 ستحصل على <b>{reward} رصيد</b> عن كل صديق يستخدم رابطك!",
-        "new_referral": "🎉 <b>إشعار جديد!</b> شخص ما استخدم رابطك، تمت إضافة <code>+{reward} رصيد</code> لمحفظتك!",
-        "select_item": "📦 <b>كتالوج المنتجات:</b>\n\nحدد السلعة التي تريدها:",
-        "select_plan": "⏳ <b>حدد خطة الاشتراك لـ ({item}):</b>",
-        "out_of_stock": "⚠️ نعتذر! المخزون الحالي لهذه السلعة فارغ.",
-        "purchase_ok": "🛍️ <b>تمت الصفقة بنجاح!</b>\n\n🔐 مفتاحك السري:\n<code>{key}</code>",
-        "insufficient_funds": "🛑 <b>رصيد غير كافٍ!</b> التكلفة المطلوبة هي <code>{price} رصيد</code>.",
-        "send_voucher": "📥 <b>مركز شحن القسائم:</b>\nيرجى كتابة رمز القسيمة هنا:",
-        "voucher_ok": "💰 <b>شحن ناجح!</b> تمت إضافة <code>+{amount} رصيد</code> لملفك.",
-        "voucher_err": "🚫 القسيمة تالفة أو تم استهلاكها مسبقاً.",
-        "help_msg": "🛠️ <b>قسم الدعم الفني:</b>\nتواصل مع وكلائنا عبر الزر أدناه:",
-        "lang_prompt": "🌍 <b>تخصيص اللغة:</b>\nاختر لغتك المفضلة:",
-        "lang_set": "✅ تم تحديث تفضيلات اللغة.",
-        "store_empty": "📭 الرفوف فارغة حالياً. لا توجد سلع.",
-        "btn_contact": "✉️ تواصل مع الوكيل",
-        "gift_ok": "🎊 <b>رائع!</b> لقد استلمت هديتك: <code>+{amount} رصيد</code>!",
-        "gift_wait": "⏳ <b>مهلاً!</b> لقد أخذت هديتك مؤخراً. يرجى الانتظار: <code>{time_left}</code>."
+        "referral_msg": "🔗 <b>نظام الوكلاء الماسي الخاص بنا!</b>\n\n📌 رابطك الفريد لدعوة الأصدقاء:\n<code>{ref_link}</code>\n\n💸 ستحصل على <b>{reward} رصيد</b> تلقائياً عن كل شخص يسجل من خلالك!",
+        "new_referral": "🎉 <b>إشعار جديد!</b> شخص ما انضم عبر رابطك، تمت إضافة <code>+{reward} رصيد</code> لمحفظتك بنجاح!",
+        "select_item": "📦 <b>كتالوج المنتجات المتوفرة:</b>\n\nحدد السلعة التي تريد شراء مفتاحها الرقمي:",
+        "select_plan": "⏳ <b>حدد خطة الاشتراك المناسبة لـ ({item}):</b>",
+        "out_of_stock": "⚠️ نعتذر جداً! المخزون الحالي لهذه السلعة فارغ تماماً حالياً.",
+        "purchase_ok": "🛍️ <b>تمت الصفقة بنجاح! شكراً لثقتك.</b>\n\n🔐 مفتاحك الرقمي السري:\n<code>{key}</code>",
+        "insufficient_funds": "🛑 <b>رصيد غير كافٍ!</b> التكلفة المطلوبة لإتمام الشراء هي <code>{price} رصيد</code>.",
+        "send_voucher": "📥 <b>بوابة شحن القسائم والأكواد:</b>\nيرجى كتابة أو لصق رمز القسيمة هنا:",
+        "voucher_ok": "💰 <b>تم الشحن بنجاح!</b> تمت إضافة <code>+{amount} رصيد</code> لملفك الشخصي.",
+        "voucher_err": "🚫 عذراً، هذه القسيمة غير صحيحة أو تم استهلاكها مسبقاً.",
+        "help_msg": "🛠️ <b>قسم الدعم الفني والمساعدة:</b>\nلأي استفسار تواصل مع وكلائنا عبر الزر أدناه:",
+        "lang_prompt": "🌍 <b>تخصيص لغة الواجهة:</b>\nاختر لغتك المفضلة من الخيارات التالية:",
+        "lang_set": "✅ تم تحديث تفضيلات اللغة بنجاح.",
+        "store_empty": "📭 الرفوف فارغة حالياً في المتجر. انتظر التعبئة قريباً.",
+        "btn_contact": "✉️ تواصل مع الوكيل المباشر",
+        "gift_ok": "🎊 <b>رائع!</b> لقد استلمت هديتك اليومية وحصلت على: <code>+{amount} رصيد</code>!",
+        "gift_wait": "⏳ <b>مهلاً!</b> لقد أخذت هديتك مؤخراً بالفعل. يرجى الانتظار: <code>{time_left}</code> لتطالب بها مجدداً."
     },
     "en": {
         "locale_name": "English 🇺🇸",
         "btn_profile": "👤 My Profile",
         "greeting": "🛡️ <b>Welcome to the Premium Digital Vault!</b> 👋\n\n📝 <b>Your ID:</b> <code>{uid}</code>\n\n💎 The best digital keys with automated instant delivery.",
-        "must_join": "🚨 <b>Security Alert!</b>\n\nYou must be part of our community to use this service.\n\n📌 Please join the network and verify:",
+        "must_join": "🚨 <b>Security Alert!</b>\n\nYou must be part of our community to use this service.\n\n📌 Please join the network and verify below:",
         "btn_join_ch": "📡 Join Official Network",
         "btn_verify_ch": "🔄 Verify Access",
         "not_in_ch": "⚠️ Membership not detected. Please join first.",
@@ -103,7 +102,7 @@ LOCALES = {
 }
 
 # ==========================================
-# 3️⃣ إدارة قواعد البيانات
+# 3️⃣ إدارة قواعد البيانات والملفات
 # ==========================================
 def fetch_db(path, default):
     if os.path.exists(path):
@@ -148,7 +147,7 @@ def register_or_update_client(client_obj):
         write_db(DB_CLIENTS, clients_db)
 
 # ==========================================
-# 4️⃣ بناء الواجهات والأزرار
+# 4️⃣ بناء الواجهات وقوائم التفاعل
 # ==========================================
 def client_menu(uid):
     pref = clients_db.get(str(uid), {}).get("locale", "ar")
@@ -198,7 +197,7 @@ def client_ctrl_ui(t_id):
     return ui
 
 # ==========================================
-# 5️⃣ الأوامر الرئيسية
+# 5️⃣ الأوامر البرمجية المباشرة
 # ==========================================
 @app_bot.message_handler(commands=['id'])
 def cmd_id(msg):
@@ -211,11 +210,11 @@ def cmd_start(msg):
     register_or_update_client(msg.from_user)
     
     if clients_db[c_id].get("is_blocked", False):
-        app_bot.send_message(msg.chat.id, "🛑 <b>أنت ممنوع من دخول الخزنة الرقمية!</b>", parse_mode="HTML")
+        app_bot.send_message(msg.chat.id, "🛑 <b>أنت ممنوع من دخول الخزنة الرقمية حالياً!</b>", parse_mode="HTML")
         return
 
     if sys_prefs.get("is_down", False) and not check_if_boss(uid):
-        app_bot.send_message(msg.chat.id, "🚧 <b>الأنظمة قيد التحديث والصيانة! يرجى العودة لاحقاً.</b>", parse_mode="HTML")
+        app_bot.send_message(msg.chat.id, "🚧 <b>الأنظمة قيد التحديث والصيانة الشاملة! يرجى العودة لاحقاً.</b>", parse_mode="HTML")
         return
         
     args = msg.text.split()
@@ -226,10 +225,10 @@ def cmd_start(msg):
             clients_db[inviter]["invite_count"] = clients_db[inviter].get("invite_count", 0) + 1
             write_db(DB_CLIENTS, clients_db)
             
-    app_bot.send_message(msg.chat.id, "🌐 Please select your language / يرجى تحديد لغتك:", reply_markup=locale_ui())
+    app_bot.send_message(msg.chat.id, "🌐 Please select your language / يرجى تحديد لغتك الفريدة:", reply_markup=locale_ui())
 
 # ==========================================
-# 6️⃣ مراقب النصوص (الردود الآلية)
+# 6️⃣ مراقب النصوص ومعالج الطلبات
 # ==========================================
 @app_bot.message_handler(func=lambda m: True)
 def text_router(msg):
@@ -238,56 +237,56 @@ def text_router(msg):
     register_or_update_client(msg.from_user)
     
     if clients_db[c_id].get("is_blocked", False):
-        return app_bot.send_message(msg.chat.id, "🛑 <b>تم إيقاف حسابك!</b>", parse_mode="HTML")
+        return app_bot.send_message(msg.chat.id, "🛑 <b>تم إيقاف صلاحيات حسابك!</b>", parse_mode="HTML")
 
     if sys_prefs.get("is_down", False) and not check_if_boss(uid):
-        return app_bot.send_message(msg.chat.id, "🚧 <b>النظام مغلق للصيانة!</b>", parse_mode="HTML")
+        return app_bot.send_message(msg.chat.id, "🚧 <b>النظام مغلق مؤقتاً للصيانة!</b>", parse_mode="HTML")
 
     if not verify_membership(uid):
         return app_bot.send_message(msg.chat.id, fetch_msg(uid, "must_join"), reply_markup=channel_gate_ui(uid), parse_mode="HTML")
 
     txt = msg.text
 
-    # --- منطقة الإدارة العليا ---
+    # --- إدارة شاشات المشرف والأدمن ---
     if check_if_boss(uid):
         if any(kw in txt for kw in ["القيادة", "Dashboard", "admin_mode", "لوحة القيادة العليا"]):
             clients_db[c_id]["boss_mode"] = True
             write_db(DB_CLIENTS, clients_db)
-            return app_bot.send_message(msg.chat.id, "💻 <b>تم الاتصال بلوحة القيادة.</b>", reply_markup=boss_menu(), parse_mode="HTML")
+            return app_bot.send_message(msg.chat.id, "💻 <b>تم الاتصال بنجاح مع لوحة القيادة.</b>", reply_markup=boss_menu(), parse_mode="HTML")
             
         if clients_db[c_id].get("boss_mode", False):
             if txt == "➕ إدراج سلعة":
-                m = app_bot.send_message(msg.chat.id, "🏷️ أرسل اسم السلعة الجديدة:")
+                m = app_bot.send_message(msg.chat.id, "🏷️ أرسل اسم السلعة الجديدة المراد إضافتها:")
                 app_bot.register_next_step_handler(m, handle_new_item)
                 return
             elif txt == "🗑️ إزالة سلعة":
-                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 الكتالوج فارغ.")
+                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 الكتالوج فارغ تماماً.")
                 ui = types.InlineKeyboardMarkup()
                 for item in costs_db.keys(): ui.add(types.InlineKeyboardButton(f"❌ مسح {item}", callback_data=f"drop_item_{item}"))
-                return app_bot.send_message(msg.chat.id, "🗑️ حدد السلعة للإزالة النهائية:", reply_markup=ui)
+                return app_bot.send_message(msg.chat.id, "🗑️ حدد السلعة المطلوبة للإزالة النهائية:", reply_markup=ui)
             elif txt == "🔐 تخزين مفاتيح":
-                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 لا يوجد سلع.")
+                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 لا يوجد سلع حالياً لتخزينها.")
                 ui = types.InlineKeyboardMarkup()
                 for item in costs_db.keys(): ui.add(types.InlineKeyboardButton(f"📦 {item}", callback_data=f"stock_item_{item}"))
-                return app_bot.send_message(msg.chat.id, "🔐 اختر السلعة لملء مستودعها:", reply_markup=ui)
+                return app_bot.send_message(msg.chat.id, "🔐 اختر السلعة المراد ملء مستودعها بالمفاتيح:", reply_markup=ui)
             elif txt == "📂 فحص المستودع":
-                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 لا يوجد سلع.")
+                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 لا يوجد سلع متوفرة للفحص.")
                 ui = types.InlineKeyboardMarkup()
                 for item in costs_db.keys(): ui.add(types.InlineKeyboardButton(f"🔍 {item}", callback_data=f"inspect_item_{item[:20]}"))
-                return app_bot.send_message(msg.chat.id, "📂 حدد السلعة لاستعراض المخزون والتعديل:", reply_markup=ui)
+                return app_bot.send_message(msg.chat.id, "📂 حدد السلعة المستهدفة لاستعراض مخزونها وتعديله:", reply_markup=ui)
             elif txt == "💵 تسعير السلع":
-                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 الكتالوج فارغ.")
+                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 الكتالوج فارغ حالياً من أي سلع لتسعيرها.")
                 ui = types.InlineKeyboardMarkup()
                 for item in costs_db.keys(): ui.add(types.InlineKeyboardButton(f"💵 تسعير {item}", callback_data=f"cost_item_{item}"))
-                return app_bot.send_message(msg.chat.id, "📝 اختر السلعة لضبط تكاليفها:", reply_markup=ui)
+                return app_bot.send_message(msg.chat.id, "📝 اختر السلعة المستهدفة لضبط وتعديل تكاليفها:", reply_markup=ui)
             
             elif txt == "📤 بث الأسعار للشبكة":
-                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 الكتالوج فارغ.")
+                if not costs_db: return app_bot.send_message(msg.chat.id, "📭 الكتالوج فارغ تماماً.")
                 try:
                     bot_id = app_bot.get_me().username
                     ad_msg = "💎 <b>تحديث مستودع الخزنة الرقمية!</b> 💎\n"
-                    ad_msg += "🚀 <b>أفضل المفاتيح بأسعار تنافسية وتسليم آلي 100%!</b> 🚀\n\n"
-                    ad_msg += "📜 <b>قائمة السلع:</b>\n\n"
+                    ad_msg += "🚀 <b>أفضل المفاتيح بأقل الأسعار الممكنة مع تسليم آلي 100%!</b> 🚀\n\n"
+                    ad_msg += "📜 <b>قائمة السلع والخدمات المتوفرة:</b>\n\n"
                     
                     for i, plans in costs_db.items():
                         ad_msg += f"🔥 <b>{i}</b>:\n"
@@ -295,59 +294,59 @@ def text_router(msg):
                             ad_msg += f" ├ ⏳ {plan} ━ 💰 <code>{cst}</code> رصيد\n"
                         ad_msg += "\n"
                     
-                    ad_msg += "✅ <b>استلام فوري بمجرد إتمام الشراء!</b>\n"
-                    ad_msg += f"🔗 <b>احجز طلبك الآن عبر النظام:</b>\n👉 https://t.me/{bot_id}"
+                    ad_msg += "✅ <b>استلام فوري ومضمون بمجرد إتمام الشراء!</b>\n"
+                    ad_msg += f"🔗 <b>احجز طلبك الآن وباشر الاستخدام عبر النظام:</b>\n👉 https://t.me/{bot_id}"
                     
                     app_bot.send_message(f"@{MAIN_CHANNEL}", ad_msg, parse_mode="HTML")
-                    return app_bot.send_message(msg.chat.id, "✅ تم إرسال نشرة الأسعار للشبكة بنجاح!")
+                    return app_bot.send_message(msg.chat.id, "✅ تم إرسال وبث نشرة الأسعار للشبكة بنجاح!")
                 except Exception:
-                    return app_bot.send_message(msg.chat.id, "❌ خطأ في الإرسال. تأكد من إعطاء البوت صلاحيات الإدارة في القناة.")
+                    return app_bot.send_message(msg.chat.id, "❌ خطأ في الإرسال. تأكد من ترقية البوت مشرفاً داخل القناة.")
             
             elif txt == "🕵️ إدارة العملاء":
-                m = app_bot.send_message(msg.chat.id, "🔎 أرسل رقم هوية العميل (ID) لفحصه:")
+                m = app_bot.send_message(msg.chat.id, "🔎 أرسل رقم هوية العميل (ID) لفتح لوحة التحكم به:")
                 app_bot.register_next_step_handler(m, handle_client_lookup)
                 return
             elif txt == "💾 استخراج البيانات":
-                app_bot.send_message(msg.chat.id, "💾 جاري تجميع وتشفير ملفات النظام...")
+                app_bot.send_message(msg.chat.id, "💾 جاري تجميع وتصدير ملفات النظام وقواعد البيانات...")
                 for file_path in [DB_CLIENTS, DB_STOCK, DB_RATES, DB_COUPONS, DB_SETTINGS]:
                     if os.path.exists(file_path): app_bot.send_document(msg.chat.id, open(file_path, "rb"))
                 return
             elif txt == "🚧 إغلاق للصيانة":
                 sys_prefs["is_down"] = not sys_prefs.get("is_down", False)
                 write_db(DB_SETTINGS, sys_prefs)
-                st = "🟢 نشط (المنفذ مغلق)" if sys_prefs["is_down"] else "🔴 متوقف (المنفذ مفتوح)"
-                return app_bot.send_message(msg.chat.id, f"🚧 حالة وضع الصيانة الآن: {st}")
+                st = "🟢 نشط (المتجر مغلق الآن)" if sys_prefs["is_down"] else "🔴 متوقف (المتجر مفتوح للعامة)"
+                return app_bot.send_message(msg.chat.id, f"🚧 حالة وضع الصيانة العامة الآن: {st}")
             elif txt == "📉 تفعيل عرض خاص":
-                m = app_bot.send_message(msg.chat.id, "📉 اكتب نسبة الخصم بالأرقام (مثال: 15 للخصم 15%) أو 0 للإلغاء:")
+                m = app_bot.send_message(msg.chat.id, "📉 اكتب نسبة الخصم المراد تفعيلها بالأرقام (مثال: 15 للخصم 15%) أو 0 للإلغاء:")
                 app_bot.register_next_step_handler(m, handle_sale_event)
                 return
             elif txt == "🔔 إشعار شراء وهمي":
-                if not costs_db: return app_bot.send_message(msg.chat.id, "الكتالوج فارغ.")
+                if not costs_db: return app_bot.send_message(msg.chat.id, "الكتالوج فارغ لتوليد إشعار.")
                 rnd_item = random.choice(list(costs_db.keys()))
-                fake_txt = f"🛒 <b>عملية بيع جديدة!</b>\n\nقام أحد العملاء باقتناء مفتاح لـ <code>{rnd_item}</code> الآن! ⚡️\nاحصل على نسختك من النظام."
+                fake_txt = f"🛒 <b>عملية اقتناء ناجحة وجديدة!</b>\n\nقام أحد العملاء بشراء مفتاح لـ <code>{rnd_item}</code> بنجاح! ⚡️\nاحصل على خدماتك الرقمية الفورية الآن من داخل البوت."
                 try: app_bot.send_message(f"@{MAIN_CHANNEL}", fake_txt, parse_mode="HTML")
                 except: pass
-                return app_bot.send_message(msg.chat.id, "✅ تم إرسال الإشعار بنجاح!")
+                return app_bot.send_message(msg.chat.id, "✅ تم بث الإشعار الوهمي بنجاح إلى القناة!")
             elif txt == "📡 رسالة عامة":
-                m = app_bot.send_message(msg.chat.id, "📝 اكتب النص الذي سيتم بثه لجميع الأعضاء:")
+                m = app_bot.send_message(msg.chat.id, "📝 اكتب نص الإذاعة التي سيتم بثها فوراً لجميع الأعضاء:")
                 app_bot.register_next_step_handler(m, handle_mass_broadcast)
                 return
             elif txt == "🔙 واجهة العميل":
                 clients_db[c_id]["boss_mode"] = False
                 write_db(DB_CLIENTS, clients_db)
-                return app_bot.send_message(msg.chat.id, "🔙 تم نقلك لواجهة المستهلك.", reply_markup=client_menu(uid))
+                return app_bot.send_message(msg.chat.id, "🔙 تم تحويلك للوضع العادي بنجاح.", reply_markup=client_menu(uid))
             elif txt == "💸 تمويل عميل":
-                m = app_bot.send_message(msg.chat.id, "✍️ اكتب الـ ID ثم الرصيد مفصولين بمسافة:")
+                m = app_bot.send_message(msg.chat.id, "✍️ اكتب الـ ID الخاص بالعميل ثم الرصيد مفصولين بمسافة واحدة:")
                 app_bot.register_next_step_handler(m, process_fund_transfer)
                 return
             elif txt == "💳 إصدار قسيمة":
-                m = app_bot.send_message(msg.chat.id, "✍️ اكتب رمز القسيمة متبوعاً بقيمتها (بينهما مسافة):")
+                m = app_bot.send_message(msg.chat.id, "✍️ اكتب رمز القسيمة المطلوب متبوعاً بقيمتها المالية (بينهما مسافة):")
                 app_bot.register_next_step_handler(m, process_create_voucher)
                 return
 
-    # --- واجهة المستخدمين ---
+    # --- واجهة العملاء العادية ---
     if "هوية" in txt or "Profile" in txt or "هويتي" in txt:
-        app_bot.send_message(msg.chat.id, f"📝 رقم هويتك في النظام: <code>{uid}</code>", parse_mode="HTML")
+        app_bot.send_message(msg.chat.id, f"📝 رقم هويتك الشخصية في النظام: <code>{uid}</code>", parse_mode="HTML")
         
     elif "كسب" in txt or "دعوة" in txt or "Earn" in txt or "Referral" in txt:
         bot_usr = app_bot.get_me().username
@@ -361,7 +360,7 @@ def text_router(msg):
         if not costs_db: return app_bot.send_message(msg.chat.id, fetch_msg(uid, "store_empty"), parse_mode="HTML")
         ui = types.InlineKeyboardMarkup()
         pct = sys_prefs.get("sale_pct", 0)
-        sale_badge = f" 📉 عرض خصم {pct}%!" if pct > 0 else ""
+        sale_badge = f" 📉 عرض ترويجي بخصم {pct}%!" if pct > 0 else ""
         for item in costs_db.keys(): ui.add(types.InlineKeyboardButton(f"⚡ {item}", callback_data=f"buy_item_{item[:20]}"))
         app_bot.send_message(msg.chat.id, fetch_msg(uid, "select_item") + sale_badge, reply_markup=ui, parse_mode="HTML")
         
@@ -380,7 +379,7 @@ def text_router(msg):
         app_bot.send_message(msg.chat.id, fetch_msg(uid, "lang_prompt"), reply_markup=ui, parse_mode="HTML")
 
 # ==========================================
-# 7️⃣ معالجة الأزرار الشفافة
+# 7️⃣ معالجة الكولباك والأزرار التفاعلية
 # ==========================================
 @app_bot.callback_query_handler(func=lambda c: True)
 def btn_events(call):
@@ -412,7 +411,7 @@ def btn_events(call):
             app_bot.send_message(call.message.chat.id, fetch_msg(uid, "not_in_ch"), parse_mode="HTML")
         return
 
-    # --- تحكم المشرفين بالأعضاء ---
+    # --- إجراءات لوحة التحكم للمشرفين ---
     if call.data.startswith("mbr_") and check_if_boss(uid):
         cmds = call.data.split("_")
         action, t_id = cmds[1], cmds[2]
@@ -426,7 +425,7 @@ def btn_events(call):
         write_db(DB_CLIENTS, clients_db)
         try: app_bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
-        app_bot.send_message(call.message.chat.id, f"✅ تمت العملية بنجاح للمستخدم <code>{t_id}</code>.", parse_mode="HTML")
+        app_bot.send_message(call.message.chat.id, f"✅ تم تطبيق التعديل بنظام الحماية للمستخدم <code>{t_id}</code>.", parse_mode="HTML")
         return
 
     if check_if_boss(uid):
@@ -436,7 +435,7 @@ def btn_events(call):
             if item in inventory: del inventory[item]
             write_db(DB_RATES, costs_db)
             write_db(DB_STOCK, inventory)
-            app_bot.edit_message_text(f"✅ تم إزالة ({item}) من السجلات.", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+            app_bot.edit_message_text(f"✅ تم حذف السلعة ({item}) نهائياً وتصفير مخازنها.", call.message.chat.id, call.message.message_id, parse_mode="HTML")
             return
             
         elif call.data.startswith("stock_item_"):
@@ -444,7 +443,7 @@ def btn_events(call):
             ui = types.InlineKeyboardMarkup()
             for plan in costs_db.get(item, {}).keys():
                 ui.add(types.InlineKeyboardButton(f"➕ تلقيم {plan}", callback_data=f"push_keys_{item[:20]}_{plan[:10]}"))
-            app_bot.edit_message_text(f"📦 السلعة: {item}\nحدد الفئة لشحن المستودع:", call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
+            app_bot.edit_message_text(f"📦 السلعة: {item}\nحدد المدة المستهدفة لشحن المستودع بالمفاتيح الحصرية:", call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
             return
             
         elif call.data.startswith("push_keys_"):
@@ -452,7 +451,7 @@ def btn_events(call):
             real_item = next((i for i in costs_db.keys() if i.startswith(parts[2])), None)
             real_plan = next((p for p in costs_db[real_item].keys() if p.startswith(parts[3])), None) if real_item else None
             if real_item and real_plan:
-                m = app_bot.send_message(call.message.chat.id, f"📥 الصق المفاتيح الآن لـ ({real_item} - {real_plan}) كل مفتاح في سطر مستقل:")
+                m = app_bot.send_message(call.message.chat.id, f"📥 الصق الآن الأكواد والمفاتيح لـ ({real_item} - {real_plan})\n⚠️ يرجى جعل كل مفتاح في سطر مستقل لضمان التسليم الدقيق:")
                 app_bot.register_next_step_handler(m, store_new_keys, real_item, real_plan)
             return
 
@@ -463,7 +462,7 @@ def btn_events(call):
             ui = types.InlineKeyboardMarkup()
             for plan in costs_db.get(real_item, {}).keys():
                 ui.add(types.InlineKeyboardButton(f"📂 {plan}", callback_data=f"inspect_time_{real_item[:20]}_{plan[:10]}"))
-            app_bot.edit_message_text(f"📦 السلعة: {real_item}\nاختر الفئة للاستكشاف:", call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
+            app_bot.edit_message_text(f"📦 السلعة: {real_item}\nاختر الفئة الزمنية المحددة للاستكشاف والتحرير المباشر:", call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
             return
 
         elif call.data.startswith("inspect_time_"):
@@ -473,13 +472,13 @@ def btn_events(call):
             if real_item and real_plan:
                 k_list = inventory.get(real_item, {}).get(real_plan, [])
                 if not k_list:
-                    return app_bot.edit_message_text(f"📭 الرفوف فارغة في قسم ({real_item} - {real_plan}).", call.message.chat.id, call.message.message_id)
+                    return app_bot.edit_message_text(f"📭 لا يوجد أي مفاتيح مخزنة في فرع ({real_item} - {real_plan}).", call.message.chat.id, call.message.message_id)
                 
-                txt_body = f"🔐 <b>المفاتيح المخزنة في ({real_item} - {real_plan}):</b>\n\n"
+                txt_body = f"🔐 <b>المفاتيح النشطة في المستودع لـ ({real_item} - {real_plan}):</b>\n\n"
                 for idx, val in enumerate(k_list):
                     txt_body += f"<b>{idx+1}.</b> <code>{val}</code>\n"
                 
-                txt_body += "\n🗑️ <i>لشطب مفتاح، اكتب رقمه (مثال: 1).\nلمسح الدفعة كاملة: اكتب 'تصفير'.\nللخروج: اكتب 'رجوع'.</i>"
+                txt_body += "\n🗑️ <i>لشطب كود معين، اكتب الرقم التسلسلي له (مثال: 1).\nلمسح كافة الأكواد دفعة واحدة: اكتب 'تصفير'.\nللخروج الفوري: اكتب 'رجوع'.</i>"
                 m = app_bot.send_message(call.message.chat.id, txt_body, parse_mode="HTML")
                 app_bot.register_next_step_handler(m, handle_key_removal, real_item, real_plan)
             return
@@ -489,7 +488,7 @@ def btn_events(call):
             ui = types.InlineKeyboardMarkup()
             for plan in costs_db.get(item, {}).keys():
                 ui.add(types.InlineKeyboardButton(f"💵 تسعير {plan}", callback_data=f"update_cost_{item[:20]}_{plan[:10]}"))
-            app_bot.edit_message_text(f"💵 إدارة تكاليف: {item}", call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
+            app_bot.edit_message_text(f"💵 لوحة تعديل تكاليف: {item}", call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
             return
             
         elif call.data.startswith("update_cost_"):
@@ -497,11 +496,11 @@ def btn_events(call):
             real_item = next((i for i in costs_db.keys() if i.startswith(parts[2])), None)
             real_plan = next((p for p in costs_db[real_item].keys() if p.startswith(parts[3])), None) if real_item else None
             if real_item and real_plan:
-                m = app_bot.send_message(call.message.chat.id, f"💵 اكتب التكلفة الجديدة لخطة ({real_plan}) التابعة لـ ({real_item}):")
+                m = app_bot.send_message(call.message.chat.id, f"💵 اكتب القيمة والتكلفة المالية الجديدة لخطة ({real_plan}) التابعة لمنتج ({real_item}):")
                 app_bot.register_next_step_handler(m, store_new_cost, real_item, real_plan)
             return
 
-    # --- مسار المشتريات ---
+    # --- بوابة الشراء التلقائي للعميل ---
     if call.data.startswith("buy_item_"):
         i_pfx = call.data.replace("buy_item_", "")
         item = next((i for i in costs_db.keys() if i.startswith(i_pfx)), None)
@@ -510,7 +509,7 @@ def btn_events(call):
         ui = types.InlineKeyboardMarkup()
         for plan, base_c in costs_db[item].items():
             net_c = base_c * (1 - (pct / 100))
-            btn_lbl = f"⏳ {plan} ({net_c} c)"
+            btn_lbl = f"⏳ {plan} ({net_c} رصيد)"
             ui.add(types.InlineKeyboardButton(btn_lbl, callback_data=f"buy_time_{item[:20]}_{plan[:10]}"))
         app_bot.edit_message_text(fetch_msg(uid, "select_plan", item=item), call.message.chat.id, call.message.message_id, reply_markup=ui, parse_mode="HTML")
 
@@ -537,37 +536,37 @@ def btn_events(call):
                 app_bot.send_message(call.message.chat.id, fetch_msg(uid, "insufficient_funds", price=net_c), parse_mode="HTML")
 
 # ==========================================
-# 8️⃣ الوظائف المساندة
+# 8️⃣ دوال المعالجة المتقدمة والوظائف الخلفية
 # ==========================================
 def handle_key_removal(msg, item, plan):
     val = msg.text.strip()
     if val == "رجوع":
-        return app_bot.send_message(msg.chat.id, "✅ تم إحباط العملية.")
+        return app_bot.send_message(msg.chat.id, "✅ تم إلغاء الخطوة بنجاح.")
         
     k_list = inventory.get(item, {}).get(plan, [])
     if val == "تصفير":
         inventory[item][plan] = []
         write_db(DB_STOCK, inventory)
-        return app_bot.send_message(msg.chat.id, "🗑️ تم تصفير جميع المفاتيح للقسم المختار.")
+        return app_bot.send_message(msg.chat.id, "🗑️ تم إفراغ المستودع كلياً للقسم المختار.")
         
     try:
         pos = int(val) - 1
         if 0 <= pos < len(k_list):
             rm_key = k_list.pop(pos)
             write_db(DB_STOCK, inventory)
-            app_bot.send_message(msg.chat.id, f"✅ تم تدمير المفتاح: <code>{rm_key}</code>.", parse_mode="HTML")
+            app_bot.send_message(msg.chat.id, f"✅ تم تدمير وإزالة المفتاح: <code>{rm_key}</code> بنجاح.", parse_mode="HTML")
         else:
-            app_bot.send_message(msg.chat.id, "❌ خطأ في رقم المؤشر.")
+            app_bot.send_message(msg.chat.id, "❌ خطأ في تحديد الرقم التسلسلي للمفتاح.")
     except:
-        app_bot.send_message(msg.chat.id, "❌ إدخال غير منطقي. تم التراجع.")
+        app_bot.send_message(msg.chat.id, "❌ إدخال غير منطقي ومرفوض. تم التراجع التلقائي.")
 
 def handle_client_lookup(msg):
     t_id = msg.text.strip()
-    if t_id not in clients_db: return app_bot.send_message(msg.chat.id, "❌ السجل غير متوفر.")
+    if t_id not in clients_db: return app_bot.send_message(msg.chat.id, "❌ رقم الهوية هذا غير مسجل بأنظمتنا.")
     c_info = clients_db[t_id]
-    st = "🚫 مقيد" if c_info.get("is_blocked") else "✅ مسموح"
-    lvl = "👑 وكيل إدارة" if c_info.get("is_boss") else "👤 مستهلك"
-    info_txt = f"🔎 <b>بطاقة العميل:</b>\n\n📝 الرقم: <code>{t_id}</code>\n🏷️ المعرف: @{c_info.get('tag', 'بدون')}\n💰 المحفظة: <code>{c_info['funds']}</code>\n📌 الدرجة: {lvl}\n🔒 الحالة: {st}"
+    st = "🚫 مقيد ومحظور" if c_info.get("is_blocked") else "✅ نشط ومسموح"
+    lvl = "👑 وكيل إدارة شامل" if c_info.get("is_boss") else "👤 عميل مستهلك"
+    info_txt = f"🔎 <b>ملف بيانات العميل:</b>\n\n📝 الرقم التسلسلي: <code>{t_id}</code>\n🏷️ المعرف الرقمي: @{c_info.get('tag', 'بدون')}\n💰 رصيد المحفظة: <code>{c_info['funds']}</code> رصيد\n📌 رتبة الحساب: {lvl}\n🔒 حالة الأمان: {st}"
     app_bot.send_message(msg.chat.id, info_txt, reply_markup=client_ctrl_ui(t_id), parse_mode="HTML")
 
 def handle_sale_event(msg):
@@ -575,8 +574,8 @@ def handle_sale_event(msg):
         val = int(msg.text.strip())
         sys_prefs["sale_pct"] = val
         write_db(DB_SETTINGS, sys_prefs)
-        app_bot.send_message(msg.chat.id, f"📉 تم تثبيت الخصم بنسبة: <code>{val}%</code>", parse_mode="HTML")
-    except: app_bot.send_message(msg.chat.id, "❌ قيمة غير رقمية.")
+        app_bot.send_message(msg.chat.id, f"📉 تم تعميم الخصم الترويجي الجديد بنسبة: <code>{val}%</code> لجميع العملاء.", parse_mode="HTML")
+    except: app_bot.send_message(msg.chat.id, "❌ قيمة خاطئة، يرجى التعبير بأرقام صحيحة فقط.")
 
 def handle_daily_claim(msg):
     c_id = str(msg.from_user.id)
@@ -597,7 +596,7 @@ def handle_daily_claim(msg):
     app_bot.send_message(msg.chat.id, fetch_msg(c_id, "gift_ok", amount=val), parse_mode="HTML")
 
 def handle_mass_broadcast(msg):
-    app_bot.send_message(msg.chat.id, "📡 جاري بث الإشارة...")
+    app_bot.send_message(msg.chat.id, "📡 جاري إطلاق بث الإشارة...")
     cnt = 0
     for cl_id in clients_db.keys():
         try: 
@@ -605,7 +604,7 @@ def handle_mass_broadcast(msg):
             cnt += 1
             time.sleep(0.04)
         except: pass
-    app_bot.send_message(msg.chat.id, f"✅ الإشارة وصلت لـ {cnt} مستهلك.", parse_mode="HTML")
+    app_bot.send_message(msg.chat.id, f"✅ تم إيصال الإذاعة الإدارية لـ {cnt} عميل مسجل.", parse_mode="HTML")
 
 def handle_new_item(msg):
     i_name = msg.text.strip()
@@ -614,7 +613,7 @@ def handle_new_item(msg):
         inventory[i_name] = {"24 Hours": [], "7 Days": [], "30 Days": []}
         write_db(DB_RATES, costs_db)
         write_db(DB_STOCK, inventory)
-        app_bot.send_message(msg.chat.id, f"🎉 السلعة الجديدة ({i_name}) متاحة الآن في الكتالوج.")
+        app_bot.send_message(msg.chat.id, f"🎉 السلعة الجديدة ({i_name}) مضافة بنجاح ومتاحة للبيع الفوري.")
 
 def store_new_keys(msg, item, plan):
     lines = msg.text.split('\n')
@@ -626,14 +625,14 @@ def store_new_keys(msg, item, plan):
             inventory[item][plan].append(ln.strip())
             cnt += 1
     write_db(DB_STOCK, inventory)
-    app_bot.send_message(msg.chat.id, f"✅ استقبلنا {cnt} مفتاح ضمن الخزنة.", parse_mode="HTML")
+    app_bot.send_message(msg.chat.id, f"✅ تم بنجاح استيعاب وحفظ {cnt} مفتاح داخل مستودعات الخزنة الرقمية.", parse_mode="HTML")
 
 def store_new_cost(msg, item, plan):
     try:
         costs_db[item][plan] = float(msg.text.strip())
         write_db(DB_RATES, costs_db)
-        app_bot.send_message(msg.chat.id, f"✅ التكلفة محدثة ومقبولة.", parse_mode="HTML")
-    except: app_bot.send_message(msg.chat.id, "❌ خطأ: يرجى التعبير بالأرقام فقط.")
+        app_bot.send_message(msg.chat.id, f"✅ تم تحديث وقبول التكلفة الجديدة بنجاح.", parse_mode="HTML")
+    except: app_bot.send_message(msg.chat.id, "❌ خطأ برميجي: يرجى التعبير بالأرقام والقيم العددية فقط.")
 
 def handle_redeem_voucher(msg):
     v_code, c_id = msg.text.strip(), str(msg.from_user.id)
@@ -651,18 +650,18 @@ def process_fund_transfer(msg):
         if cl_id in clients_db:
             clients_db[cl_id]["funds"] += float(val)
             write_db(DB_CLIENTS, clients_db)
-            app_bot.send_message(msg.chat.id, f"✅ تم إيداع الرصيد للمستهلك.")
-        else: app_bot.send_message(msg.chat.id, "❌ الهوية غير مسجلة.")
-    except: app_bot.send_message(msg.chat.id, "❌ خطأ في الصياغة.")
+            app_bot.send_message(msg.chat.id, f"✅ تم إيداع الرصيد التمويلي المباشر بنجاح للمستهلك.")
+        else: app_bot.send_message(msg.chat.id, "❌ رقم هوية العميل المدخل غير موجود.")
+    except: app_bot.send_message(msg.chat.id, "❌ خطأ في الصياغة الفنية للطلب.")
 
 def process_create_voucher(msg):
     try:
         v_code, val = msg.text.split()
         vouchers_data[v_code] = float(val)
         write_db(DB_COUPONS, vouchers_data)
-        app_bot.send_message(msg.chat.id, f"💳 تم تجهيز قسيمة التعبئة: <code>{v_code}</code>", parse_mode="HTML")
-    except: app_bot.send_message(msg.chat.id, "❌ خطأ في الصياغة.")
+        app_bot.send_message(msg.chat.id, f"💳 تم تجهيز وإصدار قسيمة التعبئة الرقمية بنجاح: <code>{v_code}</code>", parse_mode="HTML")
+    except: app_bot.send_message(msg.chat.id, "❌ خطأ في الصياغة، تأكد من وضع مسافة بين الرمز والقيمة.")
 
 if __name__ == "__main__":
-    print("🤖 خادم البوت متصل الآن بنجاح...")
+    print("🤖 خادم البوت متصل الآن ومثبت التوكن المستخرج بنجاح...")
     app_bot.infinity_polling()
