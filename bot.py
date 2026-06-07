@@ -15,7 +15,6 @@ ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 88782290572
 CHANNEL_USERNAME = "@EVEE7X_FMALIY"
 
-# ملفات قواعد البيانات الخمسة
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
 DB_REDEEM = "redeem_codes.json"
@@ -70,7 +69,6 @@ def is_user_banned(uid):
             save_json(DB_USERS, users)
     return False
 
-# فحص الاشتراك الإجباري الصارم بالقناة
 def check_channel_join(uid):
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]: return True
     try:
@@ -95,13 +93,10 @@ def register_user(user):
         }
         save_json(DB_USERS, users)
 
-# توليد مفتاح وهمي يطابق شكل الصورة image_3.png بطول 16 حرفاً رقمياً هجائياً كبيراً
 def generate_fake_key():
     chars = string.ascii_uppercase + string.digits
     fake_key = ''.join(random.choice(chars) for _ in range(16))
-    # إظهار أول 6 أحرف وآخر 4 أحرف فقط لحماية الخصوصية بشكل واقعي
-    masked_key = f"{fake_key[:6]}***********{fake_key[-4:]}"
-    return masked_key
+    return f"{fake_key[:6]}***********{fake_key[-4:]}"
 
 LOCALES = {
     "ar": {
@@ -164,7 +159,7 @@ LOCALES = {
         "invite_btn": "🔗 Hệ thống giới thiệu",
         "bonus_btn": "✨ Phần thưởng hàng ngày",
         "support_btn": "💬 Hỗ trợ kỹ thuật",
-        "lang_btn": "Thay đổi ngôn ngữ",
+        "lang_btn": "🌐 Thay đổi ngôn ngữ",
         "admin_btn": "👑 Tính năng Admin",
         "maint_msg": "🛠️ Bot hiện đang được bảo trì."
     }
@@ -202,11 +197,10 @@ def get_admin_keyboard():
     markup.add(types.KeyboardButton("🔑 إضافة مفاتيح"), types.KeyboardButton("👁️ استعراض المفاتيح"))
     markup.add(types.KeyboardButton("🔢 حذف مفتاح معين"), types.KeyboardButton("🗑️ مسح جميع المفاتيح"))
     markup.add(types.KeyboardButton("💵 إدارة الأسعار"), types.KeyboardButton("👥 إدارة الأعضاء"))
-    markup.add(types.KeyboardButton("🔨 صلاحيات الأعضاء"), types.KeyboardButton("💰 شحن الأعضاء"))
-    markup.add(types.KeyboardButton("🎫 إنشاء أكواد الشحن"), types.KeyboardButton("🔥 التخفيضات"))
-    markup.add(types.KeyboardButton("📢 الإذاعة الشاملة"), types.KeyboardButton("📤 نشر الأسعار بالقناة"))
-    markup.add(types.KeyboardButton("📣 التسويق الوهمي"), types.KeyboardButton("☁️ النسخ الاحتياطي"))
-    markup.add(types.KeyboardButton("🔄 واجهة المستخدم"))
+    markup.add(types.KeyboardButton("💰 شحن الأعضاء"), types.KeyboardButton("🎫 إنشاء أكواد الشحن"))
+    markup.add(types.KeyboardButton("🔥 التخفيضات"), types.KeyboardButton("📢 الإذاعة الشاملة"))
+    markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
+    markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🔄 واجهة المستخدم"))
     return markup
 
 @bot.message_handler(commands=['start', 'id'])
@@ -247,7 +241,6 @@ def main_router(message):
     lang = users[uid].get("lang", "ar")
     txt = message.text
 
-    # التحقق الصارم من الاشتراك - البوت لا يرسل أي رد حتى يتم التأكد من الاشتراك
     if not check_channel_join(uid):
         return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
@@ -260,7 +253,7 @@ def main_router(message):
 
     elif txt in [LOCALES[l]["balance_btn"] for l in LOCALES]:
         u = users[uid]
-        msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• رصيد النقاط: {u['points']} نقطة\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
+        msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• رصيد النقاط: {u['points']} نقطة\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
     elif txt in [LOCALES[l]["lang_btn"] for l in LOCALES]:
@@ -306,11 +299,6 @@ def main_router(message):
         if txt == "🔄 واجهة المستخدم":
             bot.send_message(message.chat.id, "🔙 تم الانتقال إلى واجهة المستخدم العادية.", reply_markup=get_main_keyboard(uid, lang))
 
-        elif txt == "🛠️ وضع الصيانة":
-            bot_config["maintenance"] = not bot_config["maintenance"]
-            save_json(DB_CONFIG, bot_config)
-            bot.send_message(message.chat.id, f"🛠️ وضع الصيانة الآن: {'[مفعل] 🔴' if bot_config['maintenance'] else '[معطل] 🟢'}")
-
         elif txt == "➕ إضافة منتج":
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج الجديد:")
             bot.register_next_step_handler(m, admin_add_product_func)
@@ -346,12 +334,8 @@ def main_router(message):
             bot.register_next_step_handler(m, admin_edit_price_func)
 
         elif txt == "👥 إدارة الأعضاء":
-            m = bot.send_message(message.chat.id, "✍️ أرسل آيدي العضو لعرض تفاصيله:")
+            m = bot.send_message(message.chat.id, "✍️ أرسل آيدي العضو لعرض تفاصيله والتحكم في رتبته وحظره بالأزرار:")
             bot.register_next_step_handler(m, admin_view_member_func)
-
-        elif txt == "🔨 صلاحيات الأعضاء":
-            m = bot.send_message(message.chat.id, "⚙️ أرسل أحد الأوامر التالية متبوعاً بالآيدي:\n• `ban ID`\n• `tempban ID`\n• `unban ID`\n• `promote ID`\n• `demote ID`")
-            bot.register_next_step_handler(m, admin_action_member_func)
 
         elif txt == "💰 شحن الأعضاء":
             m = bot.send_message(message.chat.id, "✍️ أرسل آيدي المستخدم ثم مسافة ثم القيمة (مثال: 123456789 500):")
@@ -384,7 +368,6 @@ def main_router(message):
             except: bot.send_message(message.chat.id, "❌ حدث خطأ، يرجى تحقق من صلاحيات البوت بالقناة.")
 
         elif txt == "📣 التسويق الوهمي":
-            # تحديث الأمن: إجبار الأدمن على كتابة كلمة تأكيد لتفادي الإرسال الخاطئ
             m = bot.send_message(message.chat.id, "⚠️ <b>تأكيد الإجراء:</b> من فضلك اكتب كلمة عشوائية أو كلمة <code>تأكيد</code> لتفادي إرسال منشور التسويق الوهمي بالغلط إلى القناة:", parse_mode="HTML")
             bot.register_next_step_handler(m, admin_confirm_fake_marketing)
 
@@ -400,7 +383,7 @@ def main_router(message):
                         bot.send_document(message.chat.id, f_doc)
 
 # ==========================================
-# 5️⃣ الكولباك لمعالجة العمليات والترخيص
+# 5️⃣ معالجة الكولباك والأزرار الشفافة التفاعلية الجديد
 # ==========================================
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -409,7 +392,64 @@ def handle_inline_callbacks(call):
     register_user(call.from_user)
     data = call.data
 
-    if data.startswith("setlang_"):
+    # أزرار الإدارة والترقية الفورية المضافة بناء على صورة image_4.png وصلاحيات الأعضاء
+    if data.startswith("adm_"):
+        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+            return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول لاستخدام هذا الزر.", show_alert=True)
+            
+        parts = data.split("_")
+        action = parts[1]
+        target_id = parts[2]
+        
+        if target_id not in users:
+            return bot.answer_callback_query(call.id, "❌ لم يتم العثور على هذا العضو في النظام.", show_alert=True)
+            
+        if action == "promote":
+            users[target_id]["is_admin"] = True
+            bot.answer_callback_query(call.id, "🛡️ تم ترقية العضو ليصبح أدمن بنجاح!", show_alert=True)
+        elif action == "demote":
+            users[target_id]["is_admin"] = False
+            bot.answer_callback_query(call.id, "⬇️ تم سحب صلاحيات الإدارة من العضو بنجاح.", show_alert=True)
+        elif action == "ban":
+            users[target_id]["banned"] = True
+            bot.answer_callback_query(call.id, "⛔ تم حظر العضو حظراً نهائياً.", show_alert=True)
+        elif action == "tempban":
+            until_time = datetime.now() + timedelta(days=1)
+            users[target_id]["banned_until"] = until_time.isoformat()
+            bot.answer_callback_query(call.id, "⏱️ تم حظر العضو مؤقتاً لمدة 24 ساعة.", show_alert=True)
+        elif action == "unban":
+            users[target_id]["banned"] = False
+            users[target_id]["banned_until"] = None
+            bot.answer_callback_query(call.id, "🟢 تم فك الحظر عن العضو بالكامل.", show_alert=True)
+            
+        save_json(DB_USERS, users)
+        
+        # تحديث الرسالة فورياً لتعكس الحالة الجديدة للعضو بعد الضغط على الزر
+        u = users[target_id]
+        role = "أدمن مالك" if int(target_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم عادي")
+        ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
+        
+        updated_msg = (f"👥 <b>بيانات العضو المحدثة:</b>\n\n• ID: <code>{target_id}</code>\n"
+                       f"• Username: @{u['username']}\n• الرصيد الحالي: {u['points']} نقطة\n"
+                       f"• الرتبة الحالية: {role}\n• حالة الحظر: {ban_status}")
+                       
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        if u.get("is_admin", False):
+            markup.add(types.InlineKeyboardButton("❌ إزالة الإدارة", callback_data=f"adm_demote_{target_id}"))
+        else:
+            markup.add(types.InlineKeyboardButton("🛡️ ترقية إلى أدمن", callback_data=f"adm_promote_{target_id}"))
+            
+        markup.add(
+            types.InlineKeyboardButton("⛔ حظر نهائي", callback_data=f"adm_ban_{target_id}"),
+            types.InlineKeyboardButton("⏱️ حظر 24 ساعة", callback_data=f"adm_tempban_{target_id}")
+        )
+        markup.add(types.InlineKeyboardButton("🟢 فك الحظر", callback_data=f"adm_unban_{target_id}"))
+        
+        try: bot.edit_message_text(updated_msg, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+        except: pass
+
+    # بقية أزرار الكولباك (اللغات والشراء)
+    elif data.startswith("setlang_"):
         lang = data.split("_")[1]
         users[uid]["lang"] = lang
         save_json(DB_USERS, users)
@@ -472,16 +512,40 @@ def handle_inline_callbacks(call):
         except: pass
 
 # ==========================================
-# 6️⃣ دوال الإدارة والتحقق الفني المتكامل
+# 6️⃣ دوال الاستعلام والتحكم المحدثة للوحة الأعضاء
 # ==========================================
 
+def admin_view_member_func(message):
+    t_id = message.text.strip()
+    if t_id in users:
+        u = users[t_id]
+        role = "أدمن مالك" if int(t_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم عادي")
+        ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
+        
+        msg = f"👥 <b>بيانات العضو المستعلم عنه:</b>\n\n• ID: <code>{t_id}</code>\n• Username: @{u['username']}\n• الرصيد الحالي: {u['points']} نقطة\n• الرتبة الحالية: {role}\n• حالة الحظر: {ban_status}"
+        
+        # إنشاء الأزرار التفاعلية لتغيير الرتب والحظر بكبسة زر واحدة
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        if u.get("is_admin", False):
+            markup.add(types.InlineKeyboardButton("❌ إزالة الإدارة", callback_data=f"adm_demote_{t_id}"))
+        else:
+            markup.add(types.InlineKeyboardButton("🛡️ ترقية إلى أدمن", callback_data=f"adm_promote_{t_id}"))
+            
+        markup.add(
+            types.InlineKeyboardButton("⛔ حظر نهائي", callback_data=f"adm_ban_{t_id}"),
+            types.InlineKeyboardButton("⏱️ حظر 24 ساعة", callback_data=f"adm_tempban_{t_id}")
+        )
+        markup.add(types.InlineKeyboardButton("🟢 فك الحظر", callback_data=f"adm_unban_{t_id}"))
+        
+        bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
+    else: 
+        bot.send_message(message.chat.id, "❌ هذا الآيدي غير مسجل في قاعدة بيانات البوت حالياً.")
+
 def admin_confirm_fake_marketing(message):
-    # التحقق من أن الأدمن قام بكتابة النص بنجاح لتفادي الإرسال بالخطأ
     confirm_text = message.text.strip()
     if not confirm_text:
         return bot.send_message(message.chat.id, "❌ تم إلغاء العملية بسبب إدخال فارغ.")
         
-    # دائماً يتم الاختيار العشوائي للمدة لمنتج Flourite Cheat والمفتاح يطابق صيغة الأكواد في صورة image_3.png
     chosen_plan = random.choice(["1 Day", "7 Days", "30 Days"])
     fake_masked_key = generate_fake_key()
     
@@ -497,7 +561,7 @@ def admin_confirm_fake_marketing(message):
         bot.send_message(CHANNEL_USERNAME, marketing_msg, parse_mode="HTML")
         bot.send_message(message.chat.id, f"✅ تم تأكيد الإجراء بنجاح بعد كتابتك '{confirm_text}'! ونشر منشور التسويق الوهمي لـ <b>Flourite Cheat ({chosen_plan})</b> بقناتك الموثقة.")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ تعذر النشر بالقناة، يرجى مراجعة الصلاحيات: {str(e)}")
+        bot.send_message(message.chat.id, f"❌ تعذر النشر بالقناة: {str(e)}")
 
 def process_redeem_user(message):
     uid = str(message.from_user.id)
@@ -579,40 +643,6 @@ def admin_edit_price_func(message):
         else: bot.send_message(message.chat.id, "❌ المدة أو المنتج غير صحيح.")
     except: bot.send_message(message.chat.id, "❌ خطأ بالبيانات.")
 
-def admin_view_member_func(message):
-    t_id = message.text.strip()
-    if t_id in users:
-        u = users[t_id]
-        role = "أدمن مالك" if int(t_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم")
-        ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
-        msg = f"👥 <b>تفاصيل العضو:</b>\n\n• ID: <code>{t_id}</code>\n• Username: @{u['username']}\n• الرصيد: {u['points']} نقطة\n• الرتبة: {role}\n• حالة الحظر: {ban_status}"
-        bot.send_message(message.chat.id, msg, parse_mode="HTML")
-    else: bot.send_message(message.chat.id, "❌ هذا الآيدي غير مسجل.")
-
-def admin_action_member_func(message):
-    try:
-        cmd, t_id = message.text.strip().split()
-        if t_id not in users: return bot.send_message(message.chat.id, "❌ آيدي العضو غير مسجل.")
-        if cmd == "ban":
-            users[t_id]["banned"] = True
-            bot.send_message(message.chat.id, f"⛔ تم فرض حظر نهائي على الحساب {t_id}.")
-        elif cmd == "tempban":
-            until_time = datetime.now() + timedelta(days=1)
-            users[t_id]["banned_until"] = until_time.isoformat()
-            bot.send_message(message.chat.id, f"🔴 تم تطبيق حظر مؤقت 24 ساعة على الحساب {t_id}.")
-        elif cmd == "unban":
-            users[t_id]["banned"] = False
-            users[t_id]["banned_until"] = None
-            bot.send_message(message.chat.id, f"🟢 تم إلغاء الحظر عن الحساب {t_id}.")
-        elif cmd == "promote":
-            users[t_id]["is_admin"] = True
-            bot.send_message(message.chat.id, f"⬆️ تم ترقية الحساب {t_id} إلى مدير.")
-        elif cmd == "demote":
-            users[t_id]["is_admin"] = False
-            bot.send_message(message.chat.id, f"⬇️ تم إزالة الإدارة من الحساب {t_id}.")
-        save_json(DB_USERS, users)
-    except: bot.send_message(message.chat.id, "❌ خطأ في كتابة الأمر.")
-
 def admin_charge_member_func(message):
     try:
         t_id, pts = message.text.strip().split()
@@ -655,5 +685,5 @@ def admin_broadcast_func(message):
     bot.send_message(message.chat.id, f"📢 تم إكمال الإذاعة الشاملة لـ {success_count} عضو.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل وتفعيل البوت بكافة تحديثات التسويق الوهمي والمفاتيح الوهمية الحصرية...")
+    print("🚀 تم تشغيل البوت وتحديث 'إدارة الأعضاء' بنظام أزرار الترقية والحظر الفورية 10/10...")
     bot.infinity_polling()
