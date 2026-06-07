@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 
 # ==========================================
-# 1️⃣ الإعدادات الأساسية (تم التحديث بناءً على صورة image.png)
+# 1️⃣ الإعدادات الأساسية (بناءً على صورة image.png)
 # ==========================================
 API_TOKEN = "8868383649:AAEVxFynrH7u_M8e9-wjxo6h8-NP8dtWNUQ"
 app_bot = telebot.TeleBot(API_TOKEN)
@@ -346,7 +346,7 @@ def text_router(msg):
 
     # --- واجهة العملاء العادية ---
     if "هوية" in txt or "Profile" in txt or "هويتي" in txt:
-        app_bot.send_message(msg.chat.id, f"📝 رقم هويتك الشخصية في النظام: <code>{uid}</code>", parse_mode="HTML")
+        app_bot.send_message(msg.chat.id, f"📝 رقم هويتك الشخصية في النظام: <code>{uid}</code>\n💰 رصيدك الحالي: <code>{clients_db[c_id]['funds']}</code> رصيد", parse_mode="HTML")
         
     elif "كسب" in txt or "دعوة" in txt or "Earn" in txt or "Referral" in txt:
         bot_usr = app_bot.get_me().username
@@ -389,12 +389,14 @@ def btn_events(call):
     app_bot.answer_callback_query(call.id)
     if clients_db.get(c_id, {}).get("is_blocked", False): return
 
+    # تم التعديل هنا: عند اختيار اللغة، تظهر لوحة الكيبورد فوراً مع الرسالة الترحيبية
     if call.data.startswith("initlang_") or call.data.startswith("set_lang_"):
         pref = call.data.split("_")[-1]
         clients_db[c_id]["locale"] = pref
         write_db(DB_CLIENTS, clients_db)
         try: app_bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
+        
         if not verify_membership(uid): 
             app_bot.send_message(call.message.chat.id, fetch_msg(uid, "must_join"), reply_markup=channel_gate_ui(uid), parse_mode="HTML")
         else: 
