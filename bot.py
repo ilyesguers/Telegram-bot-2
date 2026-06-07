@@ -718,5 +718,5 @@ def admin_edit_invite_reward(message):
         bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل البوت وتحديث ميزات المكافآت ونظام الدعوة...")
+    print("🚀 تم تشغيل البوت وتحديث ميزات المكافآت ونظام الدعوة بنجاح (نسخة خام وبدون تشفير)...")
     bot.infinity_polling()
