@@ -15,8 +15,8 @@ ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 88782290572
 
 # [نظام الاشتراك الجديد بالآيدي والرابط]
-CHANNEL_ID = -1001763276411
-CHANNEL_LINK = "https://t.me/+5mXhqYWcv89lZGE0"
+CHANNEL_ID = -1002360541764
+CHANNEL_LINK = "https://t.me/EVEE7X_FMALIY"
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
@@ -448,7 +448,7 @@ def handle_inline_callbacks(call):
 
     elif data.startswith("step_price_plan|"):
         _, prod, plan = data.split("|")
-        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل السعر الجديد الآن (أرقام فقط):</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل السعر الجديد الآن (أرقام فقط):</b>", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_save_new_price(msg, prod, plan))
 
     elif data.startswith("step_delkey_prod|"):
