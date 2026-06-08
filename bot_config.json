@@ -1,0 +1,31 @@
+{
+    "maintenance": false,
+    "discount": 0,
+    "invite_reward": 1,
+    "daily_bonus": 1,
+    "total_sales": 0,
+    "total_earnings": 0,
+    "sales_log": [],
+    "tickets": {
+        "89094": {
+            "uid": "5145154527",
+            "text": "Test",
+            "status": "open"
+        },
+        "99186": {
+            "uid": "8954572843",
+            "text": "/start",
+            "status": "open"
+        },
+        "84893": {
+            "uid": "7670424929",
+            "text": "🛍️ Product Shop",
+            "status": "open"
+        },
+        "63119": {
+            "uid": "7260325716",
+            "text": "🌐 تغيير اللغة",
+            "status": "open"
+        }
+    }
+}
