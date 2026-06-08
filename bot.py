@@ -206,7 +206,8 @@ def get_admin_keyboard():
     markup.add(types.KeyboardButton("🔥 التخفيضات"), types.KeyboardButton("📢 الإذاعة الشاملة"))
     markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
     markup.add(types.KeyboardButton("✨ تعديل المكافأة اليومية"), types.KeyboardButton("🔗 تعديل نقاط الدعوة"))
-    markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🔄 واجهة المستخدم"))
+    markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🎫 إدارة التذاكر"))
+    markup.add(types.KeyboardButton("🔄 واجهة المستخدم"))
     return markup
 
 @bot.message_handler(commands=['start', 'id'])
@@ -309,6 +310,16 @@ def main_router(message):
     elif int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False):
         if txt == "🔄 واجهة المستخدم":
             bot.send_message(message.chat.id, "🔙 تم الانتقال إلى واجهة المستخدم العادية.", reply_markup=get_main_keyboard(uid, lang))
+
+        elif txt == "🎫 إدارة التذاكر":
+            tickets = bot_config.get("tickets", {})
+            open_tickets = {k: v for k, v in tickets.items() if v.get("status", "open") == "open"}
+            if not open_tickets:
+                return bot.send_message(message.chat.id, "🎉 لا توجد تذاكر دعم مفتوحة حالياً.")
+            markup = types.InlineKeyboardMarkup()
+            for t_id, t_info in open_tickets.items():
+                markup.add(types.InlineKeyboardButton(f"🎫 #{t_id} - من: {t_info['uid']}", callback_data=f"view_ticket_{t_id}"))
+            bot.send_message(message.chat.id, "👇 <b>قائمة التذاكر المفتوحة حالياً:</b>", reply_markup=markup, parse_mode="HTML")
 
         elif txt == "➕ إضافة منتج":
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج الجديد:")
@@ -467,6 +478,40 @@ def handle_inline_callbacks(call):
             
         m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الذي تريد حذفه بدقة</b>،\nأو أرسل <b>رقمه التسلسلي</b> (مثال: أرسل رقم 1 لحذف أول مفتاح في المخزن):", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_delete_specific_key(msg, prod, plan))
+
+    # [أنظمة معالجة التذاكر المطورة]
+    elif data.startswith("view_ticket_"):
+        t_id = data.split("_")[2]
+        tickets = bot_config.get("tickets", {})
+        if t_id not in tickets:
+            return bot.answer_callback_query(call.id, "❌ التذكرة غير موجودة أو محذوفة.", show_alert=True)
+        t_info = tickets[t_id]
+        msg = f"🎫 <b>تفاصيل تذكرة الدعم #{t_id}:</b>\n\n👤 صاحب التذكرة: <code>{t_info['uid']}</code>\n⚙️ الحالة: {t_info.get('status', 'open').upper()}\n\n📝 <b>الرسالة:</b>\n{t_info['text']}"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("💬 الرد على التذكرة", callback_data=f"reply_ticket_{t_id}"),
+            types.InlineKeyboardButton("🔒 إغلاق التذكرة", callback_data=f"close_ticket_{t_id}")
+        )
+        bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+
+    elif data.startswith("reply_ticket_"):
+        t_id = data.split("_")[2]
+        m = bot.send_message(call.message.chat.id, f"✍️ اكتب الآن ردك الفني لإرساله مباشرة إلى صاحب التذكرة #{t_id}:")
+        bot.register_next_step_handler(m, lambda msg: admin_send_reply_ticket_func(msg, t_id))
+        bot.answer_callback_query(call.id)
+
+    elif data.startswith("close_ticket_"):
+        t_id = data.split("_")[2]
+        tickets = bot_config.get("tickets", {})
+        if t_id in tickets:
+            tickets[t_id]["status"] = "closed"
+            save_json(DB_CONFIG, bot_config)
+            u_id = tickets[t_id]["uid"]
+            try: bot.send_message(int(u_id), f"🔒 <b>تحديث الدعم:</b> تم إغلاق تذكرتك الفنية ذات الرقم #{t_id} بنجاح. إذا واجهتك مشكلة أخرى لا تتردد بفتح تذكرة جديدة.", parse_mode="HTML")
+            except: pass
+            bot.edit_message_text(f"✅ تم إغلاق التذكرة #{t_id} بنجاح وإرسال إشعار للمستخدم.", call.message.chat.id, call.message.message_id)
+        else:
+            bot.answer_callback_query(call.id, "❌ لم يتم العثور على التذكرة.", show_alert=True)
 
     elif data.startswith("adm_"):
         if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
@@ -677,15 +722,48 @@ def process_redeem_user(message):
         bot.send_message(message.chat.id, f"🎉 تم تفعيل كود الشحن وإضافة +{added_pts} نقطة إلى رصيدك.")
     else: bot.send_message(message.chat.id, "❌ كود الشحن المدخل غير صحيح أو مستعمل مسبقاً.")
 
+# [تعديل نظام استقبال التذاكر ليتكامل مع الأزرار والتحكم التفاعلي غدق]
 def process_support_ticket(message):
     uid = str(message.from_user.id)
     u_text = message.text.strip()
+    if not u_text:
+        return bot.send_message(message.chat.id, "❌ لا يمكنك إرسال تذكرة فارغة.")
+        
     ticket_id = str(random.randint(10000, 99999))
+    if "tickets" not in bot_config:
+        bot_config["tickets"] = {}
+        
     bot_config["tickets"][ticket_id] = {"uid": uid, "text": u_text, "status": "open"}
     save_json(DB_CONFIG, bot_config)
-    bot.send_message(message.chat.id, f"✅ تم فتح تذكرة دعم فني جديدة برقم: <code>#{ticket_id}</code>", parse_mode="HTML")
-    try: bot.send_message(ADMIN_PRIMARY, f"💬 تذكرة دعم جديدة برقم #{ticket_id} من {uid}:\n{u_text}")
+    
+    bot.send_message(message.chat.id, f"✅ <b>تم فتح تذكرة دعم فني جديدة بنجاح!</b>\n• رقم التذكرة: <code>#{ticket_id}</code>\n• انتظر رد الإدارة قريباً هنا.", parse_mode="HTML")
+    
+    # إعداد الأزرار التفاعلية لتصل للمسؤول فوراً
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("💬 رد فوري", callback_data=f"reply_ticket_{ticket_id}"),
+        types.InlineKeyboardButton("🔒 إغلاق التذكرة", callback_data=f"close_ticket_{ticket_id}")
+    )
+    
+    admin_msg = f"🎫 <b>تذكرة دعم جديدة برقم #{ticket_id}</b>\n👤 من المستخدم: <code>{uid}</code>\n\n📝 <b>محتوى التذكرة:</b>\n{u_text}"
+    try: bot.send_message(ADMIN_PRIMARY, admin_msg, reply_markup=markup, parse_mode="HTML")
     except: pass
+
+# [دالة إرسال الرد من الأدمن إلى العضو]
+def admin_send_reply_ticket_func(message, ticket_id):
+    tickets = bot_config.get("tickets", {})
+    if ticket_id not in tickets:
+        return bot.send_message(message.chat.id, "❌ خطأ: التذكرة لم تعد متاحة في النظام.")
+        
+    reply_text = message.text.strip()
+    user_id = tickets[ticket_id]["uid"]
+    
+    user_notif = f"💬 <b>وصلك رد جديد من الدعم الفني بخصوص التذكرة #{ticket_id}:</b>\n\n<code>{reply_text}</code>"
+    try:
+        bot.send_message(int(user_id), user_notif, parse_mode="HTML")
+        bot.send_message(message.chat.id, f"✅ تم إرسال الرد بنجاح للمستخدم صاحب التذكرة #{ticket_id}.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ تعذر تسليم الرسالة للمستخدم، ربما قام بحظر البوت. الخطأ: {str(e)}")
 
 def admin_add_product_func(message):
     prod = message.text.strip()
@@ -734,7 +812,7 @@ def admin_set_discount_func(message):
             bot_config["discount"] = disc
             save_json(DB_CONFIG, bot_config)
             bot.send_message(message.chat.id, f"🔥 تم تفعيل خصم عام بمقدار {disc}%")
-        else: bot.send_message(message.chat.id, "❌ أدخل رقم بين 0 و 99.")
+        else: bot_config["discount"] = 0
     except: bot.send_message(message.chat.id, "❌ أرسل أرقام فقط.")
 
 def admin_broadcast_func(message):
