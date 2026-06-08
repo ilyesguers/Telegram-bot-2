@@ -15,7 +15,8 @@ ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 8878290572
 
 # [تحديث آيدي ورابط القناة العامة الجديدة بالتعديل الأخير]
-CHANNEL_ID = -1002206121430
+# [تفعيل القناة العامة الجديدة باستخدام المعرف مباشرة]
+CHANNEL_ID = "@eveee7x_4ft"
 CHANNEL_LINK = "https://t.me/eveee7x_4ft"
 
 DB_USERS = "users_data.json"
