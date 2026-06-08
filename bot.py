@@ -13,7 +13,10 @@ bot = telebot.TeleBot(API_TOKEN)
 
 ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 88782290572
-CHANNEL_USERNAME = "@EVEE7X_FMALIY"
+
+# [نظام الاشتراك الجديد بالآيدي والرابط]
+CHANNEL_ID = -1001763276411
+CHANNEL_LINK = "https://t.me/+5mXhqYWcv89lZGE0"
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
@@ -69,10 +72,11 @@ def is_user_banned(uid):
             save_json(DB_USERS, users)
     return False
 
+# دالة التحقق المعدلة باستخدام ID القناة
 def check_channel_join(uid):
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]: return True
     try:
-        member = bot.get_chat_member(CHANNEL_USERNAME, uid)
+        member = bot.get_chat_member(CHANNEL_ID, uid)
         if member.status in ['member', 'creator', 'administrator']: return True
     except: pass
     return False
@@ -101,7 +105,7 @@ def generate_fake_key():
 LOCALES = {
     "ar": {
         "welcome": "🌐 الرجاء اختيار لغة البوت لتفعيل حسابك / Please select language:",
-        "must_join": f"⚠️ يجب عليك الاشتراك في قناتنا أولاً لاستخدام البوت!\nاشترك هنا: {CHANNEL_USERNAME}",
+        "must_join": f"⚠️ يجب عليك الاشتراك في قناتنا أولاً لاستخدام البوت!\nاشترك هنا: {CHANNEL_LINK}",
         "check_btn": "🔄 تحقق من الاشتراك",
         "main_menu": "🏠 القائمة الرئيسية للمتجر:",
         "id_btn": "🆔 إظهار الآيدي",
@@ -117,7 +121,7 @@ LOCALES = {
     },
     "en": {
         "welcome": "🌐 Please select your language to activate account:",
-        "must_join": f"⚠️ You must subscribe to our channel first!\nJoin here: {CHANNEL_USERNAME}",
+        "must_join": f"⚠️ You must subscribe to our channel first!\nJoin here: {CHANNEL_LINK}",
         "check_btn": "🔄 Check Subscription",
         "main_menu": "🏠 Store Main Menu:",
         "id_btn": "🆔 Show ID",
@@ -133,7 +137,7 @@ LOCALES = {
     },
     "fr": {
         "welcome": "🌐 Veuillez sélectionner votre langue:",
-        "must_join": f"⚠️ Vous devez d'abord vous abonner à la chaîne!\nRejoignez: {CHANNEL_USERNAME}",
+        "must_join": f"⚠️ Vous devez d'abord vous abonner à la chaîne!\nRejoignez: {CHANNEL_LINK}",
         "check_btn": "🔄 Vérifier l'abonnement",
         "main_menu": "🏠 Menu Principal de la Boutique:",
         "id_btn": "🆔 Afficher l'ID",
@@ -149,7 +153,7 @@ LOCALES = {
     },
     "vi": {
         "welcome": "🌐 Vui lòng chọn ngôn ngữ của bạn:",
-        "must_join": f"⚠️ Bạn phải đăng ký kênh trước!\nTham gia tại: {CHANNEL_USERNAME}",
+        "must_join": f"⚠️ Bạn phải đăng ký kênh trước!\nTham gia tại: {CHANNEL_LINK}",
         "check_btn": "🔄 Kiểm tra đăng ký",
         "main_menu": "🏠 Danh Mục Chính Cửa Hàng:",
         "id_btn": "🆔 Hiển thị ID",
@@ -177,6 +181,7 @@ def get_lang_inline():
 
 def get_join_inline(lang):
     markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(LOCALES[lang]["check_btn"], url=CHANNEL_LINK))
     markup.add(types.InlineKeyboardButton(LOCALES[lang]["check_btn"], callback_data="check_join"))
     return markup
 
@@ -213,7 +218,6 @@ def handle_commands(message):
     if is_user_banned(uid):
         return bot.send_message(message.chat.id, "❌ نعتذر، حسابك محظور حالياً.")
 
-    # 🔴 [تعديل] تحقق الاشتراك الإجباري عند طلب أمر الايدي /id
     if message.text.startswith('/id'):
         if not check_channel_join(uid):
             lang = users.get(uid, {}).get("lang", "ar")
@@ -232,7 +236,6 @@ def handle_commands(message):
             try: bot.send_message(int(inviter_id), f"🔗 لقد إنضم مستخدم جديد عن طريق رابط الإحالة الخاص بك! حصلت على {bot_config['invite_reward']} نقاط.")
             except: pass
 
-    # 🔴 [تعديل] تحقق الاشتراك الإجباري عند إدخال أمر البداية /start لمنع الدخول للقائمة واللغات دون اشتراك
     if not check_channel_join(uid):
         lang = users.get(uid, {}).get("lang", "ar")
         return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
@@ -257,7 +260,6 @@ def main_router(message):
     if bot_config["maintenance"] and not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
         return bot.send_message(message.chat.id, LOCALES[lang]["maint_msg"])
 
-    # --- أزرار المستخدمين ---
     if txt in [LOCALES[l]["id_btn"] for l in LOCALES]:
         bot.send_message(message.chat.id, f"🆔 الآيدي الخاص بك: <code>{uid}</code>", parse_mode="HTML")
 
@@ -301,7 +303,6 @@ def main_router(message):
             markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"select_prod_{prod}"))
         bot.send_message(message.chat.id, "🛍️ <b>متجر المنتجات</b>\nالرجاء اختيار المنتج المراد تصفحه:", reply_markup=markup, parse_mode="HTML")
 
-    # --- واجهة الإدارة ---
     elif txt in [LOCALES[l]["admin_btn"] for l in LOCALES] and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
         bot.send_message(message.chat.id, "👑 مرحباً بك في لوحة تحكم ميزات الإدارة للمتجر:", reply_markup=get_admin_keyboard())
 
@@ -317,7 +318,6 @@ def main_router(message):
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج المراد حذفه بالكامل:")
             bot.register_next_step_handler(m, admin_delete_product_func)
 
-        # ---------------- التعديل الجذري هنا للسهولة ----------------
         elif txt == "🔑 إضافة مفاتيح":
             if not prices_config:
                 return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد، قم بإضافة منتج أولاً.")
@@ -341,7 +341,6 @@ def main_router(message):
             for prod in prices_config.keys():
                 markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_delkey_prod|{prod}"))
             bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد حذف مفتاح منه:</b>", reply_markup=markup, parse_mode="HTML")
-        # -------------------------------------------------------------
 
         elif txt == "👁️ استعراض المفاتيح":
             status = "🔑 <b>جميع المفاتيح المخزنة في النظام:</b>\n\n"
@@ -387,7 +386,7 @@ def main_router(message):
                     pub_text += f" ├ {plan} ➡️ {f_price} نقطة \n"
             pub_text += f"\n🤖 رابط البوت الرسمي للشراء الفوري: t.me/{bot.get_me().username}"
             try:
-                bot.send_message(CHANNEL_USERNAME, pub_text, parse_mode="HTML")
+                bot.send_message(CHANNEL_ID, pub_text, parse_mode="HTML")
                 bot.send_message(message.chat.id, "✅ تم نشر وتحديث قائمة الأسعار الحالية في القناة.")
             except: bot.send_message(message.chat.id, "❌ حدث خطأ، يرجى تحقق من صلاحيات البوت بالقناة.")
 
@@ -414,17 +413,12 @@ def main_router(message):
                     with open(file_name, "rb") as f_doc:
                         bot.send_document(message.chat.id, f_doc)
 
-# ==========================================
-# 5️⃣ معالجة الكولباك والأزرار الشفافة التفاعلية
-# ==========================================
-
 @bot.callback_query_handler(func=lambda call: True)
 def handle_inline_callbacks(call):
     uid = str(call.from_user.id)
     register_user(call.from_user)
     data = call.data
 
-    # 🔴 [تعديل] منع الاستجابة لأي زر شفاف إذا غادر المستخدم القناة (باستثناء زر التحقق)
     if data != "check_join":
         if not check_channel_join(uid):
             lang = users.get(uid, {}).get("lang", "ar")
@@ -432,7 +426,6 @@ def handle_inline_callbacks(call):
             except: pass
             return bot.send_message(call.message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
-    # --- الأزرار الشفافة الجديدة للوحة الإدارة السهلة ---
     if data.startswith("step_addkey_prod|"):
         prod = data.split("|")[1]
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -474,7 +467,6 @@ def handle_inline_callbacks(call):
             
         m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الذي تريد حذفه بدقة</b>،\nأو أرسل <b>رقمه التسلسلي</b> (مثال: أرسل رقم 1 لحذف أول مفتاح في المخزن):", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_delete_specific_key(msg, prod, plan))
-    # -------------------------------------------------------------
 
     elif data.startswith("adm_"):
         if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
@@ -589,12 +581,8 @@ def handle_inline_callbacks(call):
         
         try:
             pub_notif = f"🔥 <b>عملية بيع موثقة وناجحة!</b>\n\n📦 المنتج المشترى: <code>{prod}</code>\n⏱️ مدة الاشتراك الترخيصي: {plan}\n💰 الثمن المدفوع: {final_p} نقطة\n🤖 تم الشراء والتسليم الفوري عبر نظام البوت المتكامل."
-            bot.send_message(CHANNEL_USERNAME, pub_notif, parse_mode="HTML")
+            bot.send_message(CHANNEL_ID, pub_notif, parse_mode="HTML")
         except: pass
-
-# ==========================================
-# 6️⃣ دوال الاستعلام والتحكم المستقلة (الجديدة)
-# ==========================================
 
 def process_save_new_keys(message, prod, plan):
     keys = message.text.strip().split('\n')
@@ -673,7 +661,7 @@ def admin_confirm_fake_marketing(message):
     )
     
     try:
-        bot.send_message(CHANNEL_USERNAME, marketing_msg, parse_mode="HTML")
+        bot.send_message(CHANNEL_ID, marketing_msg, parse_mode="HTML")
         bot.send_message(message.chat.id, f"✅ تم تأكيد الإجراء بنجاح بعد كتابتك '{confirm_text}'! ونشر منشور التسويق الوهمي لـ <b>Flourite Cheat ({chosen_plan})</b> بقناتك الموثقة.")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ تعذر النشر بالقناة: {str(e)}")
