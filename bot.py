@@ -51,27 +51,27 @@ bot_config = load_json(DB_CONFIG, {
     "temp_req": {}
 })
 
-# تفعيل الإعدادات التلقائية للميزات الجديدة في حال عدم وجودها مسبقاً بقاعدة البيانات
+# تفعيل الإعدادات التلقائية للميزات الجديدة والمهام الديناميكية بقاعدة البيانات
 if "lootbox_price" not in bot_config: bot_config["lootbox_price"] = 50
 if "lootbox_chance" not in bot_config: bot_config["lootbox_chance"] = 25
 if "wheel_price" not in bot_config: bot_config["wheel_price"] = 40
 if "wheel_chance" not in bot_config: bot_config["wheel_chance"] = 5
+if "quests" not in bot_config:
+    bot_config["quests"] = {
+        "invite": {"target": 15, "reward": 150},
+        "buy": {"target": 7, "reward": 200},
+        "points": {"target": 5000, "reward": 350}
+    }
 save_json(DB_CONFIG, bot_config)
 
-# ✨ [ثوابت الميزات الجديدة] إعداد الرتب والمهام الصعبة والمتوسطة
+# ✨ إعداد الرتب الثابتة
 RANKS = {
-    "silver":  {"name": "🥈 رتبة الفضي",     "points_needed": 200,   "discount": 0.01},  # 1%
-    "gold":    {"name": "🥇 رتبة الذهبي",     "points_needed": 600,   "discount": 0.02},  # 2%
-    "diamond": {"name": "💎 رتبة الماسي",     "points_needed": 1500,  "discount": 0.03},  # 3%
-    "hero":    {"name": "⚡ رتبة الهيرو",     "points_needed": 3500,  "discount": 0.04},  # 4%
-    "master":  {"name": "👑 رتبة الماستر",    "points_needed": 7000,  "discount": 0.045}, # 4.5%
-    "legend":  {"name": "🏆 رتبة الأسطورة",   "points_needed": 12000, "discount": 0.05}   # 5% (الحد الأقصى المطلق للخصم)
-}
-
-HARD_QUESTS = {
-    "quest_invite": {"desc": "🔥 دعوة 15 صديقاً عبر رابط الإحالة الخاص بك", "target": 15, "reward": 150},
-    "quest_buy": {"desc": "🛒 إتمام 7 عمليات شراء ناجحة من المتجر", "target": 7, "reward": 200},
-    "quest_points": {"desc": "💎 تجميع 5000 نقطة إجمالاً في حسابك (مجمعة)", "target": 5000, "reward": 350}
+    "silver":  {"name": "🥈 رتبة الفضي",     "points_needed": 200,   "discount": 0.01},
+    "gold":    {"name": "🥇 رتبة الذهبي",     "points_needed": 600,   "discount": 0.02},
+    "diamond": {"name": "💎 رتبة الماسي",     "points_needed": 1500,  "discount": 0.03},
+    "hero":    {"name": "⚡ رتبة الهيرو",     "points_needed": 3500,  "discount": 0.04},
+    "master":  {"name": "👑 رتبة الماستر",    "points_needed": 7000,  "discount": 0.045},
+    "legend":  {"name": "🏆 رتبة الأسطورة",   "points_needed": 12000, "discount": 0.05}
 }
 
 user_last_msg = {}
@@ -153,27 +153,28 @@ def update_user_rank_and_quests(uid):
     u["rank_discount"] = current_discount
     
     completed = u.get("completed_quests", [])
+    q = bot_config.get("quests")
     
-    if "quest_invite" not in completed and u.get("invite_count", 0) >= HARD_QUESTS["quest_invite"]["target"]:
+    if "quest_invite" not in completed and u.get("invite_count", 0) >= q["invite"]["target"]:
         completed.append("quest_invite")
-        u["points"] += HARD_QUESTS["quest_invite"]["reward"]
-        u["accumulated_points"] += HARD_QUESTS["quest_invite"]["reward"]
-        try: bot.send_message(int(uid), f"🎉 تهانينا الأسطورية! لقد أنجزت المهمة الصعبة بنجاح:\n{HARD_QUESTS['quest_invite']['desc']}\n🎁 تم إضافة مكافأتك: <b>+{HARD_QUESTS['quest_invite']['reward']} نقطة!</b>", parse_mode="HTML")
+        u["points"] += q["invite"]["reward"]
+        u["accumulated_points"] += q["invite"]["reward"]
+        try: bot.send_message(int(uid), f"🎉 تهانينا! لقد أنجزت مهمة الدعوات بنجاح:\n👥 دعوة {q['invite']['target']} صديق\n🎁 تم إضافة مكافأتك: <b>+{q['invite']['reward']} نقطة!</b>", parse_mode="HTML")
         except: pass
         
     user_buys = sum(1 for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid)
-    if "quest_buy" not in completed and user_buys >= HARD_QUESTS["quest_buy"]["target"]:
+    if "quest_buy" not in completed and user_buys >= q["buy"]["target"]:
         completed.append("quest_buy")
-        u["points"] += HARD_QUESTS["quest_buy"]["reward"]
-        u["accumulated_points"] += HARD_QUESTS["quest_buy"]["reward"]
-        try: bot.send_message(int(uid), f"🎉 تهانينا الأسطورية! لقد أنجزت المهمة الصعبة بنجاح:\n{HARD_QUESTS['quest_buy']['desc']}\n🎁 تم إضافة مكافأتك: <b>+{HARD_QUESTS['quest_buy']['reward']} نقطة!</b>", parse_mode="HTML")
+        u["points"] += q["buy"]["reward"]
+        u["accumulated_points"] += q["buy"]["reward"]
+        try: bot.send_message(int(uid), f"🎉 تهانينا! لقد أنجزت مهمة المشتريات بنجاح:\n🛒 إتمام {q['buy']['target']} عمليات شراء\n🎁 تم إضافة مكافأتك: <b>+{q['buy']['reward']} نقطة!</b>", parse_mode="HTML")
         except: pass
         
-    if "quest_points" not in completed and acc_pts >= HARD_QUESTS["quest_points"]["target"]:
+    if "quest_points" not in completed and acc_pts >= q["points"]["target"]:
         completed.append("quest_points")
-        u["points"] += HARD_QUESTS["quest_points"]["reward"]
-        u["accumulated_points"] += HARD_QUESTS["quest_points"]["reward"]
-        try: bot.send_message(int(uid), f"🎉 تهانينا الأسطورية! لقد أنجزت المهمة الصعبة بنجاح:\n{HARD_QUESTS['quest_points']['desc']}\n🎁 تم إضافة مكافأتك: <b>+{HARD_QUESTS['quest_points']['reward']} نقطة!</b>", parse_mode="HTML")
+        u["points"] += q["points"]["reward"]
+        u["accumulated_points"] += q["points"]["reward"]
+        try: bot.send_message(int(uid), f"🎉 تهانينا! لقد أنجزت مهمة النقاط التراكمية بنجاح:\n💎 تجميع {q['points']['target']} نقطة\n🎁 تم إضافة مكافأتك: <b>+{q['points']['reward']} نقطة!</b>", parse_mode="HTML")
         except: pass
         
     u["completed_quests"] = completed
@@ -321,7 +322,8 @@ def get_admin_keyboard(page=1):
         markup.add(types.KeyboardButton("💡 طلبات المنتجات"), types.KeyboardButton("التالي للمشرف ➡️"))
     else:
         markup.add(types.KeyboardButton("⚙️ إعدادات صندوق الحظ"), types.KeyboardButton("⚙️ إعدادات عجلة الحظ"))
-        markup.add(types.KeyboardButton("🔄 واجهة المستخدم"), types.KeyboardButton("⬅️ سابق المشرف"))
+        markup.add(types.KeyboardButton("⚙️ إعدادات المهام الصعبة"), types.KeyboardButton("🔄 واجهة المستخدم"))
+        markup.add(types.KeyboardButton("⬅️ سابق المشرف"))
     return markup
 
 @bot.message_handler(commands=['start', 'id'])
@@ -418,17 +420,18 @@ def main_router(message):
         invite_cnt = u.get("invite_count", 0)
         user_buys = sum(1 for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid)
         acc_pts = u.get("accumulated_points", 0)
+        q = bot_config.get("quests")
         
-        msg = "🔥 <b>قائمة المهام الصعبة والانجازات التسويقية المتوفرة:</b>\n\n"
+        msg = "🔥 <b>قائمة المهام والانجازات المتوفرة بالمتجر:</b>\n\n"
         
-        st1 = "✅ مكتمل ومستلم" if "quest_invite" in completed else f"⏳ قيد التقدم ({invite_cnt}/15)"
-        msg += f"1️⃣ {HARD_QUESTS['quest_invite']['desc']}\n🎁 الجائزة: +150 نقطة | الحالة: <b>{st1}</b>\n──────────────────\n"
+        st1 = "✅ مكتمل ومستلم" if "quest_invite" in completed else f"⏳ قيد التقدم ({invite_cnt}/{q['invite']['target']})"
+        msg += f"1️⃣ 👥 دعوة {q['invite']['target']} صديقاً عبر رابط الإحالة الخاص بك\n🎁 الجائزة: +{q['invite']['reward']} نقطة | الحالة: <b>{st1}</b>\n──────────────────\n"
         
-        st2 = "✅ مكتمل ومستلم" if "quest_buy" in completed else f"⏳ قيد التقدم ({user_buys}/7)"
-        msg += f"2️⃣ {HARD_QUESTS['quest_buy']['desc']}\n🎁 الجائزة: +200 نقطة | الحالة: <b>{st2}</b>\n──────────────────\n"
+        st2 = "✅ مكتمل ومستلم" if "quest_buy" in completed else f"⏳ قيد التقدم ({user_buys}/{q['buy']['target']})"
+        msg += f"2️⃣ 🛒 إتمام {q['buy']['target']} عمليات شراء ناجحة من المتجر\n🎁 الجائزة: +{q['buy']['reward']} نقطة | الحالة: <b>{st2}</b>\n──────────────────\n"
         
-        st3 = "✅ مكتمل ومستلم" if "quest_points" in completed else f"⏳ قيد التقدم ({acc_pts}/5000)"
-        msg += f"3️⃣ {HARD_QUESTS['quest_points']['desc']}\n🎁 الجائزة: +350 نقطة | الحالة: <b>{st3}</b>\n"
+        st3 = "✅ مكتمل ومستلم" if "quest_points" in completed else f"⏳ قيد التقدم ({acc_pts}/{q['points']['target']})"
+        msg += f"3️⃣ 💎 تجميع {q['points']['target']} نقطة إجمالاً في حسابك (مجمعة)\n🎁 الجائزة: +{q['points']['reward']} نقطة | الحالة: <b>{st3}</b>\n"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
     elif txt == "🏆 رتبتي الحالية":
@@ -484,6 +487,23 @@ def main_router(message):
             types.InlineKeyboardButton("📈 النسبة الكبرى أعلى (+1%)", callback_data="cfg_wheel_chance_up"),
             types.InlineKeyboardButton("📉 النسبة الكبرى أقل (-1%)", callback_data="cfg_wheel_chance_down")
         )
+        bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
+
+    elif txt == "⚙️ إعدادات المهام الصعبة" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        q = bot_config["quests"]
+        msg = (f"⚙️ <b>لوحة التحكم بالمهام (تعديل مباشر بالأزرار وبدون أوامر):</b>\n\n"
+               f"1️⃣ <b>👥 مهمة الدعوات:</b>\n• الهدف الحالي: {q['invite']['target']} عضو | الجائزة: {q['invite']['reward']} نقطة\n\n"
+               f"2️⃣ <b>🛒 مهمة المبيعات:</b>\n• الهدف الحالي: {q['buy']['target']} شراء | الجائزة: {q['buy']['reward']} نقطة\n\n"
+               f"3️⃣ <b>💎 مهمة النقاط التراكمية:</b>\n• الهدف الحالي: {q['points']['target']} نقطة | الجائزة: {q['points']['reward']} نقطة\n\n"
+               f"💡 اضغط على الأزرار بالأسفل لتغيير الأهداف والجوائز فوراً وبكل سهولة:")
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.row(types.InlineKeyboardButton("👥 هدف الدعوات ➖", callback_data="cfg_q_inv_t_down"), types.InlineKeyboardButton("👥 هدف الدعوات ➕", callback_data="cfg_q_inv_t_up"))
+        markup.row(types.InlineKeyboardButton("🎁 جائزة الدعوات ➖", callback_data="cfg_q_inv_r_down"), types.InlineKeyboardButton("🎁 جائزة الدعوات ➕", callback_data="cfg_q_inv_r_up"))
+        markup.row(types.InlineKeyboardButton("🛒 هدف الشراء ➖", callback_data="cfg_q_buy_t_down"), types.InlineKeyboardButton("🛒 هدف الشراء ➕", callback_data="cfg_q_buy_t_up"))
+        markup.row(types.InlineKeyboardButton("🎁 جائزة الشراء ➖", callback_data="cfg_q_buy_r_down"), types.InlineKeyboardButton("🎁 جائزة الشراء ➕", callback_data="cfg_q_buy_r_up"))
+        markup.row(types.InlineKeyboardButton("💎 هدف النقاط ➖", callback_data="cfg_q_pts_t_down"), types.InlineKeyboardButton("💎 هدف النقاط ➕", callback_data="cfg_q_pts_t_up"))
+        markup.row(types.InlineKeyboardButton("🎁 جائزة النقاط ➖", callback_data="cfg_q_pts_r_down"), types.InlineKeyboardButton("🎁 جائزة النقاط ➕", callback_data="cfg_q_pts_r_up"))
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
     elif txt in (LOCALES[l]["id_btn"] for l in LOCALES):
@@ -681,6 +701,43 @@ def handle_inline_callbacks(call):
             try: bot.answer_callback_query(call.id, LOCALES[lang]["must_join"], show_alert=True)
             except: pass
             return bot.send_message(call.message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
+
+    # 🎮 نظام الأزرار السريعة لتعديل المهام (➕ و ➖)
+    if data.startswith("cfg_q_"):
+        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+            return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول.", show_alert=True)
+        
+        parts = data.split("_")
+        task_type = parts[2] # inv, buy, pts
+        field_type = parts[3] # t (target) or r (reward)
+        action = parts[4] # up or down
+        
+        t_key = "invite" if task_type == "inv" else ("buy" if task_type == "buy" else "points")
+        f_key = "target" if field_type == "t" else "reward"
+        
+        # مقدار القفزة التلقائية لكل ضغطة زر
+        step = 1
+        if t_key == "points" and f_key == "target": step = 250
+        elif t_key == "points" and f_key == "reward": step = 50
+        elif f_key == "reward": step = 10
+        
+        if action == "up":
+            bot_config["quests"][t_key][f_key] += step
+        else:
+            bot_config["quests"][t_key][f_key] = max(1, bot_config["quests"][t_key][f_key] - step)
+            
+        save_json(DB_CONFIG, bot_config)
+        bot.answer_callback_query(call.id, "⚙️ تم تحديث المهمة!")
+        
+        q = bot_config["quests"]
+        msg = (f"⚙️ <b>لوحة التحكم بالمهام (تعديل مباشر بالأزرار وبدون أوامر):</b>\n\n"
+               f"1️⃣ <b>👥 مهمة الدعوات:</b>\n• الهدف الحالي: {q['invite']['target']} عضو | الجائزة: {q['invite']['reward']} نقطة\n\n"
+               f"2️⃣ <b>🛒 مهمة المبيعات:</b>\n• الهدف الحالي: {q['buy']['target']} شراء | الجائزة: {q['buy']['reward']} نقطة\n\n"
+               f"3️⃣ <b>💎 مهمة النقاط التراكمية:</b>\n• الهدف الحالي: {q['points']['target']} نقطة | الجائزة: {q['points']['reward']} نقطة\n\n"
+               f"💡 اضغط على الأزرار بالأسفل لتغيير الأهداف والجوائز فوراً وبكل سهولة:")
+        try: bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=call.message.reply_markup, parse_mode="HTML")
+        except: pass
+        return
 
     if data.startswith("cfg_box_") or data.startswith("cfg_wheel_"):
         if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
@@ -1246,5 +1303,5 @@ def admin_edit_invite_reward(message):
         bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل البوت بنظام الأزرار المتسلسلة التفاعلية للمشرفين والميزات التسويقية والألعاب بنجاح...")
+    print("🚀 تم تشغيل البوت بنظام الأزرار والخانات التفاعلية لإدارة المهام والألعاب بنجاح...")
     bot.infinity_polling()
