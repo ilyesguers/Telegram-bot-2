@@ -12,11 +12,11 @@ API_TOKEN = "8868383649:AAEVxFynrH7u_M8e9-wjxo6h8-NP8dtWNUQ"
 bot = telebot.TeleBot(API_TOKEN)
 
 ADMIN_PRIMARY = 5145154527
-ADMIN_SECONDARY = 88782290572
+ADMIN_SECONDARY = 8878290572
 
-# [نظام الاشتراك الجديد بالآيدي والرابط]
-CHANNEL_ID = -1001763276411
-CHANNEL_LINK = "https://t.me/+5mXhqYWcv89lZGE0"
+# [تحديث آيدي ورابط القناة العامة الجديدة بالتعديل الأخير]
+CHANNEL_ID = -1002206121430
+CHANNEL_LINK = "https://t.me/eveee7x_4ft"
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
@@ -72,7 +72,6 @@ def is_user_banned(uid):
             save_json(DB_USERS, users)
     return False
 
-# دالة التحقق المعدلة باستخدام ID القناة
 def check_channel_join(uid):
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]: return True
     try:
@@ -435,7 +434,7 @@ def handle_inline_callbacks(call):
 
     elif data.startswith("step_addkey_plan|"):
         _, prod, plan = data.split("|")
-        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الآن:</b>\n(ملاحظة: يمكنك إرسال مفتاح واحد، أو عدة مفاتيح في رسالة واحدة بحيث يكون كل مفتاح في سطر جديد)", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الآن:</b>\n(يمكنك إرسال مفتاح واحد، أو عدة مفاتيح في رسالة واحدة بحيث يكون كل مفتاح في سطر جديد)", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_save_new_keys(msg, prod, plan))
 
     elif data.startswith("step_price_prod|"):
@@ -448,7 +447,7 @@ def handle_inline_callbacks(call):
 
     elif data.startswith("step_price_plan|"):
         _, prod, plan = data.split("|")
-        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل السعر الجديد الآن (أرقام فقط):</b>", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+        m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل السعر الجديد الآن (أرقام فقط):</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_save_new_price(msg, prod, plan))
 
     elif data.startswith("step_delkey_prod|"):
@@ -725,7 +724,7 @@ def admin_create_code_func(message):
         redeem_codes[code] = int(pts)
         save_json(DB_REDEEM, redeem_codes)
         bot.send_message(message.chat.id, f"🎫 تم إنشاء كود شحن فعال:\n• الكود: <code>{code}</code>\n• قيمته: {pts} نقطة", parse_mode="HTML")
-    except: bot.send_message(message.chat.id, "❌ خطأ! اكتب الكود ثم مسافة then القيمة.")
+    except: bot.send_message(message.chat.id, "❌ خطأ! اكتب الكود ثم مسافة ثم القيمة.")
 
 def admin_set_discount_func(message):
     try:
