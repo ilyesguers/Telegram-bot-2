@@ -213,7 +213,11 @@ def handle_commands(message):
     if is_user_banned(uid):
         return bot.send_message(message.chat.id, "❌ نعتذر، حسابك محظور حالياً.")
 
+    # 🔴 [تعديل] تحقق الاشتراك الإجباري عند طلب أمر الايدي /id
     if message.text.startswith('/id'):
+        if not check_channel_join(uid):
+            lang = users.get(uid, {}).get("lang", "ar")
+            return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
         bot.send_message(message.chat.id, f"🆔 الآيدي الخاص بك هو: <code>{uid}</code>", parse_mode="HTML")
         return
 
@@ -227,6 +231,11 @@ def handle_commands(message):
             save_json(DB_USERS, users)
             try: bot.send_message(int(inviter_id), f"🔗 لقد إنضم مستخدم جديد عن طريق رابط الإحالة الخاص بك! حصلت على {bot_config['invite_reward']} نقاط.")
             except: pass
+
+    # 🔴 [تعديل] تحقق الاشتراك الإجباري عند إدخال أمر البداية /start لمنع الدخول للقائمة واللغات دون اشتراك
+    if not check_channel_join(uid):
+        lang = users.get(uid, {}).get("lang", "ar")
+        return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
     bot.send_message(message.chat.id, LOCALES["ar"]["welcome"], reply_markup=get_lang_inline())
 
@@ -414,6 +423,14 @@ def handle_inline_callbacks(call):
     uid = str(call.from_user.id)
     register_user(call.from_user)
     data = call.data
+
+    # 🔴 [تعديل] منع الاستجابة لأي زر شفاف إذا غادر المستخدم القناة (باستثناء زر التحقق)
+    if data != "check_join":
+        if not check_channel_join(uid):
+            lang = users.get(uid, {}).get("lang", "ar")
+            try: bot.answer_callback_query(call.id, LOCALES[lang]["must_join"], show_alert=True)
+            except: pass
+            return bot.send_message(call.message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
     # --- الأزرار الشفافة الجديدة للوحة الإدارة السهلة ---
     if data.startswith("step_addkey_prod|"):
@@ -720,7 +737,7 @@ def admin_create_code_func(message):
         redeem_codes[code] = int(pts)
         save_json(DB_REDEEM, redeem_codes)
         bot.send_message(message.chat.id, f"🎫 تم إنشاء كود شحن فعال:\n• الكود: <code>{code}</code>\n• قيمته: {pts} نقطة", parse_mode="HTML")
-    except: bot.send_message(message.chat.id, "❌ خطأ! اكتب الكود ثم مسافة ثم القيمة.")
+    except: bot.send_message(message.chat.id, "❌ خطأ! اكتب الكود ثم مسافة then القيمة.")
 
 def admin_set_discount_func(message):
     try:
