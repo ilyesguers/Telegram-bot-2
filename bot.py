@@ -14,9 +14,7 @@ bot = telebot.TeleBot(API_TOKEN)
 ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 8878290572
 
-# [تحديث آيدي ورابط القناة العامة الجديدة بالتعديل الأخير]
-# [تفعيل القناة العامة الجديدة باستخدام الآيدي الرقمي مباشرة]
-CHANNEL_ID = -1003763276411  # 👈 ضع الرقم مباشرة بدون علامات تنصيص ""
+CHANNEL_ID = -1003763276411  
 CHANNEL_LINK = "https://t.me/evee7x"
 
 DB_USERS = "users_data.json"
@@ -52,6 +50,29 @@ bot_config = load_json(DB_CONFIG, {
     "product_requests": {},
     "temp_req": {}
 })
+
+# تفعيل الإعدادات التلقائية للميزات الجديدة في حال عدم وجودها مسبقاً بقاعدة البيانات
+if "lootbox_price" not in bot_config: bot_config["lootbox_price"] = 50
+if "lootbox_chance" not in bot_config: bot_config["lootbox_chance"] = 25
+if "wheel_price" not in bot_config: bot_config["wheel_price"] = 40
+if "wheel_chance" not in bot_config: bot_config["wheel_chance"] = 5
+save_json(DB_CONFIG, bot_config)
+
+# ✨ [ثوابت الميزات الجديدة] إعداد الرتب والمهام الصعبة والمتوسطة
+RANKS = {
+    "silver":  {"name": "🥈 رتبة الفضي",     "points_needed": 200,   "discount": 0.01},  # 1%
+    "gold":    {"name": "🥇 رتبة الذهبي",     "points_needed": 600,   "discount": 0.02},  # 2%
+    "diamond": {"name": "💎 رتبة الماسي",     "points_needed": 1500,  "discount": 0.03},  # 3%
+    "hero":    {"name": "⚡ رتبة الهيرو",     "points_needed": 3500,  "discount": 0.04},  # 4%
+    "master":  {"name": "👑 رتبة الماستر",    "points_needed": 7000,  "discount": 0.045}, # 4.5%
+    "legend":  {"name": "🏆 رتبة الأسطورة",   "points_needed": 12000, "discount": 0.05}   # 5% (الحد الأقصى المطلق للخصم)
+}
+
+HARD_QUESTS = {
+    "quest_invite": {"desc": "🔥 دعوة 15 صديقاً عبر رابط الإحالة الخاص بك", "target": 15, "reward": 150},
+    "quest_buy": {"desc": "🛒 إتمام 7 عمليات شراء ناجحة من المتجر", "target": 7, "reward": 200},
+    "quest_points": {"desc": "💎 تجميع 5000 نقطة إجمالاً في حسابك (مجمعة)", "target": 5000, "reward": 350}
+}
 
 user_last_msg = {}
 def check_spam(uid):
@@ -95,9 +116,76 @@ def register_user(user):
             "lang": "ar",
             "banned": False,
             "banned_until": None,
-            "is_admin": uid in [str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)]
+            "is_admin": uid in [str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)],
+            # قيم افتراضية للرتب والمهام
+            "rank": "عضو عادي 🔹",
+            "rank_discount": 0.0,
+            "accumulated_points": 0,
+            "completed_quests": []
         }
         save_json(DB_USERS, users)
+    else:
+        # فحص الحقول الجديدة للمستخدمين القدامى وتثبيتها تفادياً للأخطاء
+        updated = False
+        if "rank" not in users[uid]:
+            users[uid]["rank"] = "عضو عادي 🔹"
+            users[uid]["rank_discount"] = 0.0
+            updated = True
+        if "accumulated_points" not in users[uid]:
+            users[uid]["accumulated_points"] = users[uid].get("points", 0)
+            updated = True
+        if "completed_quests" not in users[uid]:
+            users[uid]["completed_quests"] = []
+            updated = True
+        if updated: save_json(DB_USERS, users)
+
+# نظام فحص وتحديث الرتب والمهام الصعبة تلقائياً للعميل
+def update_user_rank_and_quests(uid):
+    uid = str(uid)
+    if uid not in users: return
+    u = users[uid]
+    
+    # 1. تحديث الرتبة بناءً على النقاط التراكمية التاريخية المجمعة
+    acc_pts = u.get("accumulated_points", 0)
+    current_rank = "عضو عادي 🔹"
+    current_discount = 0.0
+    for r_key, r_val in RANKS.items():
+        if acc_pts >= r_val["points_needed"]:
+            current_rank = r_val["name"]
+            current_discount = r_val["discount"]
+    u["rank"] = current_rank
+    u["rank_discount"] = current_discount
+    
+    # 2. تحديث وفحص المهام الصعبة
+    completed = u.get("completed_quests", [])
+    
+    # مهمة الدعوات
+    if "quest_invite" not in completed and u.get("invite_count", 0) >= HARD_QUESTS["quest_invite"]["target"]:
+        completed.append("quest_invite")
+        u["points"] += HARD_QUESTS["quest_invite"]["reward"]
+        u["accumulated_points"] += HARD_QUESTS["quest_invite"]["reward"]
+        try: bot.send_message(int(uid), f"🎉 تهانينا الأسطورية! لقد أنجزت المهمة الصعبة بنجاح:\n{HARD_QUESTS['quest_invite']['desc']}\n🎁 تم إضافة مكافأتك: <b>+{HARD_QUESTS['quest_invite']['reward']} نقطة!</b>", parse_mode="HTML")
+        except: pass
+        
+    # مهمة المبيعات
+    user_buys = sum(1 for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid)
+    if "quest_buy" not in completed and user_buys >= HARD_QUESTS["quest_buy"]["target"]:
+        completed.append("quest_buy")
+        u["points"] += HARD_QUESTS["quest_buy"]["reward"]
+        u["accumulated_points"] += HARD_QUESTS["quest_buy"]["reward"]
+        try: bot.send_message(int(uid), f"🎉 تهانينا الأسطورية! لقد أنجزت المهمة الصعبة بنجاح:\n{HARD_QUESTS['quest_buy']['desc']}\n🎁 تم إضافة مكافأتك: <b>+{HARD_QUESTS['quest_buy']['reward']} نقطة!</b>", parse_mode="HTML")
+        except: pass
+        
+    # مهمة النقاط التراكمية المجمعة
+    if "quest_points" not in completed and acc_pts >= HARD_QUESTS["quest_points"]["target"]:
+        completed.append("quest_points")
+        u["points"] += HARD_QUESTS["quest_points"]["reward"]
+        u["accumulated_points"] += HARD_QUESTS["quest_points"]["reward"]
+        try: bot.send_message(int(uid), f"🎉 تهانينا الأسطورية! لقد أنجزت المهمة الصعبة بنجاح:\n{HARD_QUESTS['quest_points']['desc']}\n🎁 تم إضافة مكافأتك: <b>+{HARD_QUESTS['quest_points']['reward']} نقطة!</b>", parse_mode="HTML")
+        except: pass
+        
+    u["completed_quests"] = completed
+    save_json(DB_USERS, users)
 
 def generate_fake_key():
     chars = string.ascii_uppercase + string.digits
@@ -188,7 +276,7 @@ LOCALES = {
         "req_prod_btn": "💡 Solicitar Producto",
         "lang_btn": "🌐 Cambiar Idioma",
         "admin_btn": "👑 Funciones de Admin",
-        "maint_msg": "🛠️ El modo de mantenimiento está activo actualmente."
+        "maint_msg": "🛠️ El mode de mantenimiento está activo actualmente."
     }
 }
 
@@ -209,30 +297,41 @@ def get_join_inline(lang):
     markup.add(types.InlineKeyboardButton(LOCALES[lang]["check_btn"], callback_data="check_join"))
     return markup
 
-def get_main_keyboard(uid, lang):
+# 🔄 تعديل لوحة المفاتيح للمستخدم لإضافة صفحات التنقل ومنع الامتلاء
+def get_main_keyboard(uid, lang, page=1):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     t = LOCALES[lang]
-    markup.add(types.KeyboardButton(t["id_btn"]), types.KeyboardButton(t["balance_btn"]))
-    markup.add(types.KeyboardButton(t["shop_btn"]), types.KeyboardButton(t["redeem_btn"]))
-    markup.add(types.KeyboardButton(t["invite_btn"]), types.KeyboardButton(t["bonus_btn"]))
-    markup.add(types.KeyboardButton(t["support_btn"]), types.KeyboardButton(t["req_prod_btn"]))
-    markup.add(types.KeyboardButton(t["lang_btn"]))
-    if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users.get(str(uid), {}).get("is_admin", False):
-        markup.add(types.KeyboardButton(t["admin_btn"]))
+    if page == 1:
+        markup.add(types.KeyboardButton(t["id_btn"]), types.KeyboardButton(t["balance_btn"]))
+        markup.add(types.KeyboardButton(t["shop_btn"]), types.KeyboardButton(t["redeem_btn"]))
+        markup.add(types.KeyboardButton(t["invite_btn"]), types.KeyboardButton(t["bonus_btn"]))
+        markup.add(types.KeyboardButton(t["support_btn"]), types.KeyboardButton(t["req_prod_btn"]))
+        markup.add(types.KeyboardButton(t["lang_btn"]), types.KeyboardButton("التالي ➡️"))
+        if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users.get(str(uid), {}).get("is_admin", False):
+            markup.add(types.KeyboardButton(t["admin_btn"]))
+    else:
+        markup.add(types.KeyboardButton("🎰 صندوق الحظ"), types.KeyboardButton("🎡 عجلة الحظ"))
+        markup.add(types.KeyboardButton("🔥 المهام الصعبة"), types.KeyboardButton("🏆 رتبتي الحالية"))
+        markup.add(types.KeyboardButton("⬅️ السابق"))
     return markup
 
-def get_admin_keyboard():
+# 🔄 تعديل لوحة مفاتيح الأدمن لإضافة صفحات التنقل لتفادي الاكتظاظ
+def get_admin_keyboard(page=1):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(types.KeyboardButton("➕ إضافة منتج"), types.KeyboardButton("❌ حذف منتج"))
-    markup.add(types.KeyboardButton("🔑 إضافة مفاتيح"), types.KeyboardButton("👁️ استعراض المفاتيح"))
-    markup.add(types.KeyboardButton("🔢 حذف مفتاح معين"), types.KeyboardButton("🗑️ مسح جميع المفاتيح"))
-    markup.add(types.KeyboardButton("💵 إدارة الأسعار"), types.KeyboardButton("👥 إدارة الأعضاء"))
-    markup.add(types.KeyboardButton("💰 شحن الأعضاء"), types.KeyboardButton("🎫 إنشاء أكواد الشحن"))
-    markup.add(types.KeyboardButton("🔥 التخفيضات"), types.KeyboardButton("📢 الإذاعة الشاملة"))
-    markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
-    markup.add(types.KeyboardButton("✨ تعديل المكافأة اليومية"), types.KeyboardButton("🔗 تعديل نقاط الدعوة"))
-    markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🎫 إدارة التذاكر"))
-    markup.add(types.KeyboardButton("💡 طلبات المنتجات"), types.KeyboardButton("🔄 واجهة المستخدم"))
+    if page == 1:
+        markup.add(types.KeyboardButton("➕ إضافة منتج"), types.KeyboardButton("❌ حذف منتج"))
+        markup.add(types.KeyboardButton("🔑 إضافة مفاتيح"), types.KeyboardButton("👁️ استعراض المفاتيح"))
+        markup.add(types.KeyboardButton("🔢 حذف مفتاح معين"), types.KeyboardButton("🗑️ مسح جميع المفاتيح"))
+        markup.add(types.KeyboardButton("💵 إدارة الأسعار"), types.KeyboardButton("👥 إدارة الأعضاء"))
+        markup.add(types.KeyboardButton("💰 شحن الأعضاء"), types.KeyboardButton("🎫 إنشاء أكواد الشحن"))
+        markup.add(types.KeyboardButton("🔥 التخفيضات"), types.KeyboardButton("📢 الإذاعة الشاملة"))
+        markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
+        markup.add(types.KeyboardButton("✨ تعديل المكافأة اليومية"), types.KeyboardButton("🔗 تعديل نقاط الدعوة"))
+        markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🎫 إدارة التذاكر"))
+        markup.add(types.KeyboardButton("💡 طلبات المنتجات"), types.KeyboardButton("التالي للمشرف ➡️"))
+    else:
+        markup.add(types.KeyboardButton("⚙️ إعدادات صندوق الحظ"), types.KeyboardButton("⚙️ إعدادات عجلة الحظ"))
+        markup.add(types.KeyboardButton("🔄 واجهة المستخدم"), types.KeyboardButton("⬅️ سابق المشرف"))
     return markup
 
 @bot.message_handler(commands=['start', 'id'])
@@ -257,8 +356,10 @@ def handle_commands(message):
         if inviter_id in users and inviter_id != uid:
             users[uid]["invited_by"] = inviter_id
             users[inviter_id]["points"] += bot_config["invite_reward"]
+            users[inviter_id]["accumulated_points"] += bot_config["invite_reward"] # إضافة للنقاط المجمعة
             users[inviter_id]["invite_count"] += 1
             save_json(DB_USERS, users)
+            update_user_rank_and_quests(inviter_id) # تحديث فوري للرانك والمهام
             try: bot.send_message(int(inviter_id), f"🔗 لقد إنضم مستخدم جديد عن طريق رابط الإحالة الخاص بك! حصلت على {bot_config['invite_reward']} نقاط.")
             except: pass
 
@@ -286,12 +387,126 @@ def main_router(message):
     if bot_config["maintenance"] and not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
         return bot.send_message(message.chat.id, LOCALES[lang]["maint_msg"])
 
-    if txt in [LOCALES[l]["id_btn"] for l in LOCALES]:
+    # 🔄 مستقبلات الأزرار الصفحية الجديدة للتنقل بدون امتلاء الخانات
+    if txt == "التالي ➡️":
+        return bot.send_message(message.chat.id, "🎡 ميزات التسلية والمهام التسويقية الإبداعية المضافة حديثاً للمتجر:", reply_markup=get_main_keyboard(uid, lang, page=2))
+        
+    elif txt == "⬅️ السابق":
+        return bot.send_message(message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
+        
+    elif txt == "التالي للمشرف ➡️" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        return bot.send_message(message.chat.id, "⚙️ لوحة تحكم إعدادات الألعاب التسويقية الجديدة لمشرفي النظام:", reply_markup=get_admin_keyboard(page=2))
+        
+    elif txt == "⬅️ سابق المشرف" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        return bot.send_message(message.chat.id, "👑 لوحة التحكم والميزات الرئيسية للإدارة:", reply_markup=get_admin_keyboard(page=1))
+
+    # 🔥 مستقبلات واجهات الألعاب والترقيات الجديدة للمستخدمين
+    elif txt == "🎰 صندوق الحظ":
+        price = bot_config.get("lootbox_price", 50)
+        chance = bot_config.get("lootbox_chance", 25)
+        msg = (f"🎰 <b>صناديق الحظ العشوائية (Loot Boxes):</b>\n\n"
+               f"قم بفتح صندوق حظ عشوائي الآن وجرب مغامرة الحظ الحقيقية لتكسب مئات النقاط الفورية!\n\n"
+               f"💸 سعر فتح الصندوق: <b>{price} نقطة</b>\n"
+               f"📈 نسبة الفوز المقررة: <b>{chance}%</b>\n\n"
+               f"🎁 الجائزة الكبرى المخبأة: <b>شحن عشوائي فوري من +100 إلى +500 نقطة!</b>")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🛒 فتح صندوق حظ الآن", callback_data="game_buy_lootbox"))
+        bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
+
+    elif txt == "🎡 عجلة الحظ":
+        price = bot_config.get("wheel_price", 40)
+        msg = (f"🎡 <b>عجلة الحظ المدفوعة التفاعلية:</b>\n\n"
+               f"أدر العجلة الآن وشاهد حظك وهو يتحرك مباشرة أمامك للربح!\n\n"
+               f"💸 سعر تدوير اللفة: <b>{price} نقطة</b>\n"
+               f"🎁 الجوائز المتاحة بالعجلة: 0 Pts | 10 Pts | 20 Pts | مساوي سعر اللفة | 🏆 <b>الجائزة الكبرى (+1000 نقطة كاملة)</b>")
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("💫 تدوير عجلة الحظ الآن", callback_data="game_spin_wheel"))
+        bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
+
+    elif txt == "🔥 المهام الصعبة":
+        update_user_rank_and_quests(uid)
+        u = users[uid]
+        completed = u.get("completed_quests", [])
+        invite_cnt = u.get("invite_count", 0)
+        user_buys = sum(1 for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid)
+        acc_pts = u.get("accumulated_points", 0)
+        
+        msg = "🔥 <b>قائمة المهام الصعبة والانجازات التسويقية المتوفرة:</b>\n\n"
+        
+        st1 = "✅ مكتمل ومستلم" if "quest_invite" in completed else f"⏳ قيد التقدم ({invite_cnt}/15)"
+        msg += f"1️⃣ {HARD_QUESTS['quest_invite']['desc']}\n🎁 الجائزة: +150 نقطة | الحالة: <b>{st1}</b>\n──────────────────\n"
+        
+        st2 = "✅ مكتمل ومستلم" if "quest_buy" in completed else f"⏳ قيد التقدم ({user_buys}/7)"
+        msg += f"2️⃣ {HARD_QUESTS['quest_buy']['desc']}\n🎁 الجائزة: +200 نقطة | الحالة: <b>{st2}</b>\n──────────────────\n"
+        
+        st3 = "✅ مكتمل ومستلم" if "quest_points" in completed else f"⏳ قيد التقدم ({acc_pts}/5000)"
+        msg += f"3️⃣ {HARD_QUESTS['quest_points']['desc']}\n🎁 الجائزة: +350 نقطة | الحالة: <b>{st3}</b>\n"
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")
+
+    elif txt == "🏆 رتبتي الحالية":
+        update_user_rank_and_quests(uid)
+        u = users[uid]
+        r_name = u.get("rank", "عضو عادي 🔹")
+        r_disc = int(u.get("rank_discount", 0.0) * 100)
+        acc_pts = u.get("accumulated_points", 0)
+        
+        msg = (f"🏆 <b>نظام ترقية رتب العميل والمكافآت التلقائي:</b>\n\n"
+               f"• رتبتك الحالية في النظام: <b>{r_name}</b>\n"
+               f"• نسبة خصم الرتبة الثابت لك: <b>{r_disc}%</b> من سعر أي منتج!\n"
+               f"• مجموع نقاطك التراكمية التاريخية: <code>{acc_pts}</code> نقطة\n\n"
+               f"📋 <b>قائمة ترتيب مستويات رانك المتجر وعتباتها:</b>\n"
+               f"🥈 رتبة الفضي: تبدأ من 200 نقطة مجمعة (خصم 1%)\n"
+               f"🥇 رتبة الذهبي: تبدأ من 600 نقطة مجمعة (خصم 2%)\n"
+               f"💎 رتبة الماسي: تبدأ من 1500 نقطة مجمعة (خصم 3%)\n"
+               f"⚡ رتبة الهيرو: تبدأ من 3500 نقطة مجمعة (خصم 4%)\n"
+               f"👑 رتبة الماستر: تبدأ من 7000 نقطة مجمعة (خصم 4.5%)\n"
+               f"🏆 رتبة الأسطورة: تبدأ من 12000 نقطة مجمعة (خصم 5% وهو أقصى حد خصم مقرر)\n\n"
+               f"💡 نصيحة: استمر في تجميع وشحن النقاط لرفع رانك حسابك آلياً والاستمتاع بالخصومات الثابتة!")
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")
+
+    # 🔥 مستقبلات لوحات الضبط السريعة المخصصة للأدمن في الصفحة 2 (خانات أزرار فقط)
+    elif txt == "⚙️ إعدادات صندوق الحظ" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        price = bot_config.get("lootbox_price", 50)
+        chance = bot_config.get("lootbox_chance", 25)
+        msg = (f"⚙️ <b>لوحة ضبط صندوق الحظ (التحكم بالخانات بدون أوامر):</b>\n\n"
+               f"• سعر الصندوق الحالي: <b>{price} نقطة</b>\n"
+               f"• نسبة فوز الجائزة الكبرى: <b>{chance}%</b>")
+        markup = types.InlineKeyboardMarkup()
+        markup.row(
+            types.InlineKeyboardButton("➕ سعر أعلى (+5)", callback_data="cfg_box_price_up"),
+            types.InlineKeyboardButton("➖ سعر أقل (-5)", callback_data="cfg_box_price_down")
+        )
+        markup.row(
+            types.InlineKeyboardButton("📈 نسبة أعلى (+5%)", callback_data="cfg_box_chance_up"),
+            types.InlineKeyboardButton("📉 نسبة أقل (-5%)", callback_data="cfg_box_chance_down")
+        )
+        bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
+
+    elif txt == "⚙️ إعدادات عجلة الحظ" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        price = bot_config.get("wheel_price", 40)
+        chance = bot_config.get("wheel_chance", 5)
+        msg = (f"⚙️ <b>لوحة ضبط عجلة الحظ المخصصة (التحكم بالخانات بدون أوامر):</b>\n\n"
+               f"• سعر لفة العجلة الحالي: <b>{price} نقطة</b>\n"
+               f"• نسبة فوز الجائزة الكبرى العشوائية: <b>{chance}%</b>")
+        markup = types.InlineKeyboardMarkup()
+        markup.row(
+            types.InlineKeyboardButton("➕ سعر اللفة أعلى (+5)", callback_data="cfg_wheel_price_up"),
+            types.InlineKeyboardButton("➖ سعر اللفة أقل (-5)", callback_data="cfg_wheel_price_down")
+        )
+        markup.row(
+            types.InlineKeyboardButton("📈 النسبة الكبرى أعلى (+1%)", callback_data="cfg_wheel_chance_up"),
+            types.InlineKeyboardButton("📉 النسبة الكبرى أقل (-1%)", callback_data="cfg_wheel_chance_down")
+        )
+        bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
+
+    # [بقية الميزات الأصلية كما هي تماماً]
+    elif txt in [LOCALES[l]["id_btn"] for l in LOCALES]:
         bot.send_message(message.chat.id, f"🆔 الآيدي الخاص بك: <code>{uid}</code>", parse_mode="HTML")
 
-    elif txt in [LOCALES[l]["balance_btn"] for l in LOCALES]:
+    elif txt in [LOCALES[l]["balance_btn"] for l in locales_key := LOCALES]:
         u = users[uid]
-        msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• رصيد النقاط: {u['points']} نقطة\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
+        update_user_rank_and_quests(uid)
+        msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• رصيد النقاط: {u['points']} نقطة\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
     elif txt in [LOCALES[l]["lang_btn"] for l in LOCALES]:
@@ -305,7 +520,9 @@ def main_router(message):
         else:
             users[uid]["last_claim"] = now.isoformat()
             users[uid]["points"] += bot_config["daily_bonus"]
+            users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + bot_config["daily_bonus"]
             save_json(DB_USERS, users)
+            update_user_rank_and_quests(uid)
             bot.send_message(message.chat.id, f"✨ تم استلام مكافأتك اليومية بنجاح وهي +{bot_config['daily_bonus']} نقاط!")
 
     elif txt in [LOCALES[l]["invite_btn"] for l in LOCALES]:
@@ -318,7 +535,6 @@ def main_router(message):
         bot.register_next_step_handler(m, process_redeem_user)
 
     elif txt in [LOCALES[l]["support_btn"] for l in LOCALES]:
-        # [نظام التثبيت والتأكيد لفتح التذكرة لتفادي الخطأ]
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton("✅ نعم، فتح تذكرة", callback_data="confirm_open_ticket"),
@@ -339,11 +555,11 @@ def main_router(message):
         bot.send_message(message.chat.id, "🛍️ <b>متجر المنتجات</b>\nالرجاء اختيار المنتج المراد تصفحه:", reply_markup=markup, parse_mode="HTML")
 
     elif txt in [LOCALES[l]["admin_btn"] for l in LOCALES] and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
-        bot.send_message(message.chat.id, "👑 مرحباً بك في لوحة تحكم ميزات الإدارة للمتجر:", reply_markup=get_admin_keyboard())
+        bot.send_message(message.chat.id, "👑 مرحباً بك في لوحة تحكم ميزات الإدارة للمتجر:", reply_markup=get_admin_keyboard(page=1))
 
     elif int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False):
         if txt == "🔄 واجهة المستخدم":
-            bot.send_message(message.chat.id, "🔙 تم الانتقال إلى واجهة المستخدم العادية.", reply_markup=get_main_keyboard(uid, lang))
+            bot.send_message(message.chat.id, "🔙 تم الانتقال إلى واجهة المستخدم العادية.", reply_markup=get_main_keyboard(uid, lang, page=1))
 
         elif txt == "🎫 إدارة التذاكر":
             tickets = bot_config.get("tickets", {})
@@ -480,7 +696,111 @@ def handle_inline_callbacks(call):
             except: pass
             return bot.send_message(call.message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
-    if data.startswith("step_addkey_prod|"):
+    # ⚙️ معالجة ضغطات أزرار التحكم بصندوق وعجلة الحظ للأدمن (تعديل خانات فوري)
+    if data.startswith("cfg_box_") or data.startswith("cfg_wheel_"):
+        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+            return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول لاستخدام هذا الإجراء.", show_alert=True)
+            
+        if data == "cfg_box_price_up": bot_config["lootbox_price"] += 5
+        elif data == "cfg_box_price_down": bot_config["lootbox_price"] = max(5, bot_config["lootbox_price"] - 5)
+        elif data == "cfg_box_chance_up": bot_config["lootbox_chance"] = min(100, bot_config["lootbox_chance"] + 5)
+        elif data == "cfg_box_chance_down": bot_config["lootbox_chance"] = max(1, bot_config["lootbox_chance"] - 5)
+        
+        elif data == "cfg_wheel_price_up": bot_config["wheel_price"] += 5
+        elif data == "cfg_wheel_price_down": bot_config["wheel_price"] = max(5, bot_config["wheel_price"] - 5)
+        elif data == "cfg_wheel_chance_up": bot_config["wheel_chance"] = min(100, bot_config["wheel_chance"] + 1)
+        elif data == "cfg_wheel_chance_down": bot_config["wheel_chance"] = max(1, bot_config["wheel_chance"] - 1)
+        
+        save_json(DB_CONFIG, bot_config)
+        bot.answer_callback_query(call.id, "⚙️ تم تحديث البيانات بنجاح!")
+        
+        # إعادة بناء الرسالة المحدثة مباشرة للأدمن
+        if "box" in data:
+            msg = f"⚙️ <b>لوحة ضبط صندوق الحظ (التحكم بالخانات بدون أوامر):</b>\n\n• سعر الصندوق الحالي: <b>{bot_config['lootbox_price']} نقطة</b>\n• نسبة فوز الجائزة الكبرى: <b>{bot_config['lootbox_chance']}%</b>"
+            markup = types.InlineKeyboardMarkup()
+            markup.row(types.InlineKeyboardButton("➕ سعر أعلى (+5)", callback_data="cfg_box_price_up"), types.InlineKeyboardButton("➖ سعر أقل (-5)", callback_data="cfg_box_price_down"))
+            markup.row(types.InlineKeyboardButton("📈 نسبة أعلى (+5%)", callback_data="cfg_box_chance_up"), types.InlineKeyboardButton("📉 نسبة أقل (-5%)", callback_data="cfg_box_chance_down"))
+        else:
+            msg = f"⚙️ <b>لوحة ضبط عجلة الحظ المخصصة (التحكم بالخانات بدون أوامر):</b>\n\n• سعر لفة العجلة الحالي: <b>{bot_config['wheel_price']} نقطة</b>\n• نسبة فوز الجائزة الكبرى العشوائية: <b>{bot_config['wheel_chance']}%</b>"
+            markup = types.InlineKeyboardMarkup()
+            markup.row(types.InlineKeyboardButton("➕ سعر اللفة أعلى (+5)", callback_data="cfg_wheel_price_up"), types.InlineKeyboardButton("➖ سعر اللفة أقل (-5)", callback_data="cfg_wheel_price_down"))
+            markup.row(types.InlineKeyboardButton("📈 النسبة الكبرى أعلى (+1%)", callback_data="cfg_wheel_chance_up"), types.InlineKeyboardButton("📉 النسبة الكبرى أقل (-1%)", callback_data="cfg_wheel_chance_down"))
+        try: bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+        except: pass
+        return
+
+    # 🔥 تشغيل ميزة شراء وفتح صناديق الحظ (Loot Box) التفاعلية
+    elif data == "game_buy_lootbox":
+        price = bot_config.get("lootbox_price", 50)
+        if users[uid]["points"] < price:
+            return bot.answer_callback_query(call.id, "❌ رصيد نقاطك الحالي غير كافٍ لفتح صندوق حظ عشوائي.", show_alert=True)
+            
+        users[uid]["points"] -= price
+        chance = bot_config.get("lootbox_chance", 25)
+        
+        if random.randint(1, 100) <= chance:
+            win_pts = random.randint(100, 500)
+            users[uid]["points"] += win_pts
+            users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + win_pts
+            save_json(DB_USERS, users)
+            bot.edit_message_text(f"🎰 <b>مبروووووك الفوز حالفك بنجاح! 🎉🔥</b>\n\nفتحت صندوق الحظ ووجدت بداخله رصيداً كبيراً جداً:\n🎁 <b>+{win_pts} نقطة مضافة فورا لحسابك!</b> كفو يا بطل حظك أسطوري.", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        else:
+            save_json(DB_USERS, users)
+            bot.edit_message_text(f"🎰 <b>للأسف.. الصندوق كان فارغاً تقريباً 📉</b>\n\nالحظ لم يحالفك في هذه المرة. لا تستسلم وعاود المحاولة لتعويض خسائرك والفوز بالجائزة القادمة!", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        
+        update_user_rank_and_quests(uid)
+        return
+
+    # 🔥 تشغيل ميزة لفة عجلة الحظ المدفوعة مع محاكاة دوران الإطارات تفاعلياً
+    elif data == "game_spin_wheel":
+        price = bot_config.get("wheel_price", 40)
+        if users[uid]["points"] < price:
+            return bot.answer_callback_query(call.id, "❌ رصيد نقاطك غير كافٍ لتدوير عجلة الحظ حالياً.", show_alert=True)
+            
+        users[uid]["points"] -= price
+        save_json(DB_USERS, users)
+        bot.answer_callback_query(call.id, "💫 جاري تدوير عجلة الحظ الآن...")
+        
+        frames = ["🎰 [ 🔁 جاري سحب وتدوير العجلة... ]", "🎡 [ 🔄 مؤشر الحظ يتحرك بحماس... ]", "🎰 [ 🔁 ترقب توقف المؤشر الفوري... ]"]
+        for frame in frames:
+            try:
+                bot.edit_message_text(frame, call.message.chat.id, call.message.message_id)
+                time.sleep(0.5)
+            except: pass
+            
+        chance_grand = bot_config.get("wheel_chance", 5)
+        if random.randint(1, 100) <= chance_grand:
+            result = "GRAND_PRIZE"
+        else:
+            result = random.choice([0, 10, 20, price, price + 30])
+            
+        if result == "GRAND_PRIZE":
+            win_pts = 1000
+            users[uid]["points"] += win_pts
+            users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + win_pts
+            save_json(DB_USERS, users)
+            
+            bot.edit_message_text(f"🏆 <b>المستحيل حدث بالكامل!! حظك أسطوري خارق للعادة! 🔥🎖️</b>\n\nلقد ربحت الآن: 👑 <b>الجائزة الكبرى الهائلة (+1000 نقطة بالرصيد)!</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+            
+            # 📢 إرسال الإشعار التلقائي الإعلاني في قناتك العامة لإثارة حماس باقي الأعضاء
+            try:
+                pub_msg = f"🎡 <b>انفجار هائل داخل عجلة الحظ!</b>\n\n👤 مستخدم محظوظ قام الآن بتدوير عجلة الحظ المدفوعة وفجر الجائزة المستحيلة:\n🏆 <b>فاز بالجائزة الكبرى (+1000 نقطة كاملة) سحب فوري!</b> 🎉🔥\n🤖 أثبت وجودك وجرب حظك الحقيقي داخل البوت الآن."
+                bot.send_message(CHANNEL_ID, pub_msg, parse_mode="HTML")
+            except: pass
+        else:
+            if result > 0:
+                users[uid]["points"] += result
+                users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + result
+                save_json(DB_USERS, users)
+                bot.edit_message_text(f"🎡 <b>توقفت عجلة الحظ بنجاح!</b>\n\nالنتيجة النهائية للمؤشر: حصلت على <b>+{result} نقطة!</b> تعوضها باللفات القادمة 👍", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+            else:
+                bot.edit_message_text(f"🎡 <b>توقفت العجلة بنجاح!</b>\n\nالنتيجة النهائية: <b>0 نقطة 💔</b>\nحظاً أوفر وأفضل في المرة القادمة يا بطل لا تيأس!", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+                
+        update_user_rank_and_quests(uid)
+        return
+
+    # [بقية معالجات الأكواد والوظائف الأصلية للبوت كما هي دون تغيير]
+    elif data.startswith("step_addkey_prod|"):
         prod = data.split("|")[1]
         markup = types.InlineKeyboardMarkup(row_width=1)
         for plan in ["1 Day", "7 Days", "30 Days"]:
@@ -522,7 +842,6 @@ def handle_inline_callbacks(call):
         m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الذي تريد حذفه بدقة</b>،\nأو أرسل <b>رقمه التسلسلي</b> (مثال: أرسل رقم 1 لحذف أول مفتاح في المخزن):", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_delete_specific_key(msg, prod, plan))
 
-    # [مستقبلات الأزرار لنظام التذاكر وطلب المنتجات الجديد]
     elif data == "confirm_open_ticket":
         try: bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
@@ -646,28 +965,32 @@ def handle_inline_callbacks(call):
         save_json(DB_USERS, users)
         try: bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
-        bot.send_message(call.message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang))
+        bot.send_message(call.message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
 
     elif data == "check_join":
         lang = users[uid].get("lang", "ar")
         if check_channel_join(uid):
             try: bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
-            bot.send_message(call.message.chat.id, "✅ شكراً لتعاونك واشتراكك بالقناة، تم تفعيل حسابك!", reply_markup=get_main_keyboard(uid, lang))
+            bot.send_message(call.message.chat.id, "✅ شكراً لتعاونك واشتراكك بالقناة، تم تفعيل حسابك!", reply_markup=get_main_keyboard(uid, lang, page=1))
         else:
             bot.answer_callback_query(call.id, "❌ لم تشترك في القناة المطلوبة بعد!", show_alert=True)
 
+    # 🛍️ تعديل واجهة حساب السعر لدمج خصومات رتبة حساب العميل تلقائياً (الحد الأقصى للرانك 5%)
     elif data.startswith("select_prod_"):
         prod = data.split("_")[2]
         if prod not in prices_config: return
         markup = types.InlineKeyboardMarkup()
+        u_discount = users.get(uid, {}).get("rank_discount", 0.0) # جلب نسبة الخصم المستحقة للرانك
+        
         for plan in ["1 Day", "7 Days", "30 Days"]:
             base_p = prices_config[prod].get(plan, 0)
             disc = bot_config["discount"]
-            final_p = int(base_p * (1 - disc/100))
+            # احتساب الخصم العام للبوت مضافاً إليه الخصم الإضافي لرتبة العميل تلقائياً
+            final_p = int(base_p * (1 - disc/100) * (1 - u_discount))
             stock_count = len(keys_store.get(prod, {}).get(plan, []))
             markup.add(types.InlineKeyboardButton(f"⏱️ {plan} | {final_p} Pts (المخزن: {stock_count})", callback_data=f"buy_plan_{prod}_{plan}"))
-        bot.edit_message_text(f"📦 المنتج المختار: <b>{prod}</b>\nاختر مدة الاشتراك الشراء التلقائي:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
+        bot.edit_message_text(f"📦 المنتج المختار: <b>{prod}</b>\nرتبتك الحالية تمنحك خصماً إضافياً بمقدار: {int(u_discount*100)}%\nاختر مدة الاشتراك الشراء التلقائي:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
 
     elif data.startswith("buy_plan_"):
         prod = data.split("_")[2]
@@ -675,7 +998,8 @@ def handle_inline_callbacks(call):
         
         base_p = prices_config.get(prod, {}).get(plan, 0)
         disc = bot_config["discount"]
-        final_p = int(base_p * (1 - disc/100))
+        u_discount = users.get(uid, {}).get("rank_discount", 0.0)
+        final_p = int(base_p * (1 - disc/100) * (1 - u_discount))
         
         if users[uid]["points"] < final_p:
             return bot.answer_callback_query(call.id, "❌ عذراً! رصيد نقاطك الحالي غير كافٍ.", show_alert=True)
@@ -694,6 +1018,7 @@ def handle_inline_callbacks(call):
         save_json(DB_USERS, users)
         save_json(DB_KEYS, keys_store)
         save_json(DB_CONFIG, bot_config)
+        update_user_rank_and_quests(uid) # فحص تقدم المهام بعد عملية الشراء الناجحة
         
         bot.edit_message_text(f"🎉 <b>تمت عملية الشراء التلقائي بنجاح!</b>\n\n📦 المنتج: <code>{prod}</code>\n⏱️ مدة الاشتراك: <code>{plan}</code>\n💰 السعر المخصوم: {final_p} نقطة\n\n🔐 <b>المفتاح الخاص بك هو:</b>\n<code>{delivered_key}</code>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         
@@ -744,7 +1069,7 @@ def admin_view_member_func(message):
         role = "أدمن مالك" if int(t_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم عادي")
         ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
         
-        msg = f"👥 <b>بيانات العضو المستعلم عنه:</b>\n\n• ID: <code>{t_id}</code>\n• Username: @{u['username']}\n• الرصيد الحالي: {u['points']} نقطة\n• الرتبة الحالية: {role}\n• حالة الحظر: {ban_status}"
+        msg = f"👥 <b>بيانات العضو المستعلم عنه:</b>\n\n• ID: <code>{t_id}</code>\n• Username: @{u['username']}\n• الرصيد الحالي: {u['points']} نقطة\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• الرتبة الإدارية: {role}\n• حالة الحظر: {ban_status}"
         
         markup = types.InlineKeyboardMarkup(row_width=2)
         if u.get("is_admin", False):
@@ -790,8 +1115,10 @@ def process_redeem_user(message):
     if code in redeem_codes:
         added_pts = redeem_codes.pop(code)
         users[uid]["points"] += added_pts
+        users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + added_pts # إضافة تراكمية
         save_json(DB_USERS, users)
         save_json(DB_REDEEM, redeem_codes)
+        update_user_rank_and_quests(uid) # فحص المهام التراكمية فوراً
         bot.send_message(message.chat.id, f"🎉 تم تفعيل كود الشحن وإضافة +{added_pts} نقطة إلى رصيدك.")
     else: bot.send_message(message.chat.id, "❌ كود الشحن المدخل غير صحيح أو مستعمل مسبقاً.")
 
@@ -820,7 +1147,6 @@ def process_support_ticket(message):
     try: bot.send_message(ADMIN_PRIMARY, admin_msg, reply_markup=markup, parse_mode="HTML")
     except: pass
 
-# [معالجة مدخلات طلب منتج جديد وإظهار رسالة التأكيد لتفادي الخطأ]
 def process_product_request_input(message):
     uid = str(message.from_user.id)
     text = message.text.strip()
@@ -879,7 +1205,9 @@ def admin_charge_member_func(message):
         t_id, pts = message.text.strip().split()
         if t_id in users:
             users[t_id]["points"] += int(pts)
+            users[t_id]["accumulated_points"] = users[t_id].get("accumulated_points", 0) + int(pts) # إضافة تراكمية لرفع الرانك
             save_json(DB_USERS, users)
+            update_user_rank_and_quests(t_id) # تحديث فوري للرانك والمهام
             bot.send_message(message.chat.id, f"💰 تم شحن الحساب {t_id} بمقدار +{pts} نقطة.")
             try: bot.send_message(int(t_id), f"🔔 تم إضافة +{pts} رصيد لنقاطك من قبل الإدارة.")
             except: pass
@@ -940,5 +1268,5 @@ def admin_edit_invite_reward(message):
         bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل البوت بنظام الأزرار المتسلسلة التفاعلية للمشرفين بنجاح...")
+    print("🚀 تم تشغيل البوت بنظام الأزرار المتسلسلة التفاعلية للمشرفين والميزات التسويقية والألعاب بنجاح...")
     bot.infinity_polling()
