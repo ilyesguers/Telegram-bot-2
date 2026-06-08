@@ -15,8 +15,8 @@ ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 88782290572
 
 # [نظام الاشتراك الجديد بالآيدي والرابط]
-CHANNEL_ID = -1002360541764
-CHANNEL_LINK = "https://t.me/EVEE7X_FMALIY"
+CHANNEL_ID = -1001763276411
+CHANNEL_LINK = "https://t.me/+5mXhqYWcv89lZGE0"
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
