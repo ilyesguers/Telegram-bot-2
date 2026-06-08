@@ -48,7 +48,9 @@ bot_config = load_json(DB_CONFIG, {
     "total_sales": 0,
     "total_earnings": 0,
     "sales_log": [],
-    "tickets": {}
+    "tickets": {},
+    "product_requests": {},
+    "temp_req": {}
 })
 
 user_last_msg = {}
@@ -115,6 +117,7 @@ LOCALES = {
         "invite_btn": "🔗 نظام الدعوات",
         "bonus_btn": "✨ مكافأة يومية",
         "support_btn": "💬 الدعم الفني",
+        "req_prod_btn": "💡 طلب منتج جديد",
         "lang_btn": "🌐 تغيير اللغة",
         "admin_btn": "👑 ميزات الإدارة",
         "maint_msg": "🛠️ وضع الصيانة مفعل حالياً، نعتذر عن الإزعاج."
@@ -131,6 +134,7 @@ LOCALES = {
         "invite_btn": "🔗 Referral System",
         "bonus_btn": "✨ Daily Bonus",
         "support_btn": "💬 Technical Support",
+        "req_prod_btn": "💡 Request Product",
         "lang_btn": "🌐 Change Language",
         "admin_btn": "👑 Admin Features",
         "maint_msg": "🛠️ Maintenance mode is currently active."
@@ -147,6 +151,7 @@ LOCALES = {
         "invite_btn": "🔗 Système de Parrainage",
         "bonus_btn": "✨ Bonus Quotidien",
         "support_btn": "💬 Support Technique",
+        "req_prod_btn": "💡 Demander produit",
         "lang_btn": "🌐 Changer de Langue",
         "admin_btn": "👑 Fonctions Admin",
         "maint_msg": "🛠️ Le mode maintenance est activé."
@@ -163,9 +168,27 @@ LOCALES = {
         "invite_btn": "🔗 Hệ thống giới thiệu",
         "bonus_btn": "✨ Phần thưởng hàng ngày",
         "support_btn": "💬 Hỗ trợ kỹ thuật",
+        "req_prod_btn": "💡 Yêu cầu sản phẩm",
         "lang_btn": "🌐 Thay đổi ngôn ngữ",
         "admin_btn": "👑 Tính năng Admin",
         "maint_msg": "🛠️ Bot hiện đang được bảo trì."
+    },
+    "es": {
+        "welcome": "🌐 Por favor, seleccione el idioma del bot para activar su cuenta:",
+        "must_join": f"⚠️ ¡Debe suscribirse a nuestro canal primero para usar el bot!\nÚnase aquí: {CHANNEL_LINK}",
+        "check_btn": "🔄 Verificar Suscripción",
+        "main_menu": "🏠 Menú Principal de la Tienda:",
+        "id_btn": "🆔 Mostrar ID",
+        "balance_btn": "💰 Mi Saldo",
+        "shop_btn": "🛍️ Tienda de Productos",
+        "redeem_btn": "🎁 Canjear Códigos",
+        "invite_btn": "🔗 Sistema de Referidos",
+        "bonus_btn": "✨ Bono Diario",
+        "support_btn": "💬 Soporte Técnico",
+        "req_prod_btn": "💡 Solicitar Producto",
+        "lang_btn": "🌐 Cambiar Idioma",
+        "admin_btn": "👑 Funciones de Admin",
+        "maint_msg": "🛠️ El modo de mantenimiento está activo actualmente."
     }
 }
 
@@ -175,7 +198,8 @@ def get_lang_inline():
         types.InlineKeyboardButton("العربية 🇸🇦", callback_data="setlang_ar"),
         types.InlineKeyboardButton("English 🇺🇸", callback_data="setlang_en"),
         types.InlineKeyboardButton("Français 🇫🇷", callback_data="setlang_fr"),
-        types.InlineKeyboardButton("Tiếng Việt 🇻🇳", callback_data="setlang_vi")
+        types.InlineKeyboardButton("Tiếng Việt 🇻🇳", callback_data="setlang_vi"),
+        types.InlineKeyboardButton("Español 🇪🇸", callback_data="setlang_es")
     )
     return markup
 
@@ -191,7 +215,8 @@ def get_main_keyboard(uid, lang):
     markup.add(types.KeyboardButton(t["id_btn"]), types.KeyboardButton(t["balance_btn"]))
     markup.add(types.KeyboardButton(t["shop_btn"]), types.KeyboardButton(t["redeem_btn"]))
     markup.add(types.KeyboardButton(t["invite_btn"]), types.KeyboardButton(t["bonus_btn"]))
-    markup.add(types.KeyboardButton(t["support_btn"]), types.KeyboardButton(t["lang_btn"]))
+    markup.add(types.KeyboardButton(t["support_btn"]), types.KeyboardButton(t["req_prod_btn"]))
+    markup.add(types.KeyboardButton(t["lang_btn"]))
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users.get(str(uid), {}).get("is_admin", False):
         markup.add(types.KeyboardButton(t["admin_btn"]))
     return markup
@@ -207,7 +232,7 @@ def get_admin_keyboard():
     markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
     markup.add(types.KeyboardButton("✨ تعديل المكافأة اليومية"), types.KeyboardButton("🔗 تعديل نقاط الدعوة"))
     markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🎫 إدارة التذاكر"))
-    markup.add(types.KeyboardButton("🔄 واجهة المستخدم"))
+    markup.add(types.KeyboardButton("💡 طلبات المنتجات"), types.KeyboardButton("🔄 واجهة المستخدم"))
     return markup
 
 @bot.message_handler(commands=['start', 'id'])
@@ -293,8 +318,17 @@ def main_router(message):
         bot.register_next_step_handler(m, process_redeem_user)
 
     elif txt in [LOCALES[l]["support_btn"] for l in LOCALES]:
-        m = bot.send_message(message.chat.id, "💬 اكتب رسالة الدعم الفني الخاصة بك الآن لفتح تذكرة:")
-        bot.register_next_step_handler(m, process_support_ticket)
+        # [نظام التثبيت والتأكيد لفتح التذكرة لتفادي الخطأ]
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ نعم، فتح تذكرة", callback_data="confirm_open_ticket"),
+            types.InlineKeyboardButton("❌ إلغاء", callback_data="cancel_action")
+        )
+        bot.send_message(message.chat.id, "⚠️ <b>تأكيد فتح تذكرة:</b>\nهل أنت متأكد من رغبتك في فتح تذكرة دعم فني جديدة؟", reply_markup=markup, parse_mode="HTML")
+
+    elif txt in [LOCALES[l]["req_prod_btn"] for l in LOCALES]:
+        m = bot.send_message(message.chat.id, "💡 من فضلك اكتب اسم وتفاصيل المنتج الذي ترغب في إضافته للمتجر بالتفصيل:")
+        bot.register_next_step_handler(m, process_product_request_input)
 
     elif txt in [LOCALES[l]["shop_btn"] for l in LOCALES]:
         if not prices_config:
@@ -320,6 +354,15 @@ def main_router(message):
             for t_id, t_info in open_tickets.items():
                 markup.add(types.InlineKeyboardButton(f"🎫 #{t_id} - من: {t_info['uid']}", callback_data=f"view_ticket_{t_id}"))
             bot.send_message(message.chat.id, "👇 <b>قائمة التذاكر المفتوحة حالياً:</b>", reply_markup=markup, parse_mode="HTML")
+
+        elif txt == "💡 طلبات المنتجات":
+            reqs = bot_config.get("product_requests", {})
+            if not reqs:
+                return bot.send_message(message.chat.id, "📭 لا توجد طلبات منتجات مقدمة من المستخدمين حالياً.")
+            msg = "💡 <b>قائمة طلبات المنتجات الواردة من المستخدمين:</b>\n\n"
+            for r_id, r_info in reqs.items():
+                msg += f"🔹 <b>طلب #{r_id}</b>\n👤 العضو: <code>{r_info['uid']}</code>\n📦 المنتج المطلوب:\n<code>{r_info['text']}</code>\n📅 التاريخ: {r_info.get('date','')[:10]}\n──────────────────\n"
+            bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
         elif txt == "➕ إضافة منتج":
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج الجديد:")
@@ -479,7 +522,37 @@ def handle_inline_callbacks(call):
         m = bot.edit_message_text(f"📦 المنتج: <b>{prod}</b>\n⏱️ المدة: <b>{plan}</b>\n\n✍️ <b>أرسل المفتاح الذي تريد حذفه بدقة</b>،\nأو أرسل <b>رقمه التسلسلي</b> (مثال: أرسل رقم 1 لحذف أول مفتاح في المخزن):", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         bot.register_next_step_handler(m, lambda msg: process_delete_specific_key(msg, prod, plan))
 
-    # [أنظمة معالجة التذاكر المطورة]
+    # [مستقبلات الأزرار لنظام التذاكر وطلب المنتجات الجديد]
+    elif data == "confirm_open_ticket":
+        try: bot.delete_message(call.message.chat.id, call.message.message_id)
+        except: pass
+        m = bot.send_message(call.message.chat.id, "💬 اكتب رسالة الدعم الفني الخاصة بك الآن لفتح تذكرة:")
+        bot.register_next_step_handler(m, process_support_ticket)
+
+    elif data == "confirm_send_prod_req":
+        temp_reqs = bot_config.get("temp_req", {})
+        if uid in temp_reqs:
+            text = temp_reqs[uid]
+            req_id = str(random.randint(10000, 99999))
+            if "product_requests" not in bot_config:
+                bot_config["product_requests"] = {}
+            bot_config["product_requests"][req_id] = {"uid": uid, "text": text, "date": datetime.now().isoformat()}
+            bot_config["temp_req"].pop(uid, None)
+            save_json(DB_CONFIG, bot_config)
+            
+            try: bot.delete_message(call.message.chat.id, call.message.message_id)
+            except: pass
+            bot.send_message(call.message.chat.id, f"✅ تم إرسال طلبك بنجاح للإدارة برقم: <code>#{req_id}</code> وسيتم مراجعته قريباً!", parse_mode="HTML")
+            try: bot.send_message(ADMIN_PRIMARY, f"💡 <b>طلب منتج جديد #{req_id}</b> من العضو {uid}:\n{text}")
+            except: pass
+        else:
+            bot.answer_callback_query(call.id, "❌ انتهت صلاحية هذا الطلب، يرجى المحاولة مجدداً.", show_alert=True)
+
+    elif data == "cancel_action":
+        try: bot.delete_message(call.message.chat.id, call.message.message_id)
+        except: pass
+        bot.send_message(call.message.chat.id, "❌ تم إلغاء العملية بنجاح.")
+
     elif data.startswith("view_ticket_"):
         t_id = data.split("_")[2]
         tickets = bot_config.get("tickets", {})
@@ -507,7 +580,7 @@ def handle_inline_callbacks(call):
             tickets[t_id]["status"] = "closed"
             save_json(DB_CONFIG, bot_config)
             u_id = tickets[t_id]["uid"]
-            try: bot.send_message(int(u_id), f"🔒 <b>تحديث الدعم:</b> تم إغلاق تذكرتك الفنية ذات الرقم #{t_id} بنجاح. إذا واجهتك مشكلة أخرى لا تتردد بفتح تذكرة جديدة.", parse_mode="HTML")
+            try: bot.send_message(int(u_id), f"🔒 <b>تحديث الدعم:</b> تم إغلاق تذكرتك الفنية ذات الرقم #{t_id} بنجاح.", parse_mode="HTML")
             except: pass
             bot.edit_message_text(f"✅ تم إغلاق التذكرة #{t_id} بنجاح وإرسال إشعار للمستخدم.", call.message.chat.id, call.message.message_id)
         else:
@@ -722,7 +795,6 @@ def process_redeem_user(message):
         bot.send_message(message.chat.id, f"🎉 تم تفعيل كود الشحن وإضافة +{added_pts} نقطة إلى رصيدك.")
     else: bot.send_message(message.chat.id, "❌ كود الشحن المدخل غير صحيح أو مستعمل مسبقاً.")
 
-# [تعديل نظام استقبال التذاكر ليتكامل مع الأزرار والتحكم التفاعلي غدق]
 def process_support_ticket(message):
     uid = str(message.from_user.id)
     u_text = message.text.strip()
@@ -738,7 +810,6 @@ def process_support_ticket(message):
     
     bot.send_message(message.chat.id, f"✅ <b>تم فتح تذكرة دعم فني جديدة بنجاح!</b>\n• رقم التذكرة: <code>#{ticket_id}</code>\n• انتظر رد الإدارة قريباً هنا.", parse_mode="HTML")
     
-    # إعداد الأزرار التفاعلية لتصل للمسؤول فوراً
     markup = types.InlineKeyboardMarkup()
     markup.add(
         types.InlineKeyboardButton("💬 رد فوري", callback_data=f"reply_ticket_{ticket_id}"),
@@ -749,7 +820,25 @@ def process_support_ticket(message):
     try: bot.send_message(ADMIN_PRIMARY, admin_msg, reply_markup=markup, parse_mode="HTML")
     except: pass
 
-# [دالة إرسال الرد من الأدمن إلى العضو]
+# [معالجة مدخلات طلب منتج جديد وإظهار رسالة التأكيد لتفادي الخطأ]
+def process_product_request_input(message):
+    uid = str(message.from_user.id)
+    text = message.text.strip()
+    if not text:
+        return bot.send_message(message.chat.id, "❌ لا يمكن إرسال طلب فارغ.")
+    
+    if "temp_req" not in bot_config:
+        bot_config["temp_req"] = {}
+    bot_config["temp_req"][uid] = text
+    save_json(DB_CONFIG, bot_config)
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton("✅ تأكيد وإرسال الطلب", callback_data="confirm_send_prod_req"),
+        types.InlineKeyboardButton("❌ إلغاء", callback_data="cancel_action")
+    )
+    bot.send_message(message.chat.id, f"⚠️ <b>تأكيد طلب إضافة منتج:</b>\nهل أنت متأكد من رغبتك في إرسال هذا الاقتراح إلى إدارة المتجر؟\n\n📦 <b>تفاصيل المنتج:</b>\n<code>{text}</code>", reply_markup=markup, parse_mode="HTML")
+
 def admin_send_reply_ticket_func(message, ticket_id):
     tickets = bot_config.get("tickets", {})
     if ticket_id not in tickets:
@@ -763,7 +852,7 @@ def admin_send_reply_ticket_func(message, ticket_id):
         bot.send_message(int(user_id), user_notif, parse_mode="HTML")
         bot.send_message(message.chat.id, f"✅ تم إرسال الرد بنجاح للمستخدم صاحب التذكرة #{ticket_id}.")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ تعذر تسليم الرسالة للمستخدم، ربما قام بحظر البوت. الخطأ: {str(e)}")
+        bot.send_message(message.chat.id, f"❌ تعذر تسليم الرسالة للمستخدم. الخطأ: {str(e)}")
 
 def admin_add_product_func(message):
     prod = message.text.strip()
