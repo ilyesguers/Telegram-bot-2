@@ -19,7 +19,7 @@ CHANNEL_ID = -1003763276411
 CHANNEL_LINK = "https://t.me/evee7x"
 
 # 🔑 مفتاح الذكاء الاصطناعي (Gemini API) - ضعه هنا لتعمل ميزة الـ AI
-AI_API_KEY = "ضع_مفتاح_جوجل_هنا_GEMINI_API_KEY"
+AI_API_KEY = os.getenv("AI_API_KEY")
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
