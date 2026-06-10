@@ -9,7 +9,8 @@ import requests
 from datetime import datetime, timedelta
 
 # 1️⃣ الإعدادات الأساسية والتوكن
-API_TOKEN = "8868383649:AAEVxFynrH7u_M8e9-wjxo6h8-NP8dtWNUQ"
+# تم التعديل لحماية توكن البوت عبر استدعائه من متغيرات البيئة في Railway
+API_TOKEN = os.getenv("API_TOKEN")
 bot = telebot.TeleBot(API_TOKEN)
 
 ADMIN_PRIMARY = 5145154527
@@ -18,7 +19,7 @@ ADMIN_SECONDARY = 8878290572
 CHANNEL_ID = -1003763276411  
 CHANNEL_LINK = "https://t.me/evee7x"
 
-# 🔑 مفتاح الذكاء الاصطناعي (Gemini API) - ضعه هنا لتعمل ميزة الـ AI
+# 🔑 مفتاح الذكاء الاصطناعي (Gemini API) 
 AI_API_KEY = os.getenv("AI_API_KEY")
 
 DB_USERS = "users_data.json"
@@ -135,10 +136,10 @@ def register_user(user):
         users[uid] = {
             "username": user.username or f"User_{uid}",
             "points": 0,
-            "spins": 0, # تمت الإضافة للتحويل
-            "boxes": 0, # تمت الإضافة للتحويل
-            "active_title": "", # للقب المزخرف
-            "active_badge": "", # للشارة
+            "spins": 0,
+            "boxes": 0,
+            "active_title": "",
+            "active_badge": "",
             "invited_by": None,
             "invite_count": 0,
             "last_claim": None,
@@ -337,7 +338,6 @@ def get_main_keyboard(uid, lang, page=1):
         if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users.get(str(uid), {}).get("is_admin", False):
             markup.add(types.KeyboardButton(t["admin_btn"]))
     else:
-        # تم إضافة الميزات الجديدة في الصفحة الثانية للمستخدم
         markup.add(types.KeyboardButton("🎰 صندوق الحظ"), types.KeyboardButton("🎡 عجلة الحظ"))
         markup.add(types.KeyboardButton("🎮 الألعاب والمنافسات"), types.KeyboardButton("🛍️ متجر الألقاب والشارات"))
         markup.add(types.KeyboardButton("💸 تحويل الرصيد (P2P)"), types.KeyboardButton("🤖 المساعد الذكي (AI)"))
@@ -359,21 +359,39 @@ def get_admin_keyboard(page=1):
         markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🎫 إدارة التذاكر"))
         markup.add(types.KeyboardButton("التالي للمشرف ➡️"))
     else:
-        # تمت إضافة الذكاء الاصطناعي للمطور وإعدادات الألقاب
         markup.add(types.KeyboardButton("🤖 المطور والذكاء الاصطناعي"), types.KeyboardButton("🏷️ إعدادات أسعار الألقاب"))
         markup.add(types.KeyboardButton("⚙️ إعدادات صندوق الحظ"), types.KeyboardButton("⚙️ إعدادات عجلة الحظ"))
         markup.add(types.KeyboardButton("⚙️ إعدادات المهام الصعبة"), types.KeyboardButton("🔄 واجهة المستخدم"))
         markup.add(types.KeyboardButton("⬅️ سابق المشرف"))
     return markup
 
-# 🧠 دوال الذكاء الاصطناعي والمساعدة
+# 🧠 دوال الذكاء الاصطناعي والمساعدة المعدلة والمتوافقة 100% مع النموذج الجديد
 def call_gemini_api(prompt, system_inst=""):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={AI_API_KEY}"
-    payload = {"contents": [{"parts": [{"text": f"{system_inst}\n\nUser: {prompt}"}]}]}
+    
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+    
+    if system_inst:
+        payload["systemInstruction"] = {
+            "parts": [
+                {"text": system_inst}
+            ]
+        }
+
     try:
-        response = requests.post(url, json=payload, headers={'Content-Type': 'application/json'}).json()
-        return response['candidates'][0]['content']['parts'][0]['text']
+        response = requests.post(url, json=payload, headers={'Content-Type': 'application/json'})
+        response_data = response.json()
+        return response_data['candidates'][0]['content']['parts'][0]['text']
     except Exception as e:
+        print(f"Gemini Error: {e}")
         return None
 
 def process_user_ai(message):
@@ -425,7 +443,7 @@ def process_p2p_amount(message, target_id, t_type):
     user_bal = users[uid].get(t_type, 0)
     
     if user_bal < amount:
-        return bot.send_message(message.chat.id, f"❌ رصيدك غير كافٍ! تملك حالياً: {user_bal} من {t_map[t_type]}")
+        return bot.send_message(message.chat.id, f"❌ رصيدك غير كافٍ!\nتتملك حالياً: {user_bal} من {t_map[t_type]}")
         
     users[uid][t_type] -= amount
     users[target_id][t_type] = users[target_id].get(t_type, 0) + amount
@@ -482,7 +500,7 @@ def handle_commands(message):
             users[inviter_id]["invite_count"] += 1
             save_json(DB_USERS, users)
             update_user_rank_and_quests(inviter_id)
-            try: bot.send_message(int(inviter_id), f"🔗 لقد إنضم مستخدم جديد عن طريق رابط الإحالة الخاص بك! حصلت على {bot_config['invite_reward']} نقاط.")
+            try: bot.send_message(int(inviter_id), f"🔗 لقد إنضم مستخدم جديد عن طريق رابط الإحالة الخاص بك!\nحصلت على {bot_config['invite_reward']} نقاط.")
             except: pass
 
     if not check_channel_join(uid):
@@ -523,7 +541,7 @@ def main_router(message):
 
     # --- الميزات الجديدة ---
     elif txt == "🤖 المساعد الذكي (AI)":
-        m = bot.send_message(message.chat.id, "🤖 مرحباً بك في الدعم الذكي!\n\nيمكنني مساعدتك بـ 5 لغات بخصوص (النقاط، الألعاب، الشراء، والرتب). تفضل بطرح سؤالك الآن:")
+        m = bot.send_message(message.chat.id, "🤖 مرحباً بك في الدعم الذكي!\n\nيمكنني مساعدتك بـ 5 لغات بخصوص (النقاط، الألعاب، الشراء، والرتب).\nتفضل بطرح سؤالك الآن:")
         bot.register_next_step_handler(m, process_user_ai)
 
     elif txt == "🤖 المطور والذكاء الاصطناعي" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
@@ -561,7 +579,7 @@ def main_router(message):
             types.InlineKeyboardButton("✂️ حجرة ورقة مقص 💎", callback_data="g_create_rps"),
             types.InlineKeyboardButton("🧠 تحدي الذاكرة البصرية 👁️", callback_data="g_create_mem")
         )
-        bot.send_message(message.chat.id, "🎮 **تحديات الألعاب المصغرة:**\nراهن بنقاطك (بحد أقصى 3 نقاط) والعب ضد أعضاء آخرين! الفائز يأخذ الرهان مضاعفاً.", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, "🎮 **تحديات الألعاب المصغرة:**\nراهن بنقاطك (بحد أقصى 3 نقاط) والعب ضد أعضاء آخرين!\nالفائز يأخذ الرهان مضاعفاً.", reply_markup=markup, parse_mode="Markdown")
     # --- نهاية الميزات الجديدة ---
 
     elif txt == "🎰 صندوق الحظ":
@@ -581,7 +599,7 @@ def main_router(message):
         msg = (f"🎡 <b>عجلة الحظ المدفوعة التفاعلية:</b>\n\n"
                f"أدر العجلة الآن وشاهد حظك وهو يتحرك مباشرة أمامك للربح!\n\n"
                f"💸 سعر تدوير اللفة: <b>{price} نقطة</b>\n"
-               f"🎁 الجوائز المتاحة بالعجلة: 0 Pts | 10 Pts | 20 Pts | مساوي سعر اللفة | 🏆 <b>الجائزة الكبرى (+1000 نقطة كاملة)</b>")
+               f"🎁 الجوائز المتاحة بالعجلة: 0 Pts | 10 Pts | 20 Pts | مساوي سعر اللفة | \n🏆 <b>الجائزة الكبرى (+1000 نقطة كاملة)</b>")
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("💫 تدوير عجلة الحظ الآن", callback_data="game_spin_wheel"))
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
@@ -685,7 +703,6 @@ def main_router(message):
     elif txt in (LOCALES[l]["balance_btn"] for l in LOCALES):
         u = users[uid]
         update_user_rank_and_quests(uid)
-        # تم إضافة الألقاب والشارات والرصيد الإضافي للبيانات
         t_active = u.get('active_title', 'لا يوجد')
         b_active = u.get('active_badge', 'لا يوجد')
         msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• اللقب الحالي: {t_active}\n• الشارة: {b_active}\n• رصيد النقاط: {u['points']} نقطة\n• عجلات الحظ: {u.get('spins', 0)}\n• صناديق الحظ: {u.get('boxes', 0)}\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• عدد الدعوات: {u.get('invite_count', 0)}\n• حالة الحظر: نشط 🟢"
@@ -1004,7 +1021,6 @@ def handle_inline_callbacks(call):
             bot.send_message(call.message.chat.id, "⏰ اختفى الرمز! أي واحد كان الصحيح؟", reply_markup=markup)
             
         elif game["type"] == "xo":
-            # جولة واحدة لتبسيط XO
             game["board"] = [" "]*9
             game["turn"] = game["p1"]
             markup = types.InlineKeyboardMarkup(row_width=3)
@@ -1064,7 +1080,7 @@ def handle_inline_callbacks(call):
         if choice == game["seq"]:
             if uid == game["p1"]: game["p1_s"] += 1
             else: game["p2_s"] += 1
-            bot.send_message(call.message.chat.id, "🎯 إجابة صحيحة! حصلت على نقطة.")
+            bot.send_message(call.message.chat.id, "🎯 إجابة صحيحة!\nحصلت على نقطة.")
         else:
             bot.send_message(call.message.chat.id, "❌ إجابة خاطئة!")
             
@@ -1087,7 +1103,7 @@ def handle_inline_callbacks(call):
                 pool = ["🔥", "👑", "💎", "🎯", "⚡", "🔮"]
                 seq = "".join(random.sample(pool, 4))
                 game["seq"] = seq
-                bot.send_message(call.message.chat.id, f"🧠 الجولة {game['r']}! احفظ هذا الرمز بسرعة:\n\n{seq}")
+                bot.send_message(call.message.chat.id, f"🧠 الجولة {game['r']}!\nاحفظ هذا الرمز بسرعة:\n\n{seq}")
                 time.sleep(2)
                 choices = [seq]
                 while len(choices) < 4:
@@ -1121,7 +1137,7 @@ def handle_inline_callbacks(call):
         if winner:
             users[winner]["points"] += game["wager"] * 2
             save_json(DB_USERS, users)
-            bot.edit_message_text(f"🏆 الفائز هو {mark}! ربح {game['wager']*2} نقطة.", call.message.chat.id, call.message.message_id)
+            bot.edit_message_text(f"🏆 الفائز هو {mark}!\nربح {game['wager']*2} نقطة.", call.message.chat.id, call.message.message_id)
             del active_games[room_id]
             return
         elif " " not in b:
@@ -1212,6 +1228,7 @@ def handle_inline_callbacks(call):
             markup = types.InlineKeyboardMarkup()
             markup.row(types.InlineKeyboardButton("➕ سعر اللفة أعلى (+5)", callback_data="cfg_wheel_price_up"), types.InlineKeyboardButton("➖ سعر اللفة أقل (-5)", callback_data="cfg_wheel_price_down"))
             markup.row(types.InlineKeyboardButton("📈 النسبة الكبرى أعلى (+1%)", callback_data="cfg_wheel_chance_up"), types.InlineKeyboardButton("📉 النسبة الكبرى أقل (-1%)", callback_data="cfg_wheel_chance_down"))
+        
         try: bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
         except: pass
         return
@@ -1577,7 +1594,7 @@ def admin_confirm_fake_marketing(message):
     
     try:
         bot.send_message(CHANNEL_ID, marketing_msg, parse_mode="HTML")
-        bot.send_message(message.chat.id, f"✅ تم تأكيد الإجراء بنجاح بعد كتابتك '{confirm_text}'! ونشر منشور التسويق الوهمي لـ <b>Flourite Cheat ({chosen_plan})</b> بقناتك الموثقة.")
+        bot.send_message(message.chat.id, f"✅ تم تأكيد الإجراء بنجاح بعد كتابتك '{confirm_text}'!\nونشر منشور التسويق الوهمي لـ <b>Flourite Cheat ({chosen_plan})</b> بقناتك الموثقة.")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ تعذر النشر بالقناة: {str(e)}")
 
@@ -1650,7 +1667,7 @@ def admin_send_reply_ticket_func(message, ticket_id):
         bot.send_message(int(user_id), user_notif, parse_mode="HTML")
         bot.send_message(message.chat.id, f"✅ تم إرسال الرد بنجاح للمستخدم صاحب التذكرة #{ticket_id}.")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ تعذر تسليم الرسالة للمستخدم. الخطأ: {str(e)}")
+        bot.send_message(message.chat.id, f"❌ تعذر تسليم الرسالة للمستخدم.\nالخطأ: {str(e)}")
 
 def admin_add_product_func(message):
     prod = message.text.strip()
@@ -1692,7 +1709,7 @@ def admin_create_code_func(message):
         redeem_codes[code] = int(pts)
         save_json(DB_REDEEM, redeem_codes)
         bot.send_message(message.chat.id, f"🎫 تم إنشاء كود شحن فعال:\n• الكود: <code>{code}</code>\n• قيمته: {pts} نقطة", parse_mode="HTML")
-    except: bot.send_message(message.chat.id, "❌ خطأ! اكتب الكود ثم مسافة ثم القيمة.")
+    except: bot.send_message(message.chat.id, "❌ خطأ!\nاكتب الكود ثم مسافة ثم القيمة.")
 
 def admin_set_discount_func(message):
     try:
