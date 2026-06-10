@@ -5,6 +5,7 @@ import os
 import time
 import random
 import string
+import requests
 from datetime import datetime, timedelta
 
 # 1️⃣ الإعدادات الأساسية والتوكن
@@ -17,11 +18,33 @@ ADMIN_SECONDARY = 8878290572
 CHANNEL_ID = -1003763276411  
 CHANNEL_LINK = "https://t.me/evee7x"
 
+# 🔑 مفتاح الذكاء الاصطناعي (Gemini API) - ضعه هنا لتعمل ميزة الـ AI
+AI_API_KEY = "ضع_مفتاح_جوجل_هنا_GEMINI_API_KEY"
+
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
 DB_REDEEM = "redeem_codes.json"
 DB_PRICES = "prices_config.json"
 DB_CONFIG = "bot_config.json"
+
+# 🏆 قوائم الألقاب والشارات المضافة حديثاً
+AVAILABLE_TITLES = [
+    "𓆩👑𓆪 المـ👑ـلك", "𓆩🔥𓆪 الأسـ🔥ـطورة", "𓆩⚔️𓆪 الـجـلاد", "𓆩💎𓆪 الـمـاسـي", 
+    "𓆩⚡𓆪 الـمـشـع", "𓆩👻𓆪 الـشـبح", "𓆩🎯𓆪 الـقـنـاص", "𓆩✨𓆪 الـمـتـألـق",
+    "𓆩🪐𓆪 الـفـضـائـي", "𓆩🐉𓆪 الـتـنـيـن", "𓆩🖤𓆪 الـجـوكر", "𓆩🛡️𓆪 الـمـدافع",
+    "𓆩🔮𓆪 الـسـاحـر", "𓆩🌟𓆪 الـنـجـم", "𓆩🐺𓆪 الـذئـب", "𓆩🦅𓆪 الـصـقـر",
+    "𓆩 Samurai 𓆪", "𓆩 VIP 𓆪", "𓆩 HERO 𓆪", "𓆩 HACKER 𓆪"
+]
+
+AVAILABLE_BADGES = [
+    "🥇 شارة الصدارة", "🥈 شارة التميز", "🥉 شارة الكفاح", "🎖️ وسام الشرف",
+    "🚀 الصاروخ", "💎 الجوهرة", "🔥 الشعلة", "👑 التاج", "🎯 الهدف",
+    "⚡ الصاعقة", "👾 المخترق", "🛸 الغامض", "🍀 المحظوظ", "🧩 الذكي",
+    "🌟 المميز", "🎵 الفنان", "🎨 الرسام", "🏆 البطل", "🦁 الأسد", "🦊 الثعلب"
+]
+
+# متغيرات الألعاب المباشرة
+active_games = {}
 
 def load_json(file, default):
     if os.path.exists(file):
@@ -56,6 +79,8 @@ if "lootbox_price" not in bot_config: bot_config["lootbox_price"] = 50
 if "lootbox_chance" not in bot_config: bot_config["lootbox_chance"] = 25
 if "wheel_price" not in bot_config: bot_config["wheel_price"] = 40
 if "wheel_chance" not in bot_config: bot_config["wheel_chance"] = 5
+if "title_price" not in bot_config: bot_config["title_price"] = 200 # سعر اللقب الافتراضي
+if "badge_price" not in bot_config: bot_config["badge_price"] = 150 # سعر الشارة الافتراضي
 if "quests" not in bot_config:
     bot_config["quests"] = {
         "invite": {"target": 15, "reward": 150},
@@ -110,6 +135,10 @@ def register_user(user):
         users[uid] = {
             "username": user.username or f"User_{uid}",
             "points": 0,
+            "spins": 0, # تمت الإضافة للتحويل
+            "boxes": 0, # تمت الإضافة للتحويل
+            "active_title": "", # للقب المزخرف
+            "active_badge": "", # للشارة
             "invited_by": None,
             "invite_count": 0,
             "last_claim": None,
@@ -134,6 +163,12 @@ def register_user(user):
             updated = True
         if "completed_quests" not in users[uid]:
             users[uid]["completed_quests"] = []
+            updated = True
+        if "spins" not in users[uid]:
+            users[uid]["spins"] = 0
+            users[uid]["boxes"] = 0
+            users[uid]["active_title"] = ""
+            users[uid]["active_badge"] = ""
             updated = True
         if updated: save_json(DB_USERS, users)
 
@@ -302,7 +337,10 @@ def get_main_keyboard(uid, lang, page=1):
         if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users.get(str(uid), {}).get("is_admin", False):
             markup.add(types.KeyboardButton(t["admin_btn"]))
     else:
+        # تم إضافة الميزات الجديدة في الصفحة الثانية للمستخدم
         markup.add(types.KeyboardButton("🎰 صندوق الحظ"), types.KeyboardButton("🎡 عجلة الحظ"))
+        markup.add(types.KeyboardButton("🎮 الألعاب والمنافسات"), types.KeyboardButton("🛍️ متجر الألقاب والشارات"))
+        markup.add(types.KeyboardButton("💸 تحويل الرصيد (P2P)"), types.KeyboardButton("🤖 المساعد الذكي (AI)"))
         markup.add(types.KeyboardButton("🔥 المهام الصعبة"), types.KeyboardButton("🏆 رتبتي الحالية"))
         markup.add(types.KeyboardButton("⬅️ السابق"))
     return markup
@@ -319,13 +357,105 @@ def get_admin_keyboard(page=1):
         markup.add(types.KeyboardButton("📤 نشر الأسعار بالقناة"), types.KeyboardButton("📣 التسويق الوهمي"))
         markup.add(types.KeyboardButton("✨ تعديل المكافأة اليومية"), types.KeyboardButton("🔗 تعديل نقاط الدعوة"))
         markup.add(types.KeyboardButton("☁️ النسخ الاحتياطي"), types.KeyboardButton("🎫 إدارة التذاكر"))
-        markup.add(types.KeyboardButton("💡 طلبات المنتجات"), types.KeyboardButton("التالي للمشرف ➡️"))
+        markup.add(types.KeyboardButton("التالي للمشرف ➡️"))
     else:
+        # تمت إضافة الذكاء الاصطناعي للمطور وإعدادات الألقاب
+        markup.add(types.KeyboardButton("🤖 المطور والذكاء الاصطناعي"), types.KeyboardButton("🏷️ إعدادات أسعار الألقاب"))
         markup.add(types.KeyboardButton("⚙️ إعدادات صندوق الحظ"), types.KeyboardButton("⚙️ إعدادات عجلة الحظ"))
         markup.add(types.KeyboardButton("⚙️ إعدادات المهام الصعبة"), types.KeyboardButton("🔄 واجهة المستخدم"))
         markup.add(types.KeyboardButton("⬅️ سابق المشرف"))
     return markup
 
+# 🧠 دوال الذكاء الاصطناعي والمساعدة
+def call_gemini_api(prompt, system_inst=""):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={AI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": f"{system_inst}\n\nUser: {prompt}"}]}]}
+    try:
+        response = requests.post(url, json=payload, headers={'Content-Type': 'application/json'}).json()
+        return response['candidates'][0]['content']['parts'][0]['text']
+    except Exception as e:
+        return None
+
+def process_user_ai(message):
+    uid = str(message.from_user.id)
+    if message.text in ["⬅️ السابق", "/start"]: return
+    bot.send_chat_action(message.chat.id, 'typing')
+    user_lang = users.get(uid, {}).get("lang", "ar")
+    sys_prompt = f"أنت مساعد ذكي لبوت متجر ألعاب وتليجرام. أجب بلغة المستخدم ({user_lang}) حصراً. أجب فقط عن الأسئلة المتعلقة بالبوت (النقاط، الألعاب، الشراء، التذاكر). إذا سأل عن شيء خارجي، أو إذا واجهت مشكلة، اطلب منه فتح (تذكرة دعم 🎫) ليساعده الأدمن. كن مختصراً وودوداً."
+    reply = call_gemini_api(message.text, sys_prompt)
+    if reply:
+        bot.send_message(message.chat.id, reply, parse_mode="Markdown")
+    else:
+        bot.send_message(message.chat.id, "❌ عذراً، هناك ضغط على السيرفر! يرجى فتح 🎫 تذكرة دعم وسيتواصل معك الأدمن.")
+
+def process_admin_ai_coder(message):
+    if message.text in ["⬅️ سابق المشرف", "/start"]: return
+    bot.send_message(message.chat.id, "⚡ جاري برمجة الميزة وتوليد الكود الأسطوري... الرجاء الانتظار ثوانٍ.")
+    sys_prompt = "أنت خبير برمجة بايثون ومكتبة telebot. اكتب كود الميزة المطلوبة بشكل كامل، منظم، وجاهز للعمل."
+    code = call_gemini_api(message.text, sys_prompt)
+    if code:
+        clean_code = code.replace("```python", "").replace("```", "")
+        filename = f"AI_Feature_{int(time.time())}.py"
+        with open(filename, "w", encoding="utf-8") as f: f.write(clean_code)
+        with open(filename, "rb") as doc:
+            bot.send_document(message.chat.id, doc, caption="🚀 تم توليد الميزة بنجاح! هذا هو الملف جاهز.")
+        os.remove(filename)
+    else:
+        bot.send_message(message.chat.id, "❌ فشل توليد الكود، تحقق من مفتاح الـ API.")
+
+# 💸 دوال تحويل الرصيد (P2P)
+def process_p2p_id(message, t_type):
+    target_id = message.text.strip()
+    if target_id not in users:
+        return bot.send_message(message.chat.id, "❌ هذا الحساب (الآيدي) غير مسجل في البوت!")
+    if target_id == str(message.from_user.id):
+        return bot.send_message(message.chat.id, "❌ لا يمكنك التحويل لنفسك.")
+    m = bot.send_message(message.chat.id, f"✅ تم العثور على الحساب.\nأدخل الآن الكمية التي تود تحويلها (أرقام فقط):")
+    bot.register_next_step_handler(m, lambda msg: process_p2p_amount(msg, target_id, t_type))
+
+def process_p2p_amount(message, target_id, t_type):
+    uid = str(message.from_user.id)
+    try:
+        amount = int(message.text.strip())
+        if amount <= 0: raise ValueError
+    except:
+        return bot.send_message(message.chat.id, "❌ يجب إدخال رقم صحيح أكبر من الصفر.")
+        
+    t_map = {"points": "نقاط", "spins": "عجلات حظ", "boxes": "صناديق حظ"}
+    user_bal = users[uid].get(t_type, 0)
+    
+    if user_bal < amount:
+        return bot.send_message(message.chat.id, f"❌ رصيدك غير كافٍ! تملك حالياً: {user_bal} من {t_map[t_type]}")
+        
+    users[uid][t_type] -= amount
+    users[target_id][t_type] = users[target_id].get(t_type, 0) + amount
+    save_json(DB_USERS, users)
+    
+    bot.send_message(message.chat.id, f"✅ **تم التحويل بنجاح!**\nأرسلت `{amount}` {t_map[t_type]} إلى `{target_id}`.", parse_mode="Markdown")
+    try:
+        bot.send_message(int(target_id), f"🎉 **وصلتك هدية!**\nقام العضو `{uid}` بتحويل `{amount}` {t_map[t_type]} لحسابك.")
+    except: pass
+
+# 🏷️ دوال تحديث أسعار الألقاب والشارات (للأدمن)
+def admin_set_title_price(message):
+    try:
+        val = int(message.text)
+        bot_config["title_price"] = val
+        save_json(DB_CONFIG, bot_config)
+        bot.send_message(message.chat.id, f"✅ تم تحديث سعر جميع الألقاب ليصبح: {val} نقطة.")
+    except: bot.send_message(message.chat.id, "❌ خطأ، يجب كتابة أرقام فقط.")
+
+def admin_set_badge_price(message):
+    try:
+        val = int(message.text)
+        bot_config["badge_price"] = val
+        save_json(DB_CONFIG, bot_config)
+        bot.send_message(message.chat.id, f"✅ تم تحديث سعر جميع الشارات ليصبح: {val} نقطة.")
+    except: bot.send_message(message.chat.id, "❌ خطأ، يجب كتابة أرقام فقط.")
+
+# ============================================================
+# مسار الرسائل الرئيسي (الذي يعالج الأزرار)
+# ============================================================
 @bot.message_handler(commands=['start', 'id'])
 def handle_commands(message):
     uid = str(message.from_user.id)
@@ -390,6 +520,49 @@ def main_router(message):
         
     elif txt == "⬅️ سابق المشرف" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
         return bot.send_message(message.chat.id, "👑 لوحة التحكم والميزات الرئيسية للإدارة:", reply_markup=get_admin_keyboard(page=1))
+
+    # --- الميزات الجديدة ---
+    elif txt == "🤖 المساعد الذكي (AI)":
+        m = bot.send_message(message.chat.id, "🤖 مرحباً بك في الدعم الذكي!\n\nيمكنني مساعدتك بـ 5 لغات بخصوص (النقاط، الألعاب، الشراء، والرتب). تفضل بطرح سؤالك الآن:")
+        bot.register_next_step_handler(m, process_user_ai)
+
+    elif txt == "🤖 المطور والذكاء الاصطناعي" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("📊 ملخص البوت", callback_data="admin_ai_summary"), types.InlineKeyboardButton("🛠️ المطور الآلي", callback_data="admin_ai_coder"))
+        bot.send_message(message.chat.id, "👑 قسم الذكاء الاصطناعي للإدارة:\nاختر ما تريد من الأزرار:", reply_markup=markup)
+
+    elif txt == "🏷️ إعدادات أسعار الألقاب" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⚙️ تعديل سعر الألقاب", callback_data="admin_edit_title_price"))
+        markup.add(types.InlineKeyboardButton("⚙️ تعديل سعر الشارات", callback_data="admin_edit_badge_price"))
+        bot.send_message(message.chat.id, "⚙️ اختر الإعداد الذي ترغب بتعديله:", reply_markup=markup)
+
+    elif txt == "💸 تحويل الرصيد (P2P)":
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("💰 تحويل نقاط", callback_data="p2p_points"),
+            types.InlineKeyboardButton("🎡 تحويل عجلات حظ", callback_data="p2p_spins"),
+            types.InlineKeyboardButton("🎁 تحويل صناديق حظ", callback_data="p2p_boxes")
+        )
+        bot.send_message(message.chat.id, "🔄 **نظام التحويل الآمن بين الأعضاء:**\nاختر نوع الرصيد الذي تريد إرساله لصديقك:", reply_markup=markup, parse_mode="Markdown")
+
+    elif txt == "🛍️ متجر الألقاب والشارات":
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("🎭 تصفح الألقاب", callback_data="shop_titles"),
+            types.InlineKeyboardButton("🎖️ تصفح الشارات", callback_data="shop_badges")
+        )
+        bot.send_message(message.chat.id, "🛍️ **متجر الألقاب والشارات المميزة:**\nاشترِ لقباً أو شارة لتظهر بجوار اسمك في لوحة معلوماتك!", reply_markup=markup, parse_mode="Markdown")
+
+    elif txt == "🎮 الألعاب والمنافسات":
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("❌ Tic-Tac-Toe (إكس أو) ⭕", callback_data="g_create_xo"),
+            types.InlineKeyboardButton("✂️ حجرة ورقة مقص 💎", callback_data="g_create_rps"),
+            types.InlineKeyboardButton("🧠 تحدي الذاكرة البصرية 👁️", callback_data="g_create_mem")
+        )
+        bot.send_message(message.chat.id, "🎮 **تحديات الألعاب المصغرة:**\nراهن بنقاطك (بحد أقصى 3 نقاط) والعب ضد أعضاء آخرين! الفائز يأخذ الرهان مضاعفاً.", reply_markup=markup, parse_mode="Markdown")
+    # --- نهاية الميزات الجديدة ---
 
     elif txt == "🎰 صندوق الحظ":
         price = bot_config.get("lootbox_price", 50)
@@ -512,7 +685,10 @@ def main_router(message):
     elif txt in (LOCALES[l]["balance_btn"] for l in LOCALES):
         u = users[uid]
         update_user_rank_and_quests(uid)
-        msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• رصيد النقاط: {u['points']} نقطة\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
+        # تم إضافة الألقاب والشارات والرصيد الإضافي للبيانات
+        t_active = u.get('active_title', 'لا يوجد')
+        b_active = u.get('active_badge', 'لا يوجد')
+        msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• اللقب الحالي: {t_active}\n• الشارة: {b_active}\n• رصيد النقاط: {u['points']} نقطة\n• عجلات الحظ: {u.get('spins', 0)}\n• صناديق الحظ: {u.get('boxes', 0)}\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• عدد الدعوات: {u.get('invite_count', 0)}\n• حالة الحظر: نشط 🟢"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
     elif txt in (LOCALES[l]["lang_btn"] for l in LOCALES):
@@ -694,6 +870,276 @@ def handle_inline_callbacks(call):
     uid = str(call.from_user.id)
     register_user(call.from_user)
     data = call.data
+
+    # -- معالجة الميزات الجديدة --
+    
+    # 1. الذكاء الاصطناعي للإدارة
+    if data == "admin_ai_summary":
+        bot.answer_callback_query(call.id, "⏳ جاري تحليل بيانات البوت...", show_alert=False)
+        sys_prompt = "أنت محلل بيانات. لخص حالة البوت بناءً على هذا."
+        prompt = f"عدد المستخدمين: {len(users)}, إجمالي المبيعات: {bot_config.get('total_sales',0)}, الأرباح: {bot_config.get('total_earnings',0)}. أعطني تقريراً تحفيزياً قصيراً للمدير."
+        res = call_gemini_api(prompt, sys_prompt)
+        if res: bot.send_message(call.message.chat.id, f"📊 **تقرير الذكاء الاصطناعي:**\n\n{res}", parse_mode="Markdown")
+        else: bot.send_message(call.message.chat.id, "❌ خطأ في الاتصال بالذكاء الاصطناعي.")
+        return
+        
+    elif data == "admin_ai_coder":
+        m = bot.send_message(call.message.chat.id, "🚀 **المطور الآلي:** اكتب الميزة التي تريد إضافتها للبوت وسأقوم بتوليد ملف كود Python كامل لك الآن:")
+        bot.register_next_step_handler(m, process_admin_ai_coder)
+        return
+        
+    elif data == "admin_edit_title_price":
+        m = bot.send_message(call.message.chat.id, "✏️ أدخل السعر الجديد للألقاب (أرقام فقط):")
+        bot.register_next_step_handler(m, admin_set_title_price)
+        return
+        
+    elif data == "admin_edit_badge_price":
+        m = bot.send_message(call.message.chat.id, "✏️ أدخل السعر الجديد للشارات (أرقام فقط):")
+        bot.register_next_step_handler(m, admin_set_badge_price)
+        return
+
+    # 2. تحويل الرصيد
+    elif data.startswith("p2p_"):
+        t_type = data.split("_")[1]
+        m = bot.send_message(call.message.chat.id, f"👤 حسناً، أرسل الآيدي (ID) الخاص بالشخص الذي تريد التحويل إليه:")
+        bot.register_next_step_handler(m, lambda msg: process_p2p_id(msg, t_type))
+        return
+
+    # 3. متجر الألقاب والشارات
+    elif data in ["shop_titles", "shop_badges"]:
+        is_title = (data == "shop_titles")
+        items = AVAILABLE_TITLES if is_title else AVAILABLE_BADGES
+        price = bot_config.get("title_price", 200) if is_title else bot_config.get("badge_price", 150)
+        t_type = "title" if is_title else "badge"
+        
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for idx, item in enumerate(items):
+            markup.add(types.InlineKeyboardButton(f"{item} | {price} 🪙", callback_data=f"buy_item_{t_type}_{idx}"))
+        bot.edit_message_text(f"🛍️ **تصفح المتجر:**\nانقر على العنصر لشرائه وتجهيزه مباشرة:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        return
+        
+    elif data.startswith("buy_item_"):
+        _, _, item_type, idx = data.split("_")
+        idx = int(idx)
+        item_name = AVAILABLE_TITLES[idx] if item_type == "title" else AVAILABLE_BADGES[idx]
+        price = bot_config.get("title_price", 200) if item_type == "title" else bot_config.get("badge_price", 150)
+        
+        if users[uid]["points"] < price:
+            return bot.answer_callback_query(call.id, "❌ رصيدك غير كافٍ للشراء!", show_alert=True)
+            
+        users[uid]["points"] -= price
+        if item_type == "title": users[uid]["active_title"] = item_name
+        else: users[uid]["active_badge"] = item_name
+        save_json(DB_USERS, users)
+        
+        bot.edit_message_text(f"🎉 **مبروك الشراء!**\nتم خصم {price} نقطة، وتم تجهيز {item_name} في ملفك الشخصي بنجاح.", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+        return
+
+    # 4. الألعاب التنافسية
+    elif data.startswith("g_create_"):
+        g_type = data.split("_")[2]
+        markup = types.InlineKeyboardMarkup(row_width=3)
+        markup.add(
+            types.InlineKeyboardButton("1 🪙", callback_data=f"wager_{g_type}_1"),
+            types.InlineKeyboardButton("2 🪙", callback_data=f"wager_{g_type}_2"),
+            types.InlineKeyboardButton("3 🪙", callback_data=f"wager_{g_type}_3")
+        )
+        bot.edit_message_text("💰 **اختر الرهان بالنقاط لهذه المباراة:**", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode="Markdown")
+        return
+        
+    elif data.startswith("wager_"):
+        _, g_type, wager = data.split("_")
+        wager = int(wager)
+        if users[uid]["points"] < wager:
+            return bot.answer_callback_query(call.id, "❌ رصيدك لا يكفي لهذا الرهان!", show_alert=True)
+            
+        room_id = f"R{int(time.time())}{random.randint(10,99)}"
+        active_games[room_id] = {"type": g_type, "p1": uid, "p2": None, "wager": wager, "r": 1, "p1_s": 0, "p2_s": 0, "moves": {}}
+        
+        users[uid]["points"] -= wager
+        save_json(DB_USERS, users)
+        
+        gnames = {"xo": "Tic-Tac-Toe ❌⭕", "rps": "حجرة ورقة مقص ✂️", "mem": "الذاكرة البصرية 🧠"}
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🎮 اضغط هنا لقبول التحدي", callback_data=f"join_game_{room_id}"))
+        bot.send_message(call.message.chat.id, f"📢 **تحدي جديد متاح!**\n\nاللعبة: {gnames[g_type]}\nالرهان: {wager} نقاط\nالفائز يحصل على: {wager*2}\n\nمن يجرؤ على مواجهة العضو؟", reply_markup=markup, parse_mode="Markdown")
+        return
+        
+    elif data.startswith("join_game_"):
+        room_id = data.split("_")[2]
+        if room_id not in active_games:
+            return bot.answer_callback_query(call.id, "❌ اللعبة غير متاحة أو انتهت.", show_alert=True)
+        game = active_games[room_id]
+        if game["p1"] == uid:
+            return bot.answer_callback_query(call.id, "❌ لا يمكنك اللعب ضد نفسك!", show_alert=True)
+        if game["p2"] is not None:
+            return bot.answer_callback_query(call.id, "❌ الغرفة ممتلئة!", show_alert=True)
+        if users[uid]["points"] < game["wager"]:
+            return bot.answer_callback_query(call.id, "❌ رصيدك لا يكفي لدخول الرهان!", show_alert=True)
+            
+        users[uid]["points"] -= game["wager"]
+        save_json(DB_USERS, users)
+        game["p2"] = uid
+        
+        bot.edit_message_text("⚔️ **بدأ التحدي! تجهزوا...**", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+        
+        if game["type"] == "rps":
+            markup = types.InlineKeyboardMarkup(row_width=3)
+            markup.add(types.InlineKeyboardButton("💎", callback_data=f"grps_{room_id}_R"), types.InlineKeyboardButton("📄", callback_data=f"grps_{room_id}_P"), types.InlineKeyboardButton("✂️", callback_data=f"grps_{room_id}_S"))
+            bot.send_message(call.message.chat.id, f"🏁 الجولة {game['r']} من 3\nاختر حركتك:", reply_markup=markup)
+        
+        elif game["type"] == "mem":
+            pool = ["🔥", "👑", "💎", "🎯", "⚡", "🔮"]
+            seq = "".join(random.sample(pool, 4))
+            game["seq"] = seq
+            bot.send_message(call.message.chat.id, f"🧠 احفظ هذا الرمز بسرعة:\n\n{seq}")
+            time.sleep(2)
+            choices = [seq]
+            while len(choices) < 4:
+                wrong = "".join(random.sample(pool, 4))
+                if wrong not in choices: choices.append(wrong)
+            random.shuffle(choices)
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            for c in choices: markup.add(types.InlineKeyboardButton(c, callback_data=f"gmem_{room_id}_{c}"))
+            bot.send_message(call.message.chat.id, "⏰ اختفى الرمز! أي واحد كان الصحيح؟", reply_markup=markup)
+            
+        elif game["type"] == "xo":
+            # جولة واحدة لتبسيط XO
+            game["board"] = [" "]*9
+            game["turn"] = game["p1"]
+            markup = types.InlineKeyboardMarkup(row_width=3)
+            btns = [types.InlineKeyboardButton("⬛", callback_data=f"gxo_{room_id}_{i}") for i in range(9)]
+            markup.add(*btns)
+            bot.send_message(call.message.chat.id, "❌⭕ **لعبة إكس أو**\nدور اللاعب الأول (❌):", reply_markup=markup)
+        return
+
+    # منطق حجرة ورقة مقص
+    elif data.startswith("grps_"):
+        _, room_id, move = data.split("_")
+        game = active_games.get(room_id)
+        if not game or uid not in [game["p1"], game["p2"]]: return
+        game["moves"][uid] = move
+        bot.answer_callback_query(call.id, "تم تسجيل حركتك!")
+        
+        if len(game["moves"]) == 2:
+            m1, m2 = game["moves"][game["p1"]], game["moves"][game["p2"]]
+            emjs = {"R": "💎", "P": "📄", "S": "✂️"}
+            
+            if m1 == m2: res = "تعادل!"
+            elif (m1=="R" and m2=="S") or (m1=="P" and m2=="R") or (m1=="S" and m2=="P"):
+                game["p1_s"] += 1; res = "نقطة للاعب الأول!"
+            else:
+                game["p2_s"] += 1; res = "نقطة للاعب الثاني!"
+                
+            bot.send_message(call.message.chat.id, f"💥 النتيجة:\nالأول: {emjs[m1]} | الثاني: {emjs[m2]}\n{res}")
+            
+            game["r"] += 1
+            game["moves"] = {}
+            if game["r"] > 3 or game["p1_s"]==2 or game["p2_s"]==2:
+                win_id = game["p1"] if game["p1_s"] > game["p2_s"] else (game["p2"] if game["p2_s"] > game["p1_s"] else None)
+                if win_id:
+                    users[win_id]["points"] += game["wager"] * 2
+                    save_json(DB_USERS, users)
+                    bot.send_message(call.message.chat.id, f"🏆 انتهت المباراة! الفائز أخذ {game['wager']*2} نقطة!")
+                else:
+                    users[game["p1"]]["points"] += game["wager"]
+                    users[game["p2"]]["points"] += game["wager"]
+                    save_json(DB_USERS, users)
+                    bot.send_message(call.message.chat.id, "🤝 انتهت المباراة بالتعادل، تم استرجاع الرهان.")
+                del active_games[room_id]
+            else:
+                markup = types.InlineKeyboardMarkup(row_width=3)
+                markup.add(types.InlineKeyboardButton("💎", callback_data=f"grps_{room_id}_R"), types.InlineKeyboardButton("📄", callback_data=f"grps_{room_id}_P"), types.InlineKeyboardButton("✂️", callback_data=f"grps_{room_id}_S"))
+                bot.send_message(call.message.chat.id, f"🏁 الجولة {game['r']} من 3\nاختر حركتك:", reply_markup=markup)
+        return
+
+    # منطق الذاكرة البصرية
+    elif data.startswith("gmem_"):
+        _, room_id, choice = data.split("_")
+        game = active_games.get(room_id)
+        if not game or uid not in [game["p1"], game["p2"]]: return
+        if uid in game["moves"]: return
+        game["moves"][uid] = choice
+        
+        if choice == game["seq"]:
+            if uid == game["p1"]: game["p1_s"] += 1
+            else: game["p2_s"] += 1
+            bot.send_message(call.message.chat.id, "🎯 إجابة صحيحة! حصلت على نقطة.")
+        else:
+            bot.send_message(call.message.chat.id, "❌ إجابة خاطئة!")
+            
+        if len(game["moves"]) == 2:
+            game["r"] += 1
+            game["moves"] = {}
+            if game["r"] > 3:
+                win_id = game["p1"] if game["p1_s"] > game["p2_s"] else (game["p2"] if game["p2_s"] > game["p1_s"] else None)
+                if win_id:
+                    users[win_id]["points"] += game["wager"] * 2
+                    save_json(DB_USERS, users)
+                    bot.send_message(call.message.chat.id, f"🏆 انتهت المباراة! الفائز أخذ {game['wager']*2} نقطة!")
+                else:
+                    users[game["p1"]]["points"] += game["wager"]
+                    users[game["p2"]]["points"] += game["wager"]
+                    save_json(DB_USERS, users)
+                    bot.send_message(call.message.chat.id, "🤝 تعادل! تم استرجاع الرهان.")
+                del active_games[room_id]
+            else:
+                pool = ["🔥", "👑", "💎", "🎯", "⚡", "🔮"]
+                seq = "".join(random.sample(pool, 4))
+                game["seq"] = seq
+                bot.send_message(call.message.chat.id, f"🧠 الجولة {game['r']}! احفظ هذا الرمز بسرعة:\n\n{seq}")
+                time.sleep(2)
+                choices = [seq]
+                while len(choices) < 4:
+                    wrong = "".join(random.sample(pool, 4))
+                    if wrong not in choices: choices.append(wrong)
+                random.shuffle(choices)
+                markup = types.InlineKeyboardMarkup(row_width=2)
+                for c in choices: markup.add(types.InlineKeyboardButton(c, callback_data=f"gmem_{room_id}_{c}"))
+                bot.send_message(call.message.chat.id, "⏰ اختفى الرمز! أي واحد كان الصحيح؟", reply_markup=markup)
+        return
+
+    # منطق الإكس أو
+    elif data.startswith("gxo_"):
+        _, room_id, pos = data.split("_")
+        pos = int(pos)
+        game = active_games.get(room_id)
+        if not game or uid != game["turn"]: return
+        if game["board"][pos] != " ": return
+        
+        mark = "❌" if uid == game["p1"] else "⭕"
+        game["board"][pos] = mark
+        game["turn"] = game["p2"] if uid == game["p1"] else game["p1"]
+        
+        # فحص الفوز
+        b = game["board"]
+        win_lines = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
+        winner = None
+        for x,y,z in win_lines:
+            if b[x]==b[y]==b[z] and b[x]!=" ": winner = uid
+            
+        if winner:
+            users[winner]["points"] += game["wager"] * 2
+            save_json(DB_USERS, users)
+            bot.edit_message_text(f"🏆 الفائز هو {mark}! ربح {game['wager']*2} نقطة.", call.message.chat.id, call.message.message_id)
+            del active_games[room_id]
+            return
+        elif " " not in b:
+            users[game["p1"]]["points"] += game["wager"]
+            users[game["p2"]]["points"] += game["wager"]
+            save_json(DB_USERS, users)
+            bot.edit_message_text("🤝 تعادل! تم استرجاع الرهان.", call.message.chat.id, call.message.message_id)
+            del active_games[room_id]
+            return
+            
+        markup = types.InlineKeyboardMarkup(row_width=3)
+        btns = [types.InlineKeyboardButton(b[i] if b[i]!=" " else "⬛", callback_data=f"gxo_{room_id}_{i}") for i in range(9)]
+        markup.add(*btns)
+        next_mark = "❌" if game["turn"] == game["p1"] else "⭕"
+        bot.edit_message_text(f"دور اللاعب ({next_mark}):", call.message.chat.id, call.message.message_id, reply_markup=markup)
+        return
+
+    # -- نهاية الميزات الجديدة --
 
     if data != "check_join":
         if not check_channel_join(uid):
@@ -1004,15 +1450,6 @@ def handle_inline_callbacks(call):
         except: pass
         bot.send_message(call.message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
 
-    elif data == "check_join":
-        lang = users[uid].get("lang", "ar")
-        if check_channel_join(uid):
-            try: bot.delete_message(call.message.chat.id, call.message.message_id)
-            except: pass
-            bot.send_message(call.message.chat.id, "✅ شكراً لتعاونك واشتراكك بالقناة، تم تفعيل حسابك!", reply_markup=get_main_keyboard(uid, lang, page=1))
-        else:
-            bot.answer_callback_query(call.id, "❌ لم تشترك في القناة المطلوبة بعد!", show_alert=True)
-
     elif data.startswith("select_prod_"):
         prod = data.split("_")[2]
         if prod not in prices_config: return
@@ -1303,5 +1740,5 @@ def admin_edit_invite_reward(message):
         bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 if __name__ == "__main__":
-    print("🚀 تم تشغيل البوت بنظام الأزرار والخانات التفاعلية لإدارة المهام والألعاب بنجاح...")
-    bot.infinity_polling()
+    print("🚀 تم تشغيل البوت مع الألعاب والذكاء الاصطناعي بنجاح...")
+    bot.infinity_polling(skip_pending=True)
