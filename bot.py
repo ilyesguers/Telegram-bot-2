@@ -8,7 +8,7 @@ import string
 from datetime import datetime, timedelta
 
 # 1️⃣ الإعدادات الأساسية والتوكن
-API_TOKEN = "8868383649:AAEVxFynrH7u_M8e9-wjxo6h8-NP8dtWNUQ"
+API_TOKEN = os.getenv("API_TOKEN")
 bot = telebot.TeleBot(API_TOKEN)
 
 ADMIN_PRIMARY = 5145154527
