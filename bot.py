@@ -3,13 +3,55 @@ from telebot import types
 import random
 import os
 import time
+import json
 from datetime import datetime, timedelta
 
-# استدعاء الملفات المقسمة
+# استدعاء الملفات المقسمة (محدث ليتوافق مع دوال قاعدة البيانات الجديدة)
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID, CHANNEL_LINK, LOCALES
-from database import users, keys_store, redeem_codes, prices_config, bot_config, save_json, DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG, register_user, update_user_rank_and_quests
+from database import engine, text, init_db, get_user, update_user_data, register_user, keys_store, redeem_codes, prices_config, bot_config, save_json, DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG, update_user_rank_and_quests
 from utils import check_spam, is_user_banned, check_channel_join, generate_fake_key
 from keyboards import get_lang_inline, get_join_inline, get_main_keyboard, get_admin_keyboard
+
+# -------------------------------------------------------------
+# 🔄 نقل البيانات من ملف JSON القديم إلى قاعدة البيانات (يعمل تلقائياً)
+# -------------------------------------------------------------
+try:
+    init_db()
+    if os.path.exists(DB_USERS):
+        with open(DB_USERS, "r", encoding="utf-8") as f:
+            old_users = json.load(f)
+            with engine.connect() as conn:
+                for old_uid, u_data in old_users.items():
+                    res = conn.execute(text("SELECT uid FROM users WHERE uid = :uid"), {"uid": str(old_uid)}).fetchone()
+                    if not res:
+                        conn.execute(text("""
+                            INSERT INTO users (uid, username, points, accumulated_points, lang, rank, rank_discount, invite_count, completed_quests, invited_by, last_claim, banned, banned_until, is_admin)
+                            VALUES (:uid, :username, :points, :accumulated_points, :lang, :rank, :rank_discount, :invite_count, :completed_quests, :invited_by, :last_claim, :banned, :banned_until, :is_admin)
+                        """), {
+                            "uid": str(old_uid),
+                            "username": u_data.get("username", ""),
+                            "points": u_data.get("points", 0),
+                            "accumulated_points": u_data.get("accumulated_points", 0),
+                            "lang": u_data.get("lang", "ar"),
+                            "rank": u_data.get("rank", "عضو عادي 🔹"),
+                            "rank_discount": float(u_data.get("rank_discount", 0.0)),
+                            "invite_count": u_data.get("invite_count", 0),
+                            "completed_quests": str(u_data.get("completed_quests", "")),
+                            "invited_by": u_data.get("invited_by"),
+                            "last_claim": u_data.get("last_claim"),
+                            "banned": u_data.get("banned", False),
+                            "banned_until": u_data.get("banned_until"),
+                            "is_admin": u_data.get("is_admin", False)
+                        })
+                conn.commit()
+        print("✅ تم التأكد من دمج بيانات ملف users.json القديمة داخل قاعدة البيانات بنجاح.")
+except Exception as e:
+    print(f"⚠️ خطأ أثناء نقل البيانات القديمة: {e}")
+
+def get_all_user_ids():
+    with engine.connect() as conn:
+        return [str(r[0]) for r in conn.execute(text("SELECT uid FROM users")).fetchall()]
+# -------------------------------------------------------------
 
 @bot.message_handler(commands=['start', 'id'])
 def handle_commands(message):
@@ -20,28 +62,27 @@ def handle_commands(message):
     if is_user_banned(uid):
         return bot.send_message(message.chat.id, "❌ نعتذر، حسابك محظور حالياً.")
 
+    u = get_user(uid) or {}
+    
     if message.text.startswith('/id'):
         if not check_channel_join(uid):
-            lang = users.get(uid, {}).get("lang", "ar")
+            lang = u.get("lang", "ar")
             return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
         bot.send_message(message.chat.id, f"🆔 الآيدي الخاص بك هو: <code>{uid}</code>", parse_mode="HTML")
         return
 
     args = message.text.split()
-    if len(args) > 1 and users[uid]["invited_by"] is None:
+    if len(args) > 1 and u.get("invited_by") is None:
         inviter_id = args[1]
-        if inviter_id in users and inviter_id != uid:
-            users[uid]["invited_by"] = inviter_id
-            users[inviter_id]["points"] += bot_config["invite_reward"]
-            users[inviter_id]["accumulated_points"] += bot_config["invite_reward"]
-            users[inviter_id]["invite_count"] += 1
-            save_json(DB_USERS, users)
+        if get_user(inviter_id) and inviter_id != uid:
+            update_user_data(uid, invited_by=inviter_id)
+            update_user_data(inviter_id, points=bot_config["invite_reward"], accumulated_points=bot_config["invite_reward"], invite_count=1)
             update_user_rank_and_quests(inviter_id)
             try: bot.send_message(int(inviter_id), f"🔗 لقد إنضم مستخدم جديد عن طريق رابط الإحالة الخاص بك! حصلت على {bot_config['invite_reward']} نقاط.")
             except: pass
 
     if not check_channel_join(uid):
-        lang = users.get(uid, {}).get("lang", "ar")
+        lang = u.get("lang", "ar")
         return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
     bot.send_message(message.chat.id, LOCALES["ar"]["welcome"], reply_markup=get_lang_inline())
@@ -55,13 +96,14 @@ def main_router(message):
     if is_user_banned(uid):
         return bot.send_message(message.chat.id, "❌ نعتذر، حسابك محظور حالياً.")
         
-    lang = users[uid].get("lang", "ar")
+    u = get_user(uid) or {}
+    lang = u.get("lang", "ar")
     txt = message.text
 
     if not check_channel_join(uid):
         return bot.send_message(message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
-    if bot_config["maintenance"] and not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    if bot_config["maintenance"] and not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         return bot.send_message(message.chat.id, LOCALES[lang]["maint_msg"])
 
     if txt == "التالي ➡️":
@@ -70,10 +112,10 @@ def main_router(message):
     elif txt == "⬅️ السابق":
         return bot.send_message(message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
         
-    elif txt == "التالي للمشرف ➡️" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    elif txt == "التالي للمشرف ➡️" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         return bot.send_message(message.chat.id, "⚙️ لوحة تحكم إعدادات الألعاب التسويقية الجديدة لمشرفي النظام:", reply_markup=get_admin_keyboard(page=2))
         
-    elif txt == "⬅️ سابق المشرف" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    elif txt == "⬅️ سابق المشرف" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         return bot.send_message(message.chat.id, "👑 لوحة التحكم والميزات الرئيسية للإدارة:", reply_markup=get_admin_keyboard(page=1))
 
     elif txt == "🎰 صندوق الحظ":
@@ -100,8 +142,8 @@ def main_router(message):
 
     elif txt == "🔥 المهام الصعبة":
         update_user_rank_and_quests(uid)
-        u = users[uid]
-        completed = u.get("completed_quests", [])
+        u = get_user(uid)
+        completed = u.get("completed_quests", "")
         invite_cnt = u.get("invite_count", 0)
         user_buys = sum(1 for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid)
         acc_pts = u.get("accumulated_points", 0)
@@ -121,7 +163,7 @@ def main_router(message):
 
     elif txt == "🏆 رتبتي الحالية":
         update_user_rank_and_quests(uid)
-        u = users[uid]
+        u = get_user(uid)
         r_name = u.get("rank", "عضو عادي 🔹")
         r_disc = int(u.get("rank_discount", 0.0) * 100)
         acc_pts = u.get("accumulated_points", 0)
@@ -140,7 +182,7 @@ def main_router(message):
                f"💡 نصيحة: استمر في تجميع وشحن النقاط لرفع رانك حسابك آلياً والاستمتاع بالخصومات الثابتة!")
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
-    elif txt == "⚙️ إعدادات صندوق الحظ" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    elif txt == "⚙️ إعدادات صندوق الحظ" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         price = bot_config.get("lootbox_price", 50)
         chance = bot_config.get("lootbox_chance", 25)
         msg = (f"⚙️ <b>لوحة ضبط صندوق الحظ (التحكم بالخانات بدون أوامر):</b>\n\n"
@@ -157,7 +199,7 @@ def main_router(message):
         )
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt == "⚙️ إعدادات عجلة الحظ" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    elif txt == "⚙️ إعدادات عجلة الحظ" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         price = bot_config.get("wheel_price", 40)
         chance = bot_config.get("wheel_chance", 5)
         msg = (f"⚙️ <b>لوحة ضبط عجلة الحظ المخصصة (التحكم بالخانات بدون أوامر):</b>\n\n"
@@ -174,7 +216,7 @@ def main_router(message):
         )
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt == "⚙️ إعدادات المهام الصعبة" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    elif txt == "⚙️ إعدادات المهام الصعبة" and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         q = bot_config["quests"]
         msg = (f"⚙️ <b>لوحة التحكم بالمهام (تعديل مباشر بالأزرار وبدون أوامر):</b>\n\n"
                f"1️⃣ <b>👥 مهمة الدعوات:</b>\n• الهدف الحالي: {q['invite']['target']} عضو | الجائزة: {q['invite']['reward']} نقطة\n\n"
@@ -195,8 +237,8 @@ def main_router(message):
         bot.send_message(message.chat.id, f"🆔 الآيدي الخاص بك: <code>{uid}</code>", parse_mode="HTML")
 
     elif txt in (LOCALES[l]["balance_btn"] for l in LOCALES):
-        u = users[uid]
         update_user_rank_and_quests(uid)
+        u = get_user(uid)
         msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• رصيد النقاط: {u['points']} نقطة\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
@@ -205,14 +247,11 @@ def main_router(message):
 
     elif txt in (LOCALES[l]["bonus_btn"] for l in LOCALES):
         now = datetime.now()
-        lc = users[uid].get("last_claim")
+        lc = u.get("last_claim")
         if lc and now < datetime.fromisoformat(lc) + timedelta(days=1):
             bot.send_message(message.chat.id, "❌ لقد استلمت المكافأة اليومية بالفعل، يرجى المحاولة بعد انتهاء 24 ساعة.")
         else:
-            users[uid]["last_claim"] = now.isoformat()
-            users[uid]["points"] += bot_config["daily_bonus"]
-            users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + bot_config["daily_bonus"]
-            save_json(DB_USERS, users)
+            update_user_data(uid, last_claim=now.isoformat(), points=bot_config["daily_bonus"], accumulated_points=bot_config["daily_bonus"])
             update_user_rank_and_quests(uid)
             bot.send_message(message.chat.id, f"✨ تم استلام مكافأتك اليومية بنجاح وهي +{bot_config['daily_bonus']} نقاط!")
 
@@ -245,10 +284,10 @@ def main_router(message):
             markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"select_prod_{prod}"))
         bot.send_message(message.chat.id, "🛍️ <b>متجر المنتجات</b>\nالرجاء اختيار المنتج المراد تصفحه:", reply_markup=markup, parse_mode="HTML")
 
-    elif txt in (LOCALES[l]["admin_btn"] for l in LOCALES) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+    elif txt in (LOCALES[l]["admin_btn"] for l in LOCALES) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         bot.send_message(message.chat.id, "👑 مرحباً بك في لوحة تحكم ميزات الإدارة للمتجر:", reply_markup=get_admin_keyboard(page=1))
 
-    elif int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False):
+    elif int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
         if txt == "🔄 واجهة المستخدم":
             bot.send_message(message.chat.id, "🔙 تم الانتقال إلى واجهة المستخدم العادية.", reply_markup=get_main_keyboard(uid, lang, page=1))
 
@@ -365,11 +404,11 @@ def main_router(message):
 
         elif txt == "☁️ النسخ الاحتياطي":
             stats = (f"📊 <b>إحصائيات وتقارير المتجر الحالية:</b>\n\n"
-                     f"👥 عدد المستخدمين المسجلين: {len(users)}\n"
+                     f"👥 عدد المستخدمين المسجلين: {len(get_all_user_ids())}\n"
                      f"🛒 إجمالي عدد المبيعات: {bot_config.get('total_sales', 0)}\n"
                      f"💰 إجمالي الأرباح المكتسبة: {bot_config.get('total_earnings', 0)} نقطة")
             bot.send_message(message.chat.id, stats, parse_mode="HTML")
-            for file_name in [DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG]:
+            for file_name in [DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG]:
                 if os.path.exists(file_name):
                     with open(file_name, "rb") as f_doc:
                         bot.send_document(message.chat.id, f_doc)
@@ -378,17 +417,18 @@ def main_router(message):
 def handle_inline_callbacks(call):
     uid = str(call.from_user.id)
     register_user(call.from_user)
+    u = get_user(uid) or {}
     data = call.data
 
     if data != "check_join":
         if not check_channel_join(uid):
-            lang = users.get(uid, {}).get("lang", "ar")
+            lang = u.get("lang", "ar")
             try: bot.answer_callback_query(call.id, LOCALES[lang]["must_join"], show_alert=True)
             except: pass
             return bot.send_message(call.message.chat.id, LOCALES[lang]["must_join"], reply_markup=get_join_inline(lang))
 
     if data.startswith("cfg_q_"):
-        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
             return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول.", show_alert=True)
         
         parts = data.split("_")
@@ -423,7 +463,7 @@ def handle_inline_callbacks(call):
         return
 
     if data.startswith("cfg_box_") or data.startswith("cfg_wheel_"):
-        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
             return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول لاستخدام هذا الإجراء.", show_alert=True)
             
         if data == "cfg_box_price_up": bot_config["lootbox_price"] += 5
@@ -455,20 +495,17 @@ def handle_inline_callbacks(call):
 
     elif data == "game_buy_lootbox":
         price = bot_config.get("lootbox_price", 50)
-        if users[uid]["points"] < price:
+        if u["points"] < price:
             return bot.answer_callback_query(call.id, "❌ رصيد نقاطك الحالي غير كافٍ لفتح صندوق حظ عشوائي.", show_alert=True)
             
-        users[uid]["points"] -= price
+        update_user_data(uid, points=-price)
         chance = bot_config.get("lootbox_chance", 25)
         
         if random.randint(1, 100) <= chance:
             win_pts = random.randint(100, 500)
-            users[uid]["points"] += win_pts
-            users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + win_pts
-            save_json(DB_USERS, users)
+            update_user_data(uid, points=win_pts, accumulated_points=win_pts)
             bot.edit_message_text(f"🎰 <b>مبروووووك الفوز حالفك بنجاح! 🎉🔥</b>\n\nفتحت صندوق الحظ ووجدت بداخله رصيداً كبيراً جداً:\n🎁 <b>+{win_pts} نقطة مضافة فورا لحسابك!</b> كفو يا بطل حظك أسطوري.", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         else:
-            save_json(DB_USERS, users)
             bot.edit_message_text(f"🎰 <b>للأسف.. الصندوق كان فارغاً تقريباً 📉</b>\n\nالحظ لم يحالفك في هذه المرة. لا تستسلم وعاود المحاولة لتعويض خسائرك والفوز بالجائزة القادمة!", call.message.chat.id, call.message.message_id, parse_mode="HTML")
         
         update_user_rank_and_quests(uid)
@@ -476,11 +513,10 @@ def handle_inline_callbacks(call):
 
     elif data == "game_spin_wheel":
         price = bot_config.get("wheel_price", 40)
-        if users[uid]["points"] < price:
+        if u["points"] < price:
             return bot.answer_callback_query(call.id, "❌ رصيد نقاطك غير كافٍ لتدوير عجلة الحظ حالياً.", show_alert=True)
             
-        users[uid]["points"] -= price
-        save_json(DB_USERS, users)
+        update_user_data(uid, points=-price)
         bot.answer_callback_query(call.id, "💫 جاري تدوير عجلة الحظ الآن...")
         
         frames = ["🎰 [ 🔁 جاري سحب وتدوير العجلة... ]", "🎡 [ 🔄 مؤشر الحظ يتحرك بحماس... ]", "🎰 [ 🔁 ترقب توقف المؤشر الفوري... ]"]
@@ -498,10 +534,7 @@ def handle_inline_callbacks(call):
             
         if result == "GRAND_PRIZE":
             win_pts = 1000
-            users[uid]["points"] += win_pts
-            users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + win_pts
-            save_json(DB_USERS, users)
-            
+            update_user_data(uid, points=win_pts, accumulated_points=win_pts)
             bot.edit_message_text(f"🏆 <b>المستحيل حدث بالكامل!! حظك أسطوري خارق للعادة! 🔥🎖️</b>\n\nلقد ربحت الآن: 👑 <b>الجائزة الكبرى الهائلة (+1000 نقطة بالرصيد)!</b>", call.message.chat.id, call.message.message_id, parse_mode="HTML")
             
             try:
@@ -510,9 +543,7 @@ def handle_inline_callbacks(call):
             except: pass
         else:
             if result > 0:
-                users[uid]["points"] += result
-                users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + result
-                save_json(DB_USERS, users)
+                update_user_data(uid, points=result, accumulated_points=result)
                 bot.edit_message_text(f"🎡 <b>توقفت عجلة الحظ بنجاح!</b>\n\nالنتيجة النهائية للمؤشر: حصلت على <b>+{result} نقطة!</b> تعوضها باللفات القادمة 👍", call.message.chat.id, call.message.message_id, parse_mode="HTML")
             else:
                 bot.edit_message_text(f"🎡 <b>توقفت العجلة بنجاح!</b>\n\nالنتيجة النهائية: <b>0 نقطة 💔</b>\nحظاً أوفر وأفضل في المرة القادمة يا بطل لا تيأس!", call.message.chat.id, call.message.message_id, parse_mode="HTML")
@@ -626,46 +657,44 @@ def handle_inline_callbacks(call):
             bot.answer_callback_query(call.id, "❌ لم يتم العثور على التذكرة.", show_alert=True)
 
     elif data.startswith("adm_"):
-        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users[uid].get("is_admin", False)):
+        if not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
             return bot.answer_callback_query(call.id, "❌ لا تملك صلاحيات مسؤول لاستخدام هذا الزر.", show_alert=True)
             
         parts = data.split("_")
         action = parts[1]
         target_id = parts[2]
         
-        if target_id not in users:
+        tgt_u = get_user(target_id)
+        if not tgt_u:
             return bot.answer_callback_query(call.id, "❌ لم يتم العثور على هذا العضو في النظام.", show_alert=True)
             
         if action == "promote":
-            users[target_id]["is_admin"] = True
+            update_user_data(target_id, is_admin=True)
             bot.answer_callback_query(call.id, "🛡️ تم ترقية العضو ليصبح أدمن بنجاح!", show_alert=True)
         elif action == "demote":
-            users[target_id]["is_admin"] = False
+            update_user_data(target_id, is_admin=False)
             bot.answer_callback_query(call.id, "⬇️ تم سحب صلاحيات الإدارة من العضو بنجاح.", show_alert=True)
         elif action == "ban":
-            users[target_id]["banned"] = True
+            update_user_data(target_id, banned=True)
             bot.answer_callback_query(call.id, "⛔ تم حظر العضو حظراً نهائياً.", show_alert=True)
         elif action == "tempban":
             until_time = datetime.now() + timedelta(days=1)
-            users[target_id]["banned_until"] = until_time.isoformat()
+            update_user_data(target_id, banned_until=until_time.isoformat())
             bot.answer_callback_query(call.id, "⏱️ تم حظر العضو مؤقتاً لمدة 24 ساعة.", show_alert=True)
         elif action == "unban":
-            users[target_id]["banned"] = False
-            users[target_id]["banned_until"] = None
+            update_user_data(target_id, banned=False, banned_until=None)
             bot.answer_callback_query(call.id, "🟢 تم فك الحظر عن العضو بالكامل.", show_alert=True)
             
-        save_json(DB_USERS, users)
-        
-        u = users[target_id]
-        role = "أدمن مالك" if int(target_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم عادي")
-        ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
+        tgt_u = get_user(target_id)
+        role = "أدمن مالك" if int(target_id) == ADMIN_PRIMARY else ("أدمن مدير" if tgt_u.get("is_admin", False) else "مستخدم عادي")
+        ban_status = "محظور نهائي ⛔" if tgt_u.get("banned", False) else ("محظور مؤقت 🔴" if tgt_u.get("banned_until") else "نشط 🟢")
         
         updated_msg = (f"👥 <b>بيانات العضو المحدثة:</b>\n\n• ID: <code>{target_id}</code>\n"
-                       f"• Username: @{u['username']}\n• الرصيد الحالي: {u['points']} نقطة\n"
+                       f"• Username: @{tgt_u['username']}\n• الرصيد الحالي: {tgt_u['points']} نقطة\n"
                        f"• الرتبة الحالية: {role}\n• حالة الحظر: {ban_status}")
                        
         markup = types.InlineKeyboardMarkup(row_width=2)
-        if u.get("is_admin", False):
+        if tgt_u.get("is_admin", False):
             markup.add(types.InlineKeyboardButton("❌ إزالة الإدارة", callback_data=f"adm_demote_{target_id}"))
         else:
             markup.add(types.InlineKeyboardButton("🛡️ ترقية إلى أدمن", callback_data=f"adm_promote_{target_id}"))
@@ -681,14 +710,13 @@ def handle_inline_callbacks(call):
 
     elif data.startswith("setlang_"):
         lang = data.split("_")[1]
-        users[uid]["lang"] = lang
-        save_json(DB_USERS, users)
+        update_user_data(uid, lang=lang)
         try: bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
         bot.send_message(call.message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
 
     elif data == "check_join":
-        lang = users[uid].get("lang", "ar")
+        lang = u.get("lang", "ar")
         if check_channel_join(uid):
             try: bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
@@ -700,7 +728,7 @@ def handle_inline_callbacks(call):
         prod = data.split("_")[2]
         if prod not in prices_config: return
         markup = types.InlineKeyboardMarkup()
-        u_discount = users.get(uid, {}).get("rank_discount", 0.0)
+        u_discount = u.get("rank_discount", 0.0)
         
         for plan in ["1 Day", "7 Days", "30 Days"]:
             base_p = prices_config[prod].get(plan, 0)
@@ -716,24 +744,23 @@ def handle_inline_callbacks(call):
         
         base_p = prices_config.get(prod, {}).get(plan, 0)
         disc = bot_config["discount"]
-        u_discount = users.get(uid, {}).get("rank_discount", 0.0)
+        u_discount = u.get("rank_discount", 0.0)
         final_p = int(base_p * (1 - disc/100) * (1 - u_discount))
         
-        if users[uid]["points"] < final_p:
+        if u["points"] < final_p:
             return bot.answer_callback_query(call.id, "❌ عذراً! رصيد نقاطك الحالي غير كافٍ.", show_alert=True)
         if not keys_store.get(prod, {}).get(plan, []):
             return bot.answer_callback_query(call.id, "⚠️ نعتذر منك! نفذت كمية مفاتيح هذه الخطة من المخزن.", show_alert=True)
             
         delivered_key = keys_store[prod][plan].pop(0)
-        users[uid]["points"] -= final_p
+        update_user_data(uid, points=-final_p)
         
         bot_config["total_sales"] += 1
         bot_config["total_earnings"] += final_p
         bot_config["sales_log"].append({
-            "uid": uid, "username": users[uid]["username"], "product": prod, "plan": plan, "price": final_p, "key": delivered_key, "date": datetime.now().isoformat()
+            "uid": uid, "username": u["username"], "product": prod, "plan": plan, "price": final_p, "key": delivered_key, "date": datetime.now().isoformat()
         })
         
-        save_json(DB_USERS, users)
         save_json(DB_KEYS, keys_store)
         save_json(DB_CONFIG, bot_config)
         update_user_rank_and_quests(uid)
@@ -782,8 +809,8 @@ def process_delete_specific_key(message, prod, plan):
 
 def admin_view_member_func(message):
     t_id = message.text.strip()
-    if t_id in users:
-        u = users[t_id]
+    u = get_user(t_id)
+    if u:
         role = "أدمن مالك" if int(t_id) == ADMIN_PRIMARY else ("أدمن مدير" if u.get("is_admin", False) else "مستخدم عادي")
         ban_status = "محظور نهائي ⛔" if u.get("banned", False) else ("محظور مؤقت 🔴" if u.get("banned_until") else "نشط 🟢")
         
@@ -832,9 +859,7 @@ def process_redeem_user(message):
     code = message.text.strip()
     if code in redeem_codes:
         added_pts = redeem_codes.pop(code)
-        users[uid]["points"] += added_pts
-        users[uid]["accumulated_points"] = users[uid].get("accumulated_points", 0) + added_pts
-        save_json(DB_USERS, users)
+        update_user_data(uid, points=added_pts, accumulated_points=added_pts)
         save_json(DB_REDEEM, redeem_codes)
         update_user_rank_and_quests(uid)
         bot.send_message(message.chat.id, f"🎉 تم تفعيل كود الشحن وإضافة +{added_pts} نقطة إلى رصيدك.")
@@ -921,10 +946,8 @@ def admin_delete_product_func(message):
 def admin_charge_member_func(message):
     try:
         t_id, pts = message.text.strip().split()
-        if t_id in users:
-            users[t_id]["points"] += int(pts)
-            users[t_id]["accumulated_points"] = users[t_id].get("accumulated_points", 0) + int(pts)
-            save_json(DB_USERS, users)
+        if get_user(t_id):
+            update_user_data(t_id, points=int(pts), accumulated_points=int(pts))
             update_user_rank_and_quests(t_id)
             bot.send_message(message.chat.id, f"💰 تم شحن الحساب {t_id} بمقدار +{pts} نقطة.")
             try: bot.send_message(int(t_id), f"🔔 تم إضافة +{pts} رصيد لنقاطك من قبل الإدارة.")
@@ -953,7 +976,7 @@ def admin_set_discount_func(message):
 def admin_broadcast_func(message):
     txt = message.text
     success_count = 0
-    for u_id in users.keys():
+    for u_id in get_all_user_ids():
         try:
             bot.send_message(int(u_id), txt)
             success_count += 1
