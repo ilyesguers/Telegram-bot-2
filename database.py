@@ -2,7 +2,14 @@ import os
 import json
 from sqlalchemy import create_engine, text
 
-# --- إضافة قراءة ملفات JSON ---
+# --- تعريف أسماء ملفات JSON ---
+DB_USERS = 'users_data.json'
+DB_KEYS = 'keys_store.json'
+DB_REDEEM = 'redeem_codes.json'
+DB_PRICES = 'prices_config.json'
+DB_CONFIG = 'bot.json' 
+
+# --- دوال التعامل مع JSON (تم تعريفها مرة واحدة فقط) ---
 def load_json(filename):
     if os.path.exists(filename):
         with open(filename, 'r', encoding='utf-8') as f:
@@ -13,12 +20,15 @@ def save_json(filename, data):
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# تحميل البيانات لكي تكون متاحة للاستيراد
-keys_store = load_json('keys_store.json')
-redeem_codes = load_json('redeem_codes.json')
-prices_config = load_json('prices_config.json')
-bot_config = load_json('bot.json') # تأكد من اسم الملف الصحيح عندك
-# ------------------------------
+# --- تحميل البيانات لتكون جاهزة للاستيراد في bot.py ---
+users = load_json(DB_USERS)
+keys_store = load_json(DB_KEYS)
+redeem_codes = load_json(DB_REDEEM)
+prices_config = load_json(DB_PRICES)
+bot_config = load_json(DB_CONFIG)
+
+# --- هنا يبدأ كود الاتصال بقاعدة البيانات (engine, init_db, إلخ...) ---
+
 
 # 1. الاتصال بقاعدة البيانات...
 # (باقي الكود الخاص بك كما هو...)
