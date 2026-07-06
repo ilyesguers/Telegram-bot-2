@@ -1,5 +1,27 @@
 import os
+import json
 from sqlalchemy import create_engine, text
+
+# --- إضافة قراءة ملفات JSON ---
+def load_json(filename):
+    if os.path.exists(filename):
+        with open(filename, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_json(filename, data):
+    with open(filename, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+# تحميل البيانات لكي تكون متاحة للاستيراد
+keys_store = load_json('keys_store.json')
+redeem_codes = load_json('redeem_codes.json')
+prices_config = load_json('prices_config.json')
+bot_config = load_json('bot.json') # تأكد من اسم الملف الصحيح عندك
+# ------------------------------
+
+# 1. الاتصال بقاعدة البيانات...
+# (باقي الكود الخاص بك كما هو...)
 
 # 1. الاتصال بقاعدة البيانات من متغيرات Railway
 DATABASE_URL = os.getenv("DATABASE_URL")
