@@ -1,3 +1,4 @@
+
 import os
 import json
 from sqlalchemy import create_engine, text
@@ -73,7 +74,7 @@ def get_user(uid):
         return result._asdict() if result else None
 
 # 5. تحديث بيانات (نقاط، رتبة، إلخ)
-def update_user_data(uid, points=None, acc_points=None, invite_count=None, rank=None, completed_quests=None):
+def update_user_data(uid, points=None, acc_points=None, invite_count=None, rank=None, completed_quests=None, lang=None):
     with engine.connect() as conn:
         query = "UPDATE users SET "
         updates = []
@@ -84,10 +85,12 @@ def update_user_data(uid, points=None, acc_points=None, invite_count=None, rank=
         if invite_count is not None: updates.append("invite_count = invite_count + :invite_count"); params["invite_count"] = invite_count
         if rank is not None: updates.append("rank = :rank"); params["rank"] = rank
         if completed_quests is not None: updates.append("completed_quests = :completed_quests"); params["completed_quests"] = completed_quests
+        if lang is not None: updates.append("lang = :lang"); params["lang"] = lang
         
         query += ", ".join(updates) + " WHERE uid = :uid"
         conn.execute(text(query), params)
         conn.commit()
+
 
 # 6. دالة نقل البيانات القديمة (تستخدمها لمرة واحدة)
 def insert_old_data(uid, username, points, acc_points, lang, rank, invite_count):
