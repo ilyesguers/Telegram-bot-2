@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 # استدعاء الملفات المقسمة (محدث ليتوافق مع دوال قاعدة البيانات الجديدة)
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID, CHANNEL_LINK, LOCALES
-from database import engine, text, init_db, get_user, update_user_data, register_user, keys_store, redeem_codes, prices_config, bot_config, save_json, DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG, update_user_rank_and_quests
+from database import engine, text, init_db, get_user, update_user_data, register_user,redeem_codes, prices_config, bot_config, save_json, DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG, update_user_rank_and_quests
 from utils import check_spam, is_user_banned, check_channel_join, generate_fake_key
 from keyboards import get_lang_inline, get_join_inline, get_main_keyboard, get_admin_keyboard
 
