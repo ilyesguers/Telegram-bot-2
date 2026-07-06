@@ -101,3 +101,12 @@ def insert_old_data(uid, username, points, acc_points, lang, rank, invite_count)
             "acc_points": acc_points, "lang": lang, "rank": rank, "invite_count": invite_count
         })
         conn.commit()
+# أضف هذا في نهاية ملف database.py
+
+def update_user_rank_and_quests(uid):
+    # هنا يجب أن تضع الكود البرمجي الخاص بالدالة
+    # هذا مجرد مثال على شكل الدالة:
+    with engine.connect() as conn:
+        # ضع هنا المنطق الخاص بتحديث الرتبة والمهام
+        # ...
+        conn.commit()
