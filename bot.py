@@ -107,7 +107,7 @@ def main_router(message):
         
     u = get_user(uid) or {}
     lang = u.get("lang", "ar")
-    # تطبيق التنظيف هنا
+    # تطبيق التنظيف والتحقق الذكي هنا
     txt = clean_text(message.text)
 
     if not check_channel_join(uid):
@@ -116,19 +116,21 @@ def main_router(message):
     if bot_config["maintenance"] and not (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         return bot.send_message(message.chat.id, LOCALES[lang]["maint_msg"])
 
-    if txt == clean_text("التالي ➡️"):
-        return bot.send_message(message.chat.id, "🎡 ميزات التسلية والمهام التسويقية الإبداعية المضافة حديثاً للمتجر:", reply_markup=get_main_keyboard(uid, lang, page=2))
-        
-    elif txt == clean_text("⬅️ السابق"):
-        return bot.send_message(message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
-        
-    elif txt == clean_text("التالي للمشرف ➡️") and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
+    # فحص أزرار لوحة المشرف الفرعية أولاً لمنع أي تداخل نصي
+    if (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)) and ("التالي للمشرف" in txt or "التالي للمشرف" in message.text):
         return bot.send_message(message.chat.id, "⚙️ لوحة تحكم إعدادات الألعاب التسويقية الجديدة لمشرفي النظام:", reply_markup=get_admin_keyboard(page=2))
         
-    elif txt == clean_text("⬅️ سابق المشرف") and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
+    elif (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)) and ("سابق المشرف" in txt or "سابق للمشرف" in txt or "سابق المشرف" in message.text):
         return bot.send_message(message.chat.id, "👑 لوحة التحكم والميزات الرئيسية للإدارة:", reply_markup=get_admin_keyboard(page=1))
 
-    elif txt == clean_text("🎰 صندوق الحظ"):
+    # فحص أزرار التنقل للمستخدم العادي
+    elif "التالي" in txt or "التالي" in message.text:
+        return bot.send_message(message.chat.id, "🎡 ميزات التسلية والمهام التسويقية الإبداعية المضافة حديثاً للمتجر:", reply_markup=get_main_keyboard(uid, lang, page=2))
+        
+    elif "السابق" in txt or "السابق" in message.text:
+        return bot.send_message(message.chat.id, LOCALES[lang]["main_menu"], reply_markup=get_main_keyboard(uid, lang, page=1))
+
+    elif "صندوق الحظ" in txt or "صندوق الحظ" in message.text:
         price = bot_config.get("lootbox_price", 50)
         chance = bot_config.get("lootbox_chance", 25)
         msg = (f"🎰 <b>صناديق الحظ العشوائية (Loot Boxes):</b>\n\n"
@@ -140,7 +142,7 @@ def main_router(message):
         markup.add(types.InlineKeyboardButton("🛒 فتح صندوق حظ الآن", callback_data="game_buy_lootbox"))
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt == clean_text("🎡 عجلة الحظ"):
+    elif "عجلة الحظ" in txt or "عجلة الحظ" in message.text:
         price = bot_config.get("wheel_price", 40)
         msg = (f"🎡 <b>عجلة الحظ المدفوعة التفاعلية:</b>\n\n"
                f"أدر العجلة الآن وشاهد حظك وهو يتحرك مباشرة أمامك للربح!\n\n"
@@ -150,7 +152,7 @@ def main_router(message):
         markup.add(types.InlineKeyboardButton("💫 تدوير عجلة الحظ الآن", callback_data="game_spin_wheel"))
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt == clean_text("🔥 المهام الصعبة"):
+    elif "المهام الصعبة" in txt or "المهام" in txt or "المهام الصعبة" in message.text:
         update_user_rank_and_quests(uid)
         u = get_user(uid)
         completed = u.get("completed_quests", "")
@@ -168,10 +170,10 @@ def main_router(message):
         msg += f"2️⃣ 🛒 إتمام {q['buy']['target']} عمليات شراء ناجحة من المتجر\n🎁 الجائزة: +{q['buy']['reward']} نقطة | الحالة: <b>{st2}</b>\n──────────────────\n"
         
         st3 = "✅ مكتمل ومستلم" if "quest_points" in completed else f"⏳ قيد التقدم ({acc_pts}/{q['points']['target']})"
-        msg += f"3️⃣ 💎 تجميع {q['points']['target']} نقطة إجمالاً في حسابك (مجمعة)\n🎁 الجائزة: +{q['points']['reward']} نقطة | الحالة: <b>{st3}</b>\n"
+        msg += f"3️⃣ 💎 تجميع {q['points']['target']} نقطة إجمالاً in حسابك (مجمعة)\n🎁 الجائزة: +{q['points']['reward']} نقطة | الحالة: <b>{st3}</b>\n"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
-    elif txt == clean_text("🏆 رتبتي الحالية"):
+    elif "رتبتي الحالية" in txt or "رتبتي" in txt or "الرتبة" in txt:
         update_user_rank_and_quests(uid)
         u = get_user(uid)
         r_name = u.get("rank", "عضو عادي 🔹")
@@ -192,7 +194,7 @@ def main_router(message):
                f"💡 نصيحة: استمر في تجميع وشحن النقاط لرفع رانك حسابك آلياً والاستمتاع بالخصومات الثابتة!")
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
-    elif txt == clean_text("⚙️ إعدادات صندوق الحظ") and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
+    elif ("إعدادات صندوق الحظ" in txt or "صندوق الحظ" in txt) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)) and "إعدادات" in txt:
         price = bot_config.get("lootbox_price", 50)
         chance = bot_config.get("lootbox_chance", 25)
         msg = (f"⚙️ <b>لوحة ضبط صندوق الحظ (التحكم بالخانات بدون أوامر):</b>\n\n"
@@ -209,7 +211,7 @@ def main_router(message):
         )
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt == clean_text("⚙️ إعدادات عجلة الحظ") and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
+    elif ("إعدادات عجلة الحظ" in txt or "عجلة الحظ" in txt) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)) and "إعدادات" in txt:
         price = bot_config.get("wheel_price", 40)
         chance = bot_config.get("wheel_chance", 5)
         msg = (f"⚙️ <b>لوحة ضبط عجلة الحظ المخصصة (التحكم بالخانات بدون أوامر):</b>\n\n"
@@ -226,7 +228,7 @@ def main_router(message):
         )
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt == clean_text("⚙️ إعدادات المهام الصعبة") and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
+    elif ("إعدادات المهام الصعبة" in txt or "المهام الصعبة" in txt) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)) and "إعدادات" in txt:
         q = bot_config["quests"]
         msg = (f"⚙️ <b>لوحة التحكم بالمهام (تعديل مباشر بالأزرار وبدون أوامر):</b>\n\n"
                f"1️⃣ <b>👥 مهمة الدعوات:</b>\n• الهدف الحالي: {q['invite']['target']} عضو | الجائزة: {q['invite']['reward']} نقطة\n\n"
@@ -243,38 +245,40 @@ def main_router(message):
         markup.row(types.InlineKeyboardButton("🎁 جائزة النقاط ➖", callback_data="cfg_q_pts_r_down"), types.InlineKeyboardButton("🎁 جائزة النقاط ➕", callback_data="cfg_q_pts_r_up"))
         bot.send_message(message.chat.id, msg, reply_markup=markup, parse_mode="HTML")
 
-    elif txt in (clean_text(LOCALES[l]["id_btn"]) for l in LOCALES):
+    # فحص أزرار LOCALES والأسماء المختلفة للمستخدم بشكل مرن للغاية لمنع أي تعطل
+    elif any(clean_text(LOCALES[l]["id_btn"]) in txt or "آيدي" in txt or "id" in txt or "المعرف" in txt for l in LOCALES):
         bot.send_message(message.chat.id, f"🆔 الآيدي الخاص بك: <code>{uid}</code>", parse_mode="HTML")
 
-    elif txt in (clean_text(LOCALES[l]["balance_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["balance_btn"]) in txt or "رصيد" in txt or "حسابي" in txt or "النقاط" in txt for l in LOCALES):
         update_user_rank_and_quests(uid)
         u = get_user(uid)
         msg = f"💰 <b>بيانات رصيدك وحسابك:</b>\n\n• ID: {uid}\n• رصيد النقاط: {u['points']} نقطة\n• الرتبة الحالية: {u.get('rank', 'عضو عادي 🔹')}\n• عدد الدعوات الناجحة: {u.get('invite_count', 0)}\n• لغة البوت الحالية: {u['lang'].upper()}\n• حالة الحظر: نشط 🟢"
         bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
-    elif txt in (clean_text(LOCALES[l]["lang_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["lang_btn"]) in txt or "اللغة" in txt or "لغة" in txt or "lang" in txt for l in LOCALES):
         bot.send_message(message.chat.id, "🌐 اختر لغة البوت المفضلة لديك:", reply_markup=get_lang_inline())
 
-    elif txt in (clean_text(LOCALES[l]["bonus_btn"]) for l in LOCALES):
+    # تعديل المكافأة اليومية هنا لتقبل أسماء مختلفة وتتحول برمجياً إلى daily_gift
+    elif any(clean_text(LOCALES[l]["bonus_btn"]) in txt or "هدية" in txt or "مكافأة" in txt or "يومية" in txt or "bonus" in txt or "gift" in txt for l in LOCALES):
         now = datetime.now()
         lc = u.get("last_claim")
         if lc and now < datetime.fromisoformat(lc) + timedelta(days=1):
             bot.send_message(message.chat.id, "❌ لقد استلمت المكافأة اليومية بالفعل، يرجى المحاولة بعد انتهاء 24 ساعة.")
         else:
-            update_user_data(uid, last_claim=now.isoformat(), points=bot_config["daily_bonus"], accumulated_points=bot_config["daily_bonus"])
+            update_user_data(uid, last_claim=now.isoformat(), points=bot_config["daily_gift"], accumulated_points=bot_config["daily_gift"])
             update_user_rank_and_quests(uid)
-            bot.send_message(message.chat.id, f"✨ تم استلام مكافأتك اليومية بنجاح وهي +{bot_config['daily_bonus']} نقاط!")
+            bot.send_message(message.chat.id, f"✨ تم استلام مكافأتك اليومية بنجاح وهي +{bot_config['daily_gift']} نقاط!")
 
-    elif txt in (clean_text(LOCALES[l]["invite_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["invite_btn"]) in txt or "دعوة" in txt or "رابط" in txt or "احالة" in txt or "invite" in txt for l in LOCALES):
         bot_user = bot.get_me().username
         link = f"https://t.me/{bot_user}?start={uid}"
         bot.send_message(message.chat.id, f"🔗 <b>نظام الدعوات:</b>\n\nقم بنسخ رابط الإحالة الخاص بك وأرسله لأصدقائك للحصول على نقاط مجانية عند تسجيلهم:\n<code>{link}</code>\n\n🎁 مكافأة الدعوة الحالية: <b>{bot_config['invite_reward']} نقطة</b>", parse_mode="HTML")
 
-    elif txt in (clean_text(LOCALES[l]["redeem_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["redeem_btn"]) in txt or "شحن" in txt or "كود" in txt or "تفعيل" in txt or "redeem" in txt for l in LOCALES):
         m = bot.send_message(message.chat.id, "🎁 الرجاء إدخال كود الشحن لإضافة الرصيد تلقائياً:")
         bot.register_next_step_handler(m, process_redeem_user)
 
-    elif txt in (clean_text(LOCALES[l]["support_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["support_btn"]) in txt or "دعم" in txt or "تذكرة" in txt or "تواصل" in txt or "الدعم" in txt for l in LOCALES):
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton("✅ نعم، فتح تذكرة", callback_data="confirm_open_ticket"),
@@ -282,11 +286,11 @@ def main_router(message):
         )
         bot.send_message(message.chat.id, "⚠️ <b>تأكيد فتح تذكرة:</b>\nهل أنت متأكد من رغبتك في فتح تذكرة دعم فني جديدة؟", reply_markup=markup, parse_mode="HTML")
 
-    elif txt in (clean_text(LOCALES[l]["req_prod_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["req_prod_btn"]) in txt or "طلب منتج" in txt or "اقتراح" in txt or "منتج جديد" in txt for l in LOCALES):
         m = bot.send_message(message.chat.id, "💡 من فضلك اكتب اسم وتفاصيل المنتج الذي ترغب في إضافته للمتجر بالتفصيل:")
         bot.register_next_step_handler(m, process_product_request_input)
 
-    elif txt in (clean_text(LOCALES[l]["shop_btn"]) for l in LOCALES):
+    elif any(clean_text(LOCALES[l]["shop_btn"]) in txt or "متجر" in txt or "المنتجات" in txt or "شراء" in txt or "shop" in txt for l in LOCALES):
         if not prices_config:
             return bot.send_message(message.chat.id, "📭 لا توجد منتجات متوفرة بالمتجر حالياً.")
         markup = types.InlineKeyboardMarkup()
@@ -294,14 +298,15 @@ def main_router(message):
             markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"select_prod_{prod}"))
         bot.send_message(message.chat.id, "🛍️ <b>متجر المنتجات</b>\nالرجاء اختيار المنتج المراد تصفحه:", reply_markup=markup, parse_mode="HTML")
 
-    elif txt in (clean_text(LOCALES[l]["admin_btn"]) for l in LOCALES) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
+    elif any(clean_text(LOCALES[l]["admin_btn"]) in txt or "لوحة" in txt or "ادارة" in txt or "التحكم" in txt for l in LOCALES) and (int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)):
         bot.send_message(message.chat.id, "👑 مرحباً بك في لوحة تحكم ميزات الإدارة للمتجر:", reply_markup=get_admin_keyboard(page=1))
 
+    # أزرار لوحة تحكم الإدارة الكاملة بنظام البحث النصي الفرعي
     elif int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
-        if txt == clean_text("🔄 واجهة المستخدم"):
+        if "واجهة المستخدم" in txt:
             bot.send_message(message.chat.id, "🔙 تم الانتقال إلى واجهة المستخدم العادية.", reply_markup=get_main_keyboard(uid, lang, page=1))
 
-        elif txt == clean_text("🎫 إدارة التذاكر"):
+        elif "إدارة التذاكر" in txt or "تذاكر" in txt:
             tickets = bot_config.get("tickets", {})
             open_tickets = {k: v for k, v in tickets.items() if v.get("status", "open") == "open"}
             if not open_tickets:
@@ -311,7 +316,7 @@ def main_router(message):
                 markup.add(types.InlineKeyboardButton(f"🎫 #{t_id} - من: {t_info['uid']}", callback_data=f"view_ticket_{t_id}"))
             bot.send_message(message.chat.id, "👇 <b>قائمة التذاكر المفتوحة حالياً:</b>", reply_markup=markup, parse_mode="HTML")
 
-        elif txt == clean_text("💡 طلبات المنتجات"):
+        elif "طلب" in txt and "منتج" in txt or "طلبات المنتجات" in txt:
             reqs = bot_config.get("product_requests", {})
             if not reqs:
                 return bot.send_message(message.chat.id, "📭 لا توجد طلبات منتجات مقدمة من المستخدمين حالياً.")
@@ -320,15 +325,15 @@ def main_router(message):
                 msg += f"🔹 <b>طلب #{r_id}</b>\n👤 العضو: <code>{r_info['uid']}</code>\n📦 المنتج المطلوب:\n<code>{r_info['text']}</code>\n📅 التاريخ: {r_info.get('date','')[:10]}\n──────────────────\n"
             bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
-        elif txt == clean_text("➕ إضافة منتج"):
+        elif "إضافة منتج" in txt or "اضافة منتج" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج الجديد:")
             bot.register_next_step_handler(m, admin_add_product_func)
 
-        elif txt == clean_text("❌ حذف منتج"):
+        elif "حذف منتج" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل اسم المنتج المراد حذفه بالكامل:")
             bot.register_next_step_handler(m, admin_delete_product_func)
 
-        elif txt == clean_text("🔑 إضافة مفاتيح"):
+        elif "إضافة مفاتيح" in txt or "اضافة مفاتيح" in txt:
             if not prices_config:
                 return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد، قم بإضافة منتج أولاً.")
             markup = types.InlineKeyboardMarkup()
@@ -336,7 +341,7 @@ def main_router(message):
                 markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_addkey_prod|{prod}"))
             bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد إضافة مفاتيح له:</b>", reply_markup=markup, parse_mode="HTML")
 
-        elif txt == clean_text("💵 إدارة الأسعار"):
+        elif "إدارة الأسعار" in txt or "الأسعار" in txt or "الاسعار" in txt:
             if not prices_config:
                 return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد.")
             markup = types.InlineKeyboardMarkup()
@@ -344,7 +349,7 @@ def main_router(message):
                 markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_price_prod|{prod}"))
             bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد تعديل أسعاره:</b>", reply_markup=markup, parse_mode="HTML")
 
-        elif txt == clean_text("🔢 حذف مفتاح معين"):
+        elif "حذف مفتاح معين" in txt or "حذف مفتاح" in txt:
             if not prices_config:
                 return bot.send_message(message.chat.id, "❌ لا توجد منتجات مضافة بعد.")
             markup = types.InlineKeyboardMarkup()
@@ -352,7 +357,7 @@ def main_router(message):
                 markup.add(types.InlineKeyboardButton(f"📦 {prod}", callback_data=f"step_delkey_prod|{prod}"))
             bot.send_message(message.chat.id, "👇 <b>اختر المنتج الذي تريد حذف مفتاح منه:</b>", reply_markup=markup, parse_mode="HTML")
 
-        elif txt == clean_text("👁️ استعراض المفاتيح"):
+        elif "استعراض المفاتيح" in txt or "المفاتيح" in txt:
             status = "🔑 <b>جميع المفاتيح المخزنة في النظام:</b>\n\n"
             for prod, plans in keys_store.items():
                 status += f"📦 <b>{prod}:</b>\n"
@@ -360,33 +365,33 @@ def main_router(message):
                     status += f" ├ {plan}: {len(lst)} مفتاح متوفر\n"
             bot.send_message(message.chat.id, status, parse_mode="HTML")
 
-        elif txt == clean_text("🗑️ مسح جميع المفاتيح"):
+        elif "مسح جميع المفاتيح" in txt or "مسح المفاتيح" in txt:
             keys_store.clear()
             for prod in prices_config.keys(): keys_store[prod] = {"1 Day": [], "7 Days": [], "30 Days": []}
             save_json(DB_KEYS, keys_store)
             bot.send_message(message.chat.id, "🗑️ تم مسح جميع المفاتيح المخزنة دفعة واحدة بنجاح.")
 
-        elif txt == clean_text("👥 إدارة الأعضاء"):
+        elif "إدارة الأعضاء" in txt or "الاعضاء" in txt or "الأعضاء" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل آيدي العضو لعرض تفاصيله والتحكم في رتبته وحظره بالأزرار:")
             bot.register_next_step_handler(m, admin_view_member_func)
 
-        elif txt == clean_text("💰 شحن الأعضاء"):
+        elif "شحن الأعضاء" in txt or "شحن" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل آيدي المستخدم ثم مسافة ثم القيمة (مثال: 123456789 500):")
             bot.register_next_step_handler(m, admin_charge_member_func)
 
-        elif txt == clean_text("🎫 إنشاء أكواد الشحن"):
+        elif "إنشاء أكواد الشحن" in txt or "اكواد الشحن" in txt or "إنشاء كود" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل الكود المراد إنشاؤه متبوعاً بقيمته (مثال: FREE100 100):")
             bot.register_next_step_handler(m, admin_create_code_func)
 
-        elif txt == clean_text("🔥 التخفيضات"):
+        elif "التخفيضات" in txt or "خصم" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل النسبة المئوية الجديدة للتخفيض العام (مثال: 10 أو 20 أو 50):")
             bot.register_next_step_handler(m, admin_set_discount_func)
 
-        elif txt == clean_text("📢 الإذاعة الشاملة"):
+        elif "الإذاعة الشاملة" in txt or "اذاعة" in txt or "الإذاعة" in txt:
             m = bot.send_message(message.chat.id, "✍️ أرسل نص الرسالة التي ترغب بإذاعتها لجميع الأعضاء:")
             bot.register_next_step_handler(m, admin_broadcast_func)
 
-        elif txt == clean_text("📤 نشر الأسعار بالقناة"):
+        elif "نشر الأسعار بالقناة" in txt or "نشر الاسعار" in txt:
             pub_text = "📢 <b>قائمة أسعار ومفاتيح المتجر المتوفرة لدينا:</b>\n\n"
             for prod, plans in prices_config.items():
                 pub_text += f"📦 <b>المنتج: {prod}</b>\n"
@@ -400,19 +405,19 @@ def main_router(message):
                 bot.send_message(message.chat.id, "✅ تم نشر وتحديث قائمة الأسعار الحالية في القناة.")
             except: bot.send_message(message.chat.id, "❌ حدث خطأ، يرجى تحقق من صلاحيات البوت بالقناة.")
 
-        elif txt == clean_text("📣 التسويق الوهمي"):
+        elif "التسويق الوهمي" in txt or "تسويق" in txt:
             m = bot.send_message(message.chat.id, "⚠️ <b>تأكيد الإجراء:</b> من فضلك اكتب كلمة عشوائية أو كلمة <code>تأكيد</code> لتفادي إرسال منشور التسويق الوهمي بالغلط إلى القناة:", parse_mode="HTML")
             bot.register_next_step_handler(m, admin_confirm_fake_marketing)
 
-        elif txt == clean_text("✨ تعديل المكافأة اليومية"):
-            m = bot.send_message(message.chat.id, f"⚙️ القيمة الحالية للمكافأة: {bot_config['daily_bonus']} نقطة.\n\n✍️ أرسل القيمة الجديدة الآن (أرقام فقط):")
+        elif "تعديل المكافأة اليومية" in txt or "تعديل الهدية" in txt or "المكافأة اليومية" in txt:
+            m = bot.send_message(message.chat.id, f"⚙️ القيمة الحالية للمكافأة: {bot_config['daily_gift']} نقطة.\n\n✍️ أرسل القيمة الجديدة الآن (أرقام فقط):")
             bot.register_next_step_handler(m, admin_edit_daily_bonus)
 
-        elif txt == clean_text("🔗 تعديل نقاط الدعوة"):
+        elif "تعديل نقاط الدعوة" in txt or "نقاط الدعوة" in txt:
             m = bot.send_message(message.chat.id, f"⚙️ القيمة الحالية لنقاط الدعوة: {bot_config['invite_reward']} نقطة.\n\n✍️ أرسل القيمة الجديدة الآن (أرقام فقط):")
             bot.register_next_step_handler(m, admin_edit_invite_reward)
 
-        elif txt == clean_text("☁️ النسخ الاحتياطي"):
+        elif "النسخ الاحتياطي" in txt or "النسخ" in txt or "إحصائيات" in txt:
             stats = (f"📊 <b>إحصائيات وتقارير المتجر الحالية:</b>\n\n"
                      f"👥 عدد المستخدمين المسجلين: {len(get_all_user_ids())}\n"
                      f"🛒 إجمالي عدد المبيعات: {bot_config.get('total_sales', 0)}\n"
@@ -963,7 +968,7 @@ def admin_charge_member_func(message):
             try: bot.send_message(int(t_id), f"🔔 تم إضافة +{pts} رصيد لنقاطك من قبل الإدارة.")
             except: pass
         else: bot.send_message(message.chat.id, "❌ الآيدي غير موجود.")
-    except: bot.send_message(message.chat.id, "❌ خطأ بالإدخال، يرجى كتابة الآيدي ثم مسافة ثم المبلغ.")
+    except: bot_config.send_message(message.chat.id, "❌ خطأ بالإدخال، يرجى كتابة الآيدي ثم مسافة ثم المبلغ.")
 
 def admin_create_code_func(message):
     try:
@@ -994,17 +999,18 @@ def admin_broadcast_func(message):
         except: pass
     bot.send_message(message.chat.id, f"📢 تم إكمال الإذاعة الشاملة لـ {success_count} عضو.")
 
+# دالة تعديل المكافأة اليومية المحدثة لملف الإعدادات بقيمة daily_gift
 def admin_edit_daily_bonus(message):
     try:
         new_bonus = int(message.text.strip())
         if new_bonus >= 0:
-            bot_config["daily_bonus"] = new_bonus
+            bot_config["daily_gift"] = new_bonus
             save_json(DB_CONFIG, bot_config)
             bot.send_message(message.chat.id, f"✅ تم تحديث المكافأة اليومية بنجاح لتصبح: {new_bonus} نقطة.")
         else:
             bot.send_message(message.chat.id, "❌ يجب أن تكون القيمة أكبر من أو تساوي صفر.")
     except ValueError:
-        bot.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
+        bot_config.send_message(message.chat.id, "❌ يرجى إدخال أرقام صحيحة فقط.")
 
 def admin_edit_invite_reward(message):
     try:
