@@ -1,25 +1,26 @@
 import time
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID
 
 user_last_msg = {}
 captcha_sessions = {}  # {uid: {"answer": "X", "attempts": 0, "expires": timestamp}}
-spam_warnings = {}  # {uid: count}
+spam_warnings = {}
 
+# =====================================================
+# 🛡️ مكافحة السبام
+# =====================================================
 def check_spam(uid):
-    """نظام مكافحة السبام المحسّن"""
     uid = str(uid)
     current_time = time.time()
     
     if uid in user_last_msg:
         diff = current_time - user_last_msg[uid]
-        if diff < 0.5:  # أقل من نصف ثانية = سبام
+        if diff < 0.5:
             spam_warnings[uid] = spam_warnings.get(uid, 0) + 1
             user_last_msg[uid] = current_time
             
-            # 5 تحذيرات = يحتاج كابتشا
             if spam_warnings[uid] >= 5:
                 trigger_captcha(uid)
                 spam_warnings[uid] = 0
@@ -28,8 +29,10 @@ def check_spam(uid):
     user_last_msg[uid] = current_time
     return False
 
+# =====================================================
+# ⛔ فحص الحظر
+# =====================================================
 def is_user_banned(uid):
-    """فحص حظر المستخدم من قاعدة البيانات"""
     from database import get_user, update_user_data
     uid = str(uid)
     u = get_user(uid)
@@ -48,8 +51,10 @@ def is_user_banned(uid):
             pass
     return False
 
+# =====================================================
+# 📢 فحص الاشتراك بالقناة
+# =====================================================
 def check_channel_join(uid):
-    """فحص الاشتراك في القناة الإجباري"""
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
         return True
     try:
@@ -57,86 +62,72 @@ def check_channel_join(uid):
         if member.status in ['member', 'creator', 'administrator']:
             return True
     except Exception as e:
-        print(f"خطأ فحص القناة للمستخدم {uid}: {e}")
+        print(f"⚠️ فحص القناة {uid}: {e}")
     return False
 
+# =====================================================
+# 🔐 مفتاح وهمي للتسويق
+# =====================================================
 def generate_fake_key():
-    """توليد مفتاح وهمي للتسويق"""
     chars = string.ascii_uppercase + string.digits
     fake_key = ''.join(random.choice(chars) for _ in range(16))
     return f"{fake_key[:6]}***********{fake_key[-4:]}"
 
-# ==========================================================
-# 🛡️ نظام الكابتشا الذكي (مضاد للرشق والبوتات)
-# ==========================================================
+# =====================================================
+# 🎨 كابتشا سهلة (إيموجي بسيط)
+# =====================================================
 def generate_captcha():
-    """
-    توليد كابتشا رياضي ذكي
-    3 مستويات صعوبة تدور عشوائياً
-    """
-    difficulty = random.choice([1, 2, 3])
+    """كابتشا إيموجي بسيطة - اختر الإيموجي المطلوب"""
+    emojis_pool = [
+        ("🍎", "التفاحة"),
+        ("🍌", "الموزة"),
+        ("🍇", "العنب"),
+        ("🍓", "الفراولة"),
+        ("🚗", "السيارة"),
+        ("⚽", "الكرة"),
+        ("🐶", "الكلب"),
+        ("🐱", "القط"),
+        ("🌙", "القمر"),
+        ("⭐", "النجمة"),
+        ("❤️", "القلب"),
+        ("🎈", "البالون")
+    ]
     
-    if difficulty == 1:
-        # جمع بسيط
-        a = random.randint(10, 50)
-        b = random.randint(10, 50)
-        question = f"{a} ➕ {b}"
-        answer = str(a + b)
-    elif difficulty == 2:
-        # طرح
-        a = random.randint(50, 100)
-        b = random.randint(10, 49)
-        question = f"{a} ➖ {b}"
-        answer = str(a - b)
-    else:
-        # ضرب
-        a = random.randint(3, 12)
-        b = random.randint(3, 12)
-        question = f"{a} ✖️ {b}"
-        answer = str(a * b)
+    # اختر 4 إيموجي عشوائياً
+    chosen = random.sample(emojis_pool, 4)
+    correct = random.choice(chosen)
     
-    # توليد خيارات خاطئة
-    correct = int(answer)
-    options = {correct}
-    while len(options) < 4:
-        offset = random.randint(-15, 15)
-        if offset != 0:
-            options.add(max(0, correct + offset))
-    
-    options_list = list(options)
-    random.shuffle(options_list)
-    
-    return question, answer, options_list
+    return correct[0], correct[1], [item[0] for item in chosen]
 
 def trigger_captcha(uid):
-    """تفعيل الكابتشا لمستخدم مشتبه به"""
+    """إرسال كابتشا سهلة للمستخدم"""
     from telebot import types
     uid = str(uid)
     
-    question, answer, options = generate_captcha()
+    emoji_correct, name_correct, options = generate_captcha()
     captcha_sessions[uid] = {
-        "answer": answer,
+        "answer": emoji_correct,
         "attempts": 0,
-        "expires": time.time() + 120  # ساعتين
+        "expires": time.time() + 300  # 5 دقائق
     }
     
     markup = types.InlineKeyboardMarkup(row_width=2)
+    random.shuffle(options)
+    buttons = []
     for opt in options:
-        markup.add(types.InlineKeyboardButton(f"  {opt}  ", callback_data=f"captcha_ans_{opt}"))
+        buttons.append(types.InlineKeyboardButton(opt, callback_data=f"captcha_ans_{opt}"))
+    markup.add(*buttons)
     
     try:
         bot.send_message(int(uid), 
-            f"🛡️ <b>═══ فحص أمني ═══</b>\n\n"
-            f"⚠️ تم رصد نشاط مشبوه من حسابك (رشق أزرار).\n\n"
-            f"🧮 <b>حل المعادلة للمتابعة:</b>\n\n"
-            f"<code>{question} = ?</code>\n\n"
-            f"⏱️ لديك <b>دقيقتان</b> فقط | 3 محاولات",
+            f"🛡️ <b>═══ تحقق أمني بسيط ═══</b>\n\n"
+            f"⚠️ للاستمرار، اضغط على <b>{name_correct}</b> {emoji_correct}\n\n"
+            f"⏰ لديك 5 دقائق | 3 محاولات",
             reply_markup=markup, parse_mode="HTML")
     except:
         pass
 
 def is_captcha_pending(uid):
-    """فحص إذا كان المستخدم لديه كابتشا معلقة"""
     uid = str(uid)
     if uid not in captcha_sessions:
         return False
@@ -147,7 +138,6 @@ def is_captcha_pending(uid):
     return True
 
 def verify_captcha(uid, user_answer):
-    """التحقق من إجابة الكابتشا"""
     uid = str(uid)
     if uid not in captcha_sessions:
         return "no_session"
@@ -165,9 +155,7 @@ def verify_captcha(uid, user_answer):
     session["attempts"] += 1
     if session["attempts"] >= 3:
         del captcha_sessions[uid]
-        # حظر مؤقت لمدة ساعة
         from database import update_user_data
-        from datetime import timedelta
         until = (datetime.now() + timedelta(hours=1)).isoformat()
         update_user_data(uid, banned_until=until)
         return "banned"
@@ -175,7 +163,7 @@ def verify_captcha(uid, user_answer):
     return "wrong"
 
 def require_verification_on_start(uid):
-    """كابتشا إجبارية عند أول تسجيل"""
+    """كابتشا إجبارية للتحقق من كل مستخدم جديد"""
     from database import get_user
     u = get_user(uid)
     if u and not u.get("verified", False):
