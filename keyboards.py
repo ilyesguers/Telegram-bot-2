@@ -1,21 +1,21 @@
 from telebot import types
 from config import LOCALES, CHANNEL_LINK, ADMIN_PRIMARY, ADMIN_SECONDARY
-from database import users
+from database import get_user
 
 def get_lang_inline():
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.InlineKeyboardButton("العربية 🇸🇦", callback_data="setlang_ar"),
-        types.InlineKeyboardButton("English 🇺🇸", callback_data="setlang_en"),
-        types.InlineKeyboardButton("Français 🇫🇷", callback_data="setlang_fr"),
-        types.InlineKeyboardButton("Tiếng Việt 🇻🇳", callback_data="setlang_vi"),
-        types.InlineKeyboardButton("Español 🇪🇸", callback_data="setlang_es")
+        types.InlineKeyboardButton("🇸🇦 العربية", callback_data="setlang_ar"),
+        types.InlineKeyboardButton("🇺🇸 English", callback_data="setlang_en"),
+        types.InlineKeyboardButton("🇫🇷 Français", callback_data="setlang_fr"),
+        types.InlineKeyboardButton("🇻🇳 Tiếng Việt", callback_data="setlang_vi"),
+        types.InlineKeyboardButton("🇪🇸 Español", callback_data="setlang_es")
     )
     return markup
 
 def get_join_inline(lang):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(LOCALES[lang]["check_btn"], url=CHANNEL_LINK))
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup.add(types.InlineKeyboardButton("📢 اشترك بالقناة", url=CHANNEL_LINK))
     markup.add(types.InlineKeyboardButton(LOCALES[lang]["check_btn"], callback_data="check_join"))
     return markup
 
@@ -28,7 +28,8 @@ def get_main_keyboard(uid, lang, page=1):
         markup.add(types.KeyboardButton(t["invite_btn"]), types.KeyboardButton(t["bonus_btn"]))
         markup.add(types.KeyboardButton(t["support_btn"]), types.KeyboardButton(t["req_prod_btn"]))
         markup.add(types.KeyboardButton(t["lang_btn"]), types.KeyboardButton("التالي ➡️"))
-        if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or users.get(str(uid), {}).get("is_admin", False):
+        u = get_user(str(uid)) or {}
+        if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
             markup.add(types.KeyboardButton(t["admin_btn"]))
     else:
         markup.add(types.KeyboardButton("🎰 صندوق الحظ"), types.KeyboardButton("🎡 عجلة الحظ"))
