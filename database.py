@@ -7,7 +7,7 @@ DB_USERS = 'users_data.json'
 DB_KEYS = 'keys_store.json'
 DB_REDEEM = 'redeem_codes.json'
 DB_PRICES = 'prices_config.json'
-DB_CONFIG = 'bot.json' 
+DB_CONFIG = 'bot_config.json' 
 
 def load_json(filename):
     if os.path.exists(filename):
@@ -32,7 +32,7 @@ redeem_codes = load_json(DB_REDEEM)
 prices_config = load_json(DB_PRICES)
 bot_config = load_json(DB_CONFIG)
 
-# --- ضبط الإعدادات الافتراضية إذا كانت ناقصة ---
+# --- الإعدادات الافتراضية ---
 default_config = {
     "daily_gift": 10,
     "invite_reward": 20,
@@ -52,7 +52,11 @@ default_config = {
         "invite": {"target": 5, "reward": 100},
         "buy": {"target": 3, "reward": 150},
         "points": {"target": 1000, "reward": 200}
-    }
+    },
+    "achievements": {},
+    "vip_users": [],
+    "flash_sales": {},
+    "leaderboard_enabled": True
 }
 for key, val in default_config.items():
     if key not in bot_config:
@@ -64,7 +68,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL)
 
 def init_db():
-    """إنشاء الجداول مع كل الأعمدة اللازمة"""
+    """إنشاء الجداول"""
     with engine.connect() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS users (
@@ -82,11 +86,17 @@ def init_db():
                 banned BOOLEAN DEFAULT FALSE,
                 banned_until TEXT DEFAULT NULL,
                 is_admin BOOLEAN DEFAULT FALSE,
-                verified BOOLEAN DEFAULT FALSE
+                verified BOOLEAN DEFAULT FALSE,
+                lang_selected BOOLEAN DEFAULT FALSE,
+                vip BOOLEAN DEFAULT FALSE,
+                total_spent INTEGER DEFAULT 0,
+                streak_days INTEGER DEFAULT 0,
+                last_streak_date TEXT DEFAULT NULL,
+                notifications_on BOOLEAN DEFAULT TRUE,
+                join_date TEXT DEFAULT NULL
             )
         """))
         
-        # إضافة الأعمدة الناقصة (لو الجدول موجود قديم)
         missing_columns = [
             ("rank_discount", "REAL DEFAULT 0.0"),
             ("invited_by", "TEXT DEFAULT NULL"),
@@ -94,7 +104,14 @@ def init_db():
             ("banned", "BOOLEAN DEFAULT FALSE"),
             ("banned_until", "TEXT DEFAULT NULL"),
             ("is_admin", "BOOLEAN DEFAULT FALSE"),
-            ("verified", "BOOLEAN DEFAULT FALSE")
+            ("verified", "BOOLEAN DEFAULT FALSE"),
+            ("lang_selected", "BOOLEAN DEFAULT FALSE"),
+            ("vip", "BOOLEAN DEFAULT FALSE"),
+            ("total_spent", "INTEGER DEFAULT 0"),
+            ("streak_days", "INTEGER DEFAULT 0"),
+            ("last_streak_date", "TEXT DEFAULT NULL"),
+            ("notifications_on", "BOOLEAN DEFAULT TRUE"),
+            ("join_date", "TEXT DEFAULT NULL")
         ]
         for col_name, col_def in missing_columns:
             try:
@@ -103,18 +120,19 @@ def init_db():
                 print(f"عمود {col_name}: {e}")
         
         conn.commit()
-    print("✅ قاعدة البيانات جاهزة بكل الأعمدة.")
+    print("✅ قاعدة البيانات جاهزة.")
 
 def register_user(user):
+    from datetime import datetime
     uid = str(user.id)
     username = user.username or user.first_name or ""
     with engine.connect() as conn:
         result = conn.execute(text("SELECT uid FROM users WHERE uid = :uid"), {"uid": uid}).fetchone()
         if not result:
             conn.execute(text("""
-                INSERT INTO users (uid, username, points, accumulated_points, lang, rank, rank_discount, invite_count, completed_quests, banned, is_admin, verified)
-                VALUES (:uid, :username, 0, 0, 'ar', 'عضو عادي 🔹', 0.0, 0, '', FALSE, FALSE, FALSE)
-            """), {"uid": uid, "username": username})
+                INSERT INTO users (uid, username, points, accumulated_points, lang, rank, rank_discount, invite_count, completed_quests, banned, is_admin, verified, lang_selected, vip, total_spent, streak_days, notifications_on, join_date)
+                VALUES (:uid, :username, 0, 0, 'ar', 'عضو عادي 🔹', 0.0, 0, '', FALSE, FALSE, FALSE, FALSE, FALSE, 0, 0, TRUE, :jd)
+            """), {"uid": uid, "username": username, "jd": datetime.now().isoformat()})
             conn.commit()
 
 def get_user(uid):
@@ -125,17 +143,13 @@ def get_user(uid):
         return None
 
 def update_user_data(uid, **kwargs):
-    """
-    دالة تحديث ذكية تدعم جميع الحقول
-    - الحقول العددية (points, accumulated_points, invite_count) تُضاف (+=)
-    - باقي الحقول تُستبدل
-    """
     if not kwargs:
         return
     
-    increment_fields = {"points", "accumulated_points", "invite_count"}
+    increment_fields = {"points", "accumulated_points", "invite_count", "total_spent", "streak_days"}
     replace_fields = {"username", "lang", "rank", "rank_discount", "completed_quests",
-                      "invited_by", "last_claim", "banned", "banned_until", "is_admin", "verified"}
+                      "invited_by", "last_claim", "banned", "banned_until", "is_admin", 
+                      "verified", "lang_selected", "vip", "last_streak_date", "notifications_on", "join_date"}
     
     updates = []
     params = {"uid": str(uid)}
@@ -161,7 +175,6 @@ def update_user_data(uid, **kwargs):
         print(f"⚠️ خطأ update_user_data: {e}")
 
 def update_user_rank_and_quests(uid):
-    """تحديث الرتبة تلقائياً حسب النقاط المتراكمة + فحص المهام"""
     from config import RANKS
     
     u = get_user(uid)
@@ -172,30 +185,27 @@ def update_user_rank_and_quests(uid):
     current_rank = u.get("rank", "عضو عادي 🔹")
     current_discount = u.get("rank_discount", 0.0) or 0.0
     
-    # حساب الرتبة الجديدة
     new_rank = "عضو عادي 🔹"
     new_discount = 0.0
     
     for rank_key in ["silver", "gold", "diamond", "hero", "master", "legend"]:
         rank_info = RANKS[rank_key]
         if acc_pts >= rank_info["points_needed"]:
-            new_rank = rank_info["name"]
+            new_rank = rank_info.get("name_ar", rank_info.get("name", ""))
             new_discount = rank_info["discount"]
     
-    # تحديث الرتبة إذا تغيرت
     if new_rank != current_rank or abs(new_discount - current_discount) > 0.001:
         update_user_data(uid, rank=new_rank, rank_discount=new_discount)
         try:
             from config import bot
-            bot.send_message(int(uid), f"🎊 <b>ترقية جديدة!</b>\n\nتم ترقيتك إلى: <b>{new_rank}</b>\n💎 خصم دائم: <b>{int(new_discount*100)}%</b>", parse_mode="HTML")
-        except:
-            pass
+            bot.send_message(int(uid), 
+                f"🎊 <b>ترقية جديدة!</b>\n\nرتبتك الجديدة: <b>{new_rank}</b>\n💎 خصم دائم: <b>{int(new_discount*100)}%</b>", 
+                parse_mode="HTML")
+        except: pass
     
-    # فحص المهام
     completed = u.get("completed_quests", "") or ""
     quests = bot_config.get("quests", {})
     
-    # مهمة الدعوات
     if "quest_invite" not in completed:
         invite_cnt = u.get("invite_count", 0) or 0
         target = quests.get("invite", {}).get("target", 5)
@@ -205,10 +215,9 @@ def update_user_rank_and_quests(uid):
             update_user_data(uid, completed_quests=new_completed, points=reward, accumulated_points=reward)
             try:
                 from config import bot
-                bot.send_message(int(uid), f"🎉 <b>مبروك! أكملت مهمة الدعوات!</b>\n🎁 حصلت على <b>+{reward}</b> نقطة", parse_mode="HTML")
+                bot.send_message(int(uid), f"🎉 <b>أكملت مهمة الدعوات!</b>\n🎁 +<b>{reward}</b> نقطة", parse_mode="HTML")
             except: pass
     
-    # مهمة المبيعات
     if "quest_buy" not in completed:
         user_buys = sum(1 for x in bot_config.get("sales_log", []) if str(x.get("uid")) == str(uid))
         target = quests.get("buy", {}).get("target", 3)
@@ -219,10 +228,9 @@ def update_user_rank_and_quests(uid):
             update_user_data(uid, completed_quests=new_completed, points=reward, accumulated_points=reward)
             try:
                 from config import bot
-                bot.send_message(int(uid), f"🎉 <b>مبروك! أكملت مهمة المبيعات!</b>\n🎁 حصلت على <b>+{reward}</b> نقطة", parse_mode="HTML")
+                bot.send_message(int(uid), f"🎉 <b>أكملت مهمة المبيعات!</b>\n🎁 +<b>{reward}</b> نقطة", parse_mode="HTML")
             except: pass
     
-    # مهمة النقاط
     if "quest_points" not in completed:
         target = quests.get("points", {}).get("target", 1000)
         reward = quests.get("points", {}).get("reward", 200)
@@ -232,5 +240,5 @@ def update_user_rank_and_quests(uid):
             update_user_data(uid, completed_quests=new_completed, points=reward, accumulated_points=reward)
             try:
                 from config import bot
-                bot.send_message(int(uid), f"🎉 <b>مبروك! أكملت مهمة النقاط التراكمية!</b>\n🎁 حصلت على <b>+{reward}</b> نقطة", parse_mode="HTML")
+                bot.send_message(int(uid), f"🎉 <b>أكملت مهمة النقاط!</b>\n🎁 +<b>{reward}</b> نقطة", parse_mode="HTML")
             except: pass
