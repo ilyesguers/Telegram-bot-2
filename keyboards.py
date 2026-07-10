@@ -1,7 +1,10 @@
 from telebot import types
-from config import LOCALES, CHANNEL_LINK, ADMIN_PRIMARY, ADMIN_SECONDARY, t, TICKET_CATEGORIES
+from config import LOCALES, CHANNEL_LINK, CHANNEL_ID, ADMIN_PRIMARY, ADMIN_SECONDARY, t, TICKET_CATEGORIES
 from database import get_user
 
+# =====================================================
+# 🌐 اختيار اللغة
+# =====================================================
 def get_lang_inline():
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -13,23 +16,42 @@ def get_lang_inline():
     )
     return m
 
+# =====================================================
+# 🔒 زر الاشتراك (بالإنجليزية + يفتح القناة مباشرة)
+# =====================================================
 def get_join_inline(lang):
+    """
+    زر يفتح القناة مباشرة عبر URL
+    الزر الثاني يتحقق من الاشتراك
+    """
     m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton(t(lang, "join_channel"), url=CHANNEL_LINK))
-    m.add(types.InlineKeyboardButton(t(lang, "check_btn"), callback_data="check_join"))
+    m.add(types.InlineKeyboardButton("📢 Join Our Channel", url=CHANNEL_LINK))
+    m.add(types.InlineKeyboardButton("✅ I've Joined - Verify", callback_data="check_join"))
     return m
 
+# =====================================================
+# 🏠 القائمة الرئيسية (5 أزرار أنيقة)
+# =====================================================
 def get_main_keyboard(uid, lang):
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     m.add(types.KeyboardButton(t(lang, "btn_account")))
-    m.add(types.KeyboardButton(t(lang, "btn_shop")), types.KeyboardButton(t(lang, "btn_rewards")))
-    m.add(types.KeyboardButton(t(lang, "btn_entertainment")), types.KeyboardButton(t(lang, "btn_support")))
+    m.add(
+        types.KeyboardButton(t(lang, "btn_shop")),
+        types.KeyboardButton(t(lang, "btn_rewards"))
+    )
+    m.add(
+        types.KeyboardButton(t(lang, "btn_entertainment")),
+        types.KeyboardButton(t(lang, "btn_support"))
+    )
     m.add(types.KeyboardButton(t(lang, "btn_settings")))
     u = get_user(str(uid)) or {}
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
         m.add(types.KeyboardButton(t(lang, "btn_admin")))
     return m
 
+# =====================================================
+# 👤 قائمة الحساب
+# =====================================================
 def get_account_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -43,6 +65,9 @@ def get_account_menu(lang):
     m.add(types.InlineKeyboardButton(t(lang, "btn_my_purchases"), callback_data="menu_purchases"))
     return m
 
+# =====================================================
+# 🎁 قائمة المكافآت
+# =====================================================
 def get_rewards_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -55,6 +80,9 @@ def get_rewards_menu(lang):
     )
     return m
 
+# =====================================================
+# 🎮 قائمة الترفيه
+# =====================================================
 def get_entertainment_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -63,6 +91,9 @@ def get_entertainment_menu(lang):
     )
     return m
 
+# =====================================================
+# 💬 قائمة الدعم
+# =====================================================
 def get_support_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -75,6 +106,9 @@ def get_support_menu(lang):
     )
     return m
 
+# =====================================================
+# ⚙️ قائمة الإعدادات (مع زر برمجة البوت)
+# =====================================================
 def get_settings_menu(lang, u):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(types.InlineKeyboardButton(t(lang, "btn_change_lang"), callback_data="menu_lang"))
@@ -87,8 +121,13 @@ def get_settings_menu(lang, u):
         types.InlineKeyboardButton(t(lang, "btn_privacy"), callback_data="menu_privacy"),
         types.InlineKeyboardButton(t(lang, "btn_about"), callback_data="menu_about")
     )
+    # 💻 زر برمجة البوت - يفتح محادثة المطور مباشرة
+    m.add(types.InlineKeyboardButton("💻 " + t(lang, "btn_bot_dev"), url="https://t.me/fkLJh00302"))
     return m
 
+# =====================================================
+# 🎫 فئات التذاكر
+# =====================================================
 def get_ticket_categories(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
@@ -99,29 +138,60 @@ def get_ticket_categories(lang):
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_support"))
     return m
 
+# =====================================================
+# 👑 لوحة الإدارة (مع زر الصيانة)
+# =====================================================
 def get_admin_keyboard():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add(types.KeyboardButton("📦 المنتجات"), types.KeyboardButton("🔑 المفاتيح"))
-    m.add(types.KeyboardButton("👥 الأعضاء"), types.KeyboardButton("🎫 التذاكر"))
-    m.add(types.KeyboardButton("💰 المبيعات"), types.KeyboardButton("📢 التسويق"))
-    m.add(types.KeyboardButton("⚡ عروض خاطفة"), types.KeyboardButton("🎮 الألعاب"))
-    m.add(types.KeyboardButton("⚙️ النظام"), types.KeyboardButton("📊 الإحصائيات"))
-    m.add(types.KeyboardButton("💡 الطلبات"), types.KeyboardButton("🔙 العودة"))
+    m.add(
+        types.KeyboardButton("📦 المنتجات"),
+        types.KeyboardButton("🔑 المفاتيح")
+    )
+    m.add(
+        types.KeyboardButton("👥 الأعضاء"),
+        types.KeyboardButton("🎫 التذاكر")
+    )
+    m.add(
+        types.KeyboardButton("💰 المبيعات"),
+        types.KeyboardButton("📢 التسويق")
+    )
+    m.add(
+        types.KeyboardButton("⚡ عروض خاطفة"),
+        types.KeyboardButton("🎮 الألعاب")
+    )
+    m.add(
+        types.KeyboardButton("⚙️ النظام"),
+        types.KeyboardButton("📊 الإحصائيات")
+    )
+    m.add(
+        types.KeyboardButton("💡 الطلبات"),
+        types.KeyboardButton("🛠️ وضع الصيانة")
+    )
+    m.add(types.KeyboardButton("🔙 العودة"))
     return m
 
+# =====================================================
+# 🔧 قوائم الإدارة الفرعية (Inline)
+# =====================================================
 def admin_products_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
-    m.add(types.InlineKeyboardButton("➕ إضافة", callback_data="admp_add"),
-          types.InlineKeyboardButton("❌ حذف", callback_data="admp_del"))
+    m.add(
+        types.InlineKeyboardButton("➕ إضافة", callback_data="admp_add"),
+        types.InlineKeyboardButton("❌ حذف", callback_data="admp_del")
+    )
     m.add(types.InlineKeyboardButton("💵 الأسعار", callback_data="admp_prices"))
     return m
 
 def admin_keys_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
-    m.add(types.InlineKeyboardButton("🔑 إضافة", callback_data="admk_add"),
-          types.InlineKeyboardButton("👁️ عرض", callback_data="admk_view"))
-    m.add(types.InlineKeyboardButton("🔢 حذف واحد", callback_data="admk_del"),
-          types.InlineKeyboardButton("🗑️ مسح الكل", callback_data="admk_clear"))
+    m.add(
+        types.InlineKeyboardButton("🔑 إضافة", callback_data="admk_add"),
+        types.InlineKeyboardButton("👁️ عرض", callback_data="admk_view")
+    )
+    m.add(
+        types.InlineKeyboardButton("🔢 حذف واحد", callback_data="admk_del"),
+        types.InlineKeyboardButton("🗑️ مسح الكل", callback_data="admk_clear")
+    )
     return m
 
 def admin_members_menu():
