@@ -40,7 +40,6 @@ LOCALES = {
         "check_btn": "✅ تحقق من الاشتراك",
         "join_channel": "📢 اشترك في القناة",
         "main_menu_title": "🏠 <b>مرحباً {name}!</b>\n\n✨ <i>اختر ما يسعدك من القائمة:</i>",
-        
         "btn_account": "👤 حسابي",
         "btn_shop": "🛍️ المتجر",
         "btn_rewards": "🎁 المكافآت",
@@ -49,7 +48,6 @@ LOCALES = {
         "btn_settings": "⚙️ الإعدادات",
         "btn_admin": "👑 الإدارة",
         "btn_back": "🔙 رجوع",
-        
         "account_title": "👤 <b>━━ حسابي الشخصي ━━</b>",
         "account_desc": "✨ كل بياناتك في مكان واحد",
         "btn_balance": "💰 رصيدي",
@@ -57,27 +55,23 @@ LOCALES = {
         "btn_my_rank": "🏆 رتبتي",
         "btn_referral": "🔗 الإحالة",
         "btn_my_purchases": "📜 مشترياتي",
-        
         "rewards_title": "🎁 <b>━━ مركز المكافآت ━━</b>",
         "rewards_desc": "✨ احصد مكافآتك المجانية!",
         "btn_daily_bonus": "✨ المكافأة اليومية",
         "btn_redeem_code": "🎫 استرداد كود",
         "btn_quests": "🔥 المهام",
         "btn_flash_sale": "⚡ العروض الخاطفة",
-        
         "entertainment_title": "🎮 <b>━━ مركز الترفيه ━━</b>",
         "entertainment_desc": "🎲 العب واكسب!",
         "btn_lootbox": "🎰 صندوق الحظ",
         "btn_wheel": "🎡 عجلة الحظ",
         "btn_leaderboard": "🏆 المتصدرون",
-        
         "support_title": "💬 <b>━━ مركز الدعم ━━</b>",
         "support_desc": "🤝 فريقنا جاهز لخدمتك!",
         "btn_new_ticket": "🎫 تذكرة جديدة",
         "btn_my_tickets": "📋 تذاكري",
         "btn_request_product": "💡 طلب منتج",
         "btn_faq": "❓ الأسئلة الشائعة",
-        
         "settings_title": "⚙️ <b>━━ الإعدادات ━━</b>",
         "settings_desc": "🎨 خصّص تجربتك!",
         "btn_change_lang": "🌐 تغيير اللغة",
@@ -85,64 +79,52 @@ LOCALES = {
         "btn_theme": "🎨 المظهر",
         "btn_privacy": "🔒 الخصوصية",
         "btn_about": "ℹ️ حول البوت",
-        
+        "btn_bot_dev": "برمجة البوت",
+        "maintenance_on": "🛠️ <b>تم تفعيل وضع الصيانة</b>\n\n⚠️ البوت الآن غير متاح للمستخدمين",
+        "maintenance_off": "✅ <b>تم إيقاف وضع الصيانة</b>\n\n🎉 البوت يعمل الآن بشكل طبيعي",
+        "dev_info": "💻 <b>━━ برمجة البوت ━━</b>\n\n👨‍💻 <b>المبرمج:</b> @fkLJh00302\n\n💡 <i>للتواصل والحصول على بوت مثل هذا</i>",
         "balance_display": "💰 <b>━━ محفظتي ━━</b>\n\n┃ 👤 الآيدي: <code>{uid}</code>\n┃ 💵 الرصيد: <b>{points}</b> 💎\n┃ 🏆 الرتبة: {rank}\n┃ 🎯 الخصم: <b>{discount}%</b>\n┃ 👥 الدعوات: {invites}\n┃ 📊 التراكمي: {acc}\n┃ 🔥 سلسلة الأيام: {streak}\n╰━━━━━━━━━━━━╯",
-        
         "daily_success": "🎁 <b>━━ مكافأة يومية ━━</b>\n\n🎉 حصلت على <b>+{gift}</b> 💎\n💰 رصيدك: <b>{balance}</b>\n🔥 سلسلة: <b>{streak}</b> يوم\n⏰ القادمة بعد 24 ساعة",
         "daily_wait": "⏳ <b>عد بعد {hours}س {mins}د</b>\n\n🔥 سلسلتك: <b>{streak}</b> يوم\n💡 لا تفوّت يومك!",
         "streak_bonus": "🔥🔥🔥 <b>مكافأة السلسلة!</b>\n\n🎊 {streak} أيام متتالية!\n🎁 بونص إضافي: <b>+{bonus}</b> 💎",
-        
         "referral_msg": "🔗 <b>━━ نظام الإحالة ━━</b>\n\n┃ 👥 دعواتك: <b>{invites}</b>\n┃ 🎁 لكل دعوة: <b>{reward}</b> 💎\n┃ 💵 أرباحك: <b>{total}</b>\n╰━━━━━━━━━━━━╯\n\n📎 رابطك:\n<code>{link}</code>",
-        
         "shop_header": "🛍️ <b>━━ المتجر ━━</b>\n\n┃ 💰 رصيدك: <b>{points}</b> 💎\n┃ 🏆 رتبتك: {rank}\n┃ 🎯 خصمك: <b>{disc}%</b>\n╰━━━━━━━━━━━━╯\n\n👇 اختر منتجك:",
-        
         "purchase_success": "🎉✨ <b>━━ تم الشراء! ━━</b> ✨🎉\n\n┃ 📦 المنتج: <b>{prod}</b>\n┃ ⏱️ المدة: <b>{plan}</b>\n┃ 💰 الثمن: <b>{price}</b> 💎\n╰━━━━━━━━━━━━╯\n\n🔐 <b>مفتاحك:</b>\n<code>{key}</code>\n\n⚠️ <i>احفظه بمكان آمن!</i>",
-        
         "ticket_categories": "🎫 <b>━━ تذكرة جديدة ━━</b>\n\n📂 اختر نوع المشكلة:",
         "ticket_write": "💬 اكتب تفاصيل مشكلتك...\n\n💡 <i>كلما كانت التفاصيل أكثر، كان الحل أسرع!</i>",
         "ticket_created": "✅ <b>━━ تم فتح التذكرة ━━</b>\n\n🎫 رقم: <code>#{tid}</code>\n📂 النوع: {category}\n⏳ سيرد فريقنا قريباً!",
         "ticket_reply_from_support": "💬 <b>━━ رد الدعم ━━</b>\n\n🎫 تذكرة: <code>#{tid}</code>\n👨‍💻 الرد:\n\n{reply}\n\n💡 <i>يمكنك الرد مباشرة</i>",
         "my_tickets_title": "📋 <b>━━ تذاكري ━━</b>",
         "no_tickets": "📭 لا توجد تذاكر",
-        
         "flash_sale_active": "⚡ <b>━━ عرض خاطف! ━━</b>\n\n🔥 خصم <b>{discount}%</b> على:\n📦 <b>{product}</b>\n⏰ ينتهي خلال: <b>{remaining}</b>\n\n💨 <i>اسرع قبل الانتهاء!</i>",
         "no_flash_sale": "😴 <b>لا يوجد عرض خاطف حالياً</b>\n\n🔔 فعّل الإشعارات لتعرف أولاً!",
-        
         "leaderboard_title": "🏆 <b>━━ المتصدرون ━━</b>\n\n👑 <i>أفضل 10 أعضاء بالمتجر:</i>\n",
-        
         "notif_on": "🔔 الإشعارات <b>مفعّلة</b>",
         "notif_off": "🔕 الإشعارات <b>معطّلة</b>",
-        
         "theme_title": "🎨 <b>━━ المظهر ━━</b>\n\n✨ <i>اختر ثيمك المفضل:</i>",
         "privacy_title": "🔒 <b>━━ الخصوصية ━━</b>\n\n• إخفاء اسمي من المتصدرين\n• عدم استقبال الإشعارات التسويقية",
         "about_title": "ℹ️ <b>━━ حول البوت ━━</b>\n\n🤖 <b>EVE Store Bot</b>\n📦 الإصدار: <b>3.0</b>\n👥 الأعضاء: <b>{users}</b>\n🛒 المبيعات: <b>{sales}</b>\n\n⚡ <i>مدعوم بأحدث التقنيات</i>",
-        
         "faq_title": "❓ <b>━━ الأسئلة الشائعة ━━</b>\n\n1️⃣ <b>كيف أحصل على نقاط؟</b>\n└ المكافأة اليومية + الإحالة + المهام\n\n2️⃣ <b>كيف أشتري منتج؟</b>\n└ المتجر ← المنتج ← المدة ← شراء\n\n3️⃣ <b>كيف أرفع رتبتي؟</b>\n└ اجمع نقاط أكثر = رتبة أعلى تلقائياً\n\n4️⃣ <b>ما هو خصم الرتبة؟</b>\n└ كل رتبة تعطيك خصم ثابت على المشتريات",
-        
         "captcha_title": "🛡️ <b>━━ فحص أمني ━━</b>\n\n⚠️ اضغط على <b>{name}</b> {emoji}",
         "captcha_correct": "✅ <b>تم التحقق!</b> 🎉",
         "captcha_wrong": "❌ خطأ! حاول مجدداً",
         "captcha_banned": "🚫 محظور لمدة ساعة",
-        
         "banned": "🚫 <b>حسابك محظور!</b>",
         "maint_msg": "🛠️ <b>تحت الصيانة</b>\n⏳ نعود قريباً!",
         "insufficient_balance": "❌ رصيدك غير كافٍ!",
         "lang_changed": "✅ <b>تم تغيير اللغة!</b> 🎉",
         "shop_empty": "📭 <b>المتجر فارغ حالياً</b>",
-        
-        "ticket_chat_started": "💬 <b>دردشة مفتوحة!</b>\n\nيمكنك الآن إرسال رسائلك مباشرة.\nاكتب <code>/close</code> لإغلاق التذكرة.",
+        "ticket_chat_started": "💬 <b>━━ Chat Opened ━━</b>\n\n✅ You're now connected to support!\n\n📝 Just type your messages here\n🔒 Type <code>/close</code> to end the chat\n\n💡 <i>Someone will reply shortly...</i>",
         "ticket_user_msg": "👤 <b>رسالة من العميل:</b>\n\n{msg}",
         "ticket_closed": "🔒 <b>تم إغلاق التذكرة #{tid}</b>\n\n⭐ كيف تقيّم خدمتنا؟",
         "ticket_abuse_warn": "⚠️ <b>تحذير!</b>\n\nالعبث بنظام التذاكر قد يؤدي لحظر حسابك!",
     },
-    
     "en": {
         "welcome": "🌟 <b>Welcome to our Store!</b>\n\n🌐 Choose your language:",
         "must_join": "🔐 Join our channel first!",
         "check_btn": "✅ Check Subscription",
         "join_channel": "📢 Join Channel",
         "main_menu_title": "🏠 <b>Welcome {name}!</b>\n\n✨ <i>Choose from the menu:</i>",
-        
         "btn_account": "👤 My Account",
         "btn_shop": "🛍️ Shop",
         "btn_rewards": "🎁 Rewards",
@@ -151,7 +133,6 @@ LOCALES = {
         "btn_settings": "⚙️ Settings",
         "btn_admin": "👑 Admin",
         "btn_back": "🔙 Back",
-        
         "account_title": "👤 <b>━━ My Account ━━</b>",
         "account_desc": "✨ All your info in one place",
         "btn_balance": "💰 Balance",
@@ -159,27 +140,23 @@ LOCALES = {
         "btn_my_rank": "🏆 Rank",
         "btn_referral": "🔗 Referral",
         "btn_my_purchases": "📜 Purchases",
-        
         "rewards_title": "🎁 <b>━━ Rewards Center ━━</b>",
         "rewards_desc": "✨ Claim your free rewards!",
         "btn_daily_bonus": "✨ Daily Bonus",
         "btn_redeem_code": "🎫 Redeem Code",
         "btn_quests": "🔥 Quests",
         "btn_flash_sale": "⚡ Flash Sales",
-        
         "entertainment_title": "🎮 <b>━━ Entertainment ━━</b>",
         "entertainment_desc": "🎲 Play & Win!",
         "btn_lootbox": "🎰 Loot Box",
         "btn_wheel": "🎡 Lucky Wheel",
         "btn_leaderboard": "🏆 Leaderboard",
-        
         "support_title": "💬 <b>━━ Support Center ━━</b>",
         "support_desc": "🤝 We're here to help!",
         "btn_new_ticket": "🎫 New Ticket",
         "btn_my_tickets": "📋 My Tickets",
         "btn_request_product": "💡 Request Product",
         "btn_faq": "❓ FAQ",
-        
         "settings_title": "⚙️ <b>━━ Settings ━━</b>",
         "settings_desc": "🎨 Customize your experience!",
         "btn_change_lang": "🌐 Language",
@@ -187,57 +164,46 @@ LOCALES = {
         "btn_theme": "🎨 Theme",
         "btn_privacy": "🔒 Privacy",
         "btn_about": "ℹ️ About",
-        
+        "btn_bot_dev": "Bot Developer",
+        "maintenance_on": "🛠️ <b>Maintenance mode ON</b>\n\n⚠️ Bot is now unavailable for users",
+        "maintenance_off": "✅ <b>Maintenance mode OFF</b>\n\n🎉 Bot is now running normally",
+        "dev_info": "💻 <b>━━ Bot Developer ━━</b>\n\n👨‍💻 <b>Programmer:</b> @fkLJh00302\n\n💡 <i>Contact for a bot like this</i>",
         "balance_display": "💰 <b>━━ My Wallet ━━</b>\n\n┃ 👤 ID: <code>{uid}</code>\n┃ 💵 Balance: <b>{points}</b> 💎\n┃ 🏆 Rank: {rank}\n┃ 🎯 Discount: <b>{discount}%</b>\n┃ 👥 Invites: {invites}\n┃ 📊 Total: {acc}\n┃ 🔥 Streak: {streak}\n╰━━━━━━━━━━━━╯",
-        
         "daily_success": "🎁 <b>━━ Daily Bonus ━━</b>\n\n🎉 You got <b>+{gift}</b> 💎\n💰 Balance: <b>{balance}</b>\n🔥 Streak: <b>{streak}</b> days\n⏰ Next in 24 hours",
         "daily_wait": "⏳ <b>Come back in {hours}h {mins}m</b>\n\n🔥 Streak: <b>{streak}</b> days\n💡 Don't miss your day!",
         "streak_bonus": "🔥🔥🔥 <b>Streak Bonus!</b>\n\n🎊 {streak} days in a row!\n🎁 Extra bonus: <b>+{bonus}</b> 💎",
-        
         "referral_msg": "🔗 <b>━━ Referral System ━━</b>\n\n┃ 👥 Invites: <b>{invites}</b>\n┃ 🎁 Per invite: <b>{reward}</b> 💎\n┃ 💵 Earnings: <b>{total}</b>\n╰━━━━━━━━━━━━╯\n\n📎 Your link:\n<code>{link}</code>",
-        
         "shop_header": "🛍️ <b>━━ Shop ━━</b>\n\n┃ 💰 Balance: <b>{points}</b> 💎\n┃ 🏆 Rank: {rank}\n┃ 🎯 Discount: <b>{disc}%</b>\n╰━━━━━━━━━━━━╯\n\n👇 Select product:",
-        
         "purchase_success": "🎉✨ <b>━━ Purchase Complete! ━━</b> ✨🎉\n\n┃ 📦 Product: <b>{prod}</b>\n┃ ⏱️ Duration: <b>{plan}</b>\n┃ 💰 Price: <b>{price}</b> 💎\n╰━━━━━━━━━━━━╯\n\n🔐 <b>Your Key:</b>\n<code>{key}</code>\n\n⚠️ <i>Save it safely!</i>",
-        
         "ticket_categories": "🎫 <b>━━ New Ticket ━━</b>\n\n📂 Select issue type:",
         "ticket_write": "💬 Describe your issue...\n\n💡 <i>More details = faster solution!</i>",
         "ticket_created": "✅ <b>━━ Ticket Opened ━━</b>\n\n🎫 ID: <code>#{tid}</code>\n📂 Type: {category}\n⏳ Our team will respond soon!",
         "ticket_reply_from_support": "💬 <b>━━ Support Reply ━━</b>\n\n🎫 Ticket: <code>#{tid}</code>\n👨‍💻 Reply:\n\n{reply}\n\n💡 <i>You can reply directly</i>",
         "my_tickets_title": "📋 <b>━━ My Tickets ━━</b>",
         "no_tickets": "📭 No tickets found",
-        
         "flash_sale_active": "⚡ <b>━━ Flash Sale! ━━</b>\n\n🔥 <b>{discount}%</b> OFF on:\n📦 <b>{product}</b>\n⏰ Ends in: <b>{remaining}</b>\n\n💨 <i>Hurry before it's gone!</i>",
         "no_flash_sale": "😴 <b>No active flash sales</b>\n\n🔔 Enable notifications!",
-        
         "leaderboard_title": "🏆 <b>━━ Leaderboard ━━</b>\n\n👑 <i>Top 10 members:</i>\n",
-        
         "notif_on": "🔔 Notifications <b>ON</b>",
         "notif_off": "🔕 Notifications <b>OFF</b>",
-        
         "theme_title": "🎨 <b>━━ Theme ━━</b>\n\n✨ <i>Choose your style:</i>",
         "privacy_title": "🔒 <b>━━ Privacy ━━</b>\n\n• Hide from leaderboard\n• Block marketing messages",
         "about_title": "ℹ️ <b>━━ About ━━</b>\n\n🤖 <b>EVE Store Bot</b>\n📦 Version: <b>3.0</b>\n👥 Members: <b>{users}</b>\n🛒 Sales: <b>{sales}</b>\n\n⚡ <i>Powered by latest tech</i>",
-        
         "faq_title": "❓ <b>━━ FAQ ━━</b>\n\n1️⃣ <b>How to earn points?</b>\n└ Daily bonus + Referrals + Quests\n\n2️⃣ <b>How to buy?</b>\n└ Shop → Product → Duration → Buy\n\n3️⃣ <b>How to rank up?</b>\n└ More points = higher rank auto\n\n4️⃣ <b>What's rank discount?</b>\n└ Each rank gives fixed discount",
-        
         "captcha_title": "🛡️ <b>━━ Security ━━</b>\n\n⚠️ Press <b>{name}</b> {emoji}",
         "captcha_correct": "✅ <b>Verified!</b> 🎉",
         "captcha_wrong": "❌ Wrong! Try again",
         "captcha_banned": "🚫 Banned 1 hour",
-        
         "banned": "🚫 <b>Account banned!</b>",
         "maint_msg": "🛠️ <b>Under Maintenance</b>",
         "insufficient_balance": "❌ Insufficient balance!",
         "lang_changed": "✅ <b>Language changed!</b> 🎉",
         "shop_empty": "📭 <b>Shop is empty</b>",
-        
-        "ticket_chat_started": "💬 <b>Chat opened!</b>\n\nSend your messages directly.\nType <code>/close</code> to close ticket.",
+        "ticket_chat_started": "💬 <b>━━ Chat Opened ━━</b>\n\n✅ You're now connected to support!\n\n📝 Just type your messages here\n🔒 Type <code>/close</code> to end the chat\n\n💡 <i>Someone will reply shortly...</i>",
         "ticket_user_msg": "👤 <b>Message from client:</b>\n\n{msg}",
         "ticket_closed": "🔒 <b>Ticket #{tid} closed</b>\n\n⭐ Rate our service?",
         "ticket_abuse_warn": "⚠️ <b>Warning!</b>\n\nTicket abuse may result in ban!",
     },
-    
     "fr": {
         "welcome": "🌟 <b>Bienvenue!</b>\n\n🌐 Choisissez votre langue:",
         "must_join": "🔐 Rejoignez la chaîne!",
@@ -261,6 +227,10 @@ LOCALES = {
         "settings_title": "⚙️ <b>━━ Paramètres ━━</b>", "settings_desc": "🎨 Personnalisez!",
         "btn_change_lang": "🌐 Langue", "btn_notifications": "🔔 Notifs",
         "btn_theme": "🎨 Thème", "btn_privacy": "🔒 Vie privée", "btn_about": "ℹ️ À propos",
+        "btn_bot_dev": "Développeur",
+        "maintenance_on": "🛠️ <b>Maintenance ON</b>",
+        "maintenance_off": "✅ <b>Maintenance OFF</b>",
+        "dev_info": "💻 <b>Développeur:</b> @fkLJh00302",
         "balance_display": "💰 <b>━━ Portefeuille ━━</b>\n\n💵 {points} 💎\n🏆 {rank}\n🎯 {discount}%\n🔥 Série: {streak}",
         "daily_success": "🎁 +{gift} 💎\n💰 {balance}\n🔥 {streak} jours", "daily_wait": "⏳ {hours}h {mins}m\n🔥 {streak}",
         "streak_bonus": "🔥 {streak} jours!\n🎁 +{bonus} 💎",
@@ -283,7 +253,6 @@ LOCALES = {
         "ticket_reply_from_support": "💬 #{tid}\n\n{reply}", "ticket_abuse_warn": "⚠️ Attention!",
         "ticket_user_msg": "👤 {msg}",
     },
-    
     "es": {
         "welcome": "🌟 <b>¡Bienvenido!</b>\n\n🌐 Elige tu idioma:",
         "must_join": "🔐 ¡Únete al canal!",
@@ -306,6 +275,10 @@ LOCALES = {
         "settings_title": "⚙️ <b>━━ Ajustes ━━</b>", "settings_desc": "🎨 Personaliza!",
         "btn_change_lang": "🌐 Idioma", "btn_notifications": "🔔 Notificaciones",
         "btn_theme": "🎨 Tema", "btn_privacy": "🔒 Privacidad", "btn_about": "ℹ️ Acerca de",
+        "btn_bot_dev": "Desarrollador",
+        "maintenance_on": "🛠️ <b>Mantenimiento ON</b>",
+        "maintenance_off": "✅ <b>Mantenimiento OFF</b>",
+        "dev_info": "💻 <b>Desarrollador:</b> @fkLJh00302",
         "balance_display": "💰 {uid}\n💵 {points} 💎\n🏆 {rank}\n🎯 {discount}%\n🔥 {streak}",
         "daily_success": "🎁 +{gift} 💎\n💰 {balance}\n🔥 {streak}", "daily_wait": "⏳ {hours}h {mins}m\n🔥 {streak}",
         "streak_bonus": "🔥 {streak} días!\n🎁 +{bonus}", "referral_msg": "🔗 {invites}\n💵 {total}\n<code>{link}</code>",
@@ -324,7 +297,6 @@ LOCALES = {
         "ticket_closed": "🔒 #{tid}", "ticket_reply_from_support": "💬 {reply}",
         "ticket_abuse_warn": "⚠️", "ticket_user_msg": "👤 {msg}",
     },
-    
     "vi": {
         "welcome": "🌟 <b>Chào mừng!</b>\n\n🌐 Chọn ngôn ngữ:",
         "must_join": "🔐 Tham gia kênh!",
@@ -347,6 +319,10 @@ LOCALES = {
         "settings_title": "⚙️ <b>━━ Cài đặt ━━</b>", "settings_desc": "🎨 Tùy chỉnh!",
         "btn_change_lang": "🌐 Ngôn ngữ", "btn_notifications": "🔔 Thông báo",
         "btn_theme": "🎨 Giao diện", "btn_privacy": "🔒 Riêng tư", "btn_about": "ℹ️ Giới thiệu",
+        "btn_bot_dev": "Nhà phát triển",
+        "maintenance_on": "🛠️ <b>Bảo trì ON</b>",
+        "maintenance_off": "✅ <b>Bảo trì OFF</b>",
+        "dev_info": "💻 <b>Nhà phát triển:</b> @fkLJh00302",
         "balance_display": "💰 {uid}\n💵 {points}\n🏆 {rank}\n🔥 {streak}",
         "daily_success": "🎁 +{gift}\n💰 {balance}\n🔥 {streak}", "daily_wait": "⏳ {hours}h {mins}p\n🔥 {streak}",
         "streak_bonus": "🔥 {streak}!\n🎁 +{bonus}", "referral_msg": "🔗 {invites}\n<code>{link}</code>",
