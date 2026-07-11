@@ -1,3 +1,11 @@
+
+
+
+
+
+
+
+
 import telebot
 from telebot import types
 import random, os, time
@@ -18,29 +26,38 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    send_typing_action)
 from keyboards import *
 
+‎# 🎁 استيراد bot2 (نظام Giveaway ورسائل القناة)
+from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
+                  claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
+                  verify_giveaway_captcha, process_giveaway_claim, get_all_giveaways,
+                  cancel_giveaway, send_custom_channel_message, send_raw_channel_message,
+                  delete_channel_message, format_giveaway_win_message, format_giveaway_error,
+                  get_giveaways_stats)
+
 # =====================================================
-# 🚀 تهيئة قاعدة البيانات
+‎# 🚀 تهيئة قاعدة البيانات
 # =====================================================
 init_db()
 
+‎# متغير مؤقت لتخزين إعدادات giveaway قيد الإنشاء
+temp_giveaway_setup = {}
+
+‎# متغير مؤقت لتخزين آخر رسائل القناة
+last_channel_msgs = {}
+
 # =====================================================
-# 🔧 دوال مساعدة
+‎# 🔧 دوال مساعدة
 # =====================================================
 def is_admin(uid, u=None):
-    """فحص إذا كان المستخدم أدمن"""
     if u is None:
         u = get_user(uid) or {}
     return int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)
 
 def get_all_user_ids():
-    """جلب كل آيديات المستخدمين"""
     with engine.connect() as conn:
         return [str(r[0]) for r in conn.execute(text("SELECT uid FROM users")).fetchall()]
 
 def enforce_subscription(message, lang="ar"):
-    """
-    فرض الاشتراك بالقناة - رسالة بالإنجليزية جميلة
-    """
     uid = str(message.from_user.id)
     if not check_channel_join(uid):
         msg = (
@@ -55,17 +72,14 @@ def enforce_subscription(message, lang="ar"):
             f"🎁 <i>Unlock all features after joining!</i>"
         )
         try:
-            bot.send_message(
-                message.chat.id, msg,
-                reply_markup=get_join_inline(lang),
-                parse_mode="HTML"
-            )
+            bot.send_message(message.chat.id, msg,
+                reply_markup=get_join_inline(lang), parse_mode="HTML")
         except: pass
         return False
     return True
 
 # =====================================================
-# 🎯 معالج الأوامر (/start, /id, /close, /end)
+‎# 🎯 معالج الأوامر
 # =====================================================
 @bot.message_handler(commands=['start', 'id', 'close', 'end', 'help'])
 def handle_commands(message):
@@ -76,38 +90,31 @@ def handle_commands(message):
     lang = u.get("lang", "ar")
     
     # ═══════════════════════════
-    # 🔒 إغلاق دردشة التذكرة
+‎    # 🔒 إغلاق دردشة التذكرة
     # ═══════════════════════════
     if message.text.startswith('/close') or message.text.startswith('/end'):
-        # المستخدم في دردشة
         if uid in active_ticket_chats:
             tid = active_ticket_chats.pop(uid)
             tickets = bot_config.get("tickets", {})
             if tid in tickets:
                 tickets[tid]["status"] = "closed"
                 save_json(DB_CONFIG, bot_config)
-            
-            # إبلاغ الأدمن إن كان في نفس الدردشة
             for adm_uid, info in list(admin_ticket_chats.items()):
                 if info.get("ticket_id") == tid:
                     admin_ticket_chats.pop(adm_uid, None)
                     try:
                         bot.send_message(int(adm_uid),
-                            f"🔒 <b>Ticket #{tid} closed by user</b>",
-                            parse_mode="HTML")
+                            f"🔒 <b>Ticket #{tid} closed by user</b>", parse_mode="HTML")
                     except: pass
-            
             bot.send_message(message.chat.id,
                 f"╔═══════════════════╗\n"
                 f"║  🔒 <b>CHAT ENDED</b>  ║\n"
                 f"╚═══════════════════╝\n\n"
                 f"✅ Ticket <code>#{tid}</code> closed successfully!\n"
-                f"💬 <i>Thank you for contacting us!</i>",
-                parse_mode="HTML")
+                f"💬 <i>Thank you for contacting us!</i>", parse_mode="HTML")
             show_main_menu(message.chat.id, uid, lang)
             return
         
-        # الأدمن في دردشة
         if uid in admin_ticket_chats:
             info = admin_ticket_chats.pop(uid)
             tid = info["ticket_id"]
@@ -124,15 +131,14 @@ def handle_commands(message):
                     f"║ 🔒 <b>SUPPORT ENDED</b> ║\n"
                     f"╚═══════════════════╝\n\n"
                     f"✅ Ticket <code>#{tid}</code> closed\n"
-                    f"⭐ <i>Thank you!</i>",
-                    parse_mode="HTML")
+                    f"⭐ <i>Thank you!</i>", parse_mode="HTML")
             except: pass
             return bot.send_message(message.chat.id, f"✅ Ticket #{tid} closed")
         
         return bot.send_message(message.chat.id, "ℹ️ No active chat to close.")
     
     # ═══════════════════════════
-    # 📖 أمر المساعدة
+‎    # 📖 المساعدة
     # ═══════════════════════════
     if message.text.startswith('/help'):
         help_msg = (
@@ -147,71 +153,98 @@ def handle_commands(message):
         )
         return bot.send_message(message.chat.id, help_msg, parse_mode="HTML")
 
-    # ═══════════════════════════
-    # ⛔ فحص الحظر
-    # ═══════════════════════════
     if is_user_banned(uid):
         return bot.send_message(message.chat.id, t(lang, "banned"), parse_mode="HTML")
 
-    # ═══════════════════════════
-    # 🆔 أمر /id
-    # ═══════════════════════════
     if message.text.startswith('/id'):
         if not enforce_subscription(message, lang): return
         return bot.send_message(message.chat.id,
             f"🆔 <b>Your Info:</b>\n\n"
             f"👤 ID: <code>{uid}</code>\n"
-            f"📝 Username: @{u.get('username', 'N/A')}",
-            parse_mode="HTML")
+            f"📝 Username: @{u.get('username', 'N/A')}", parse_mode="HTML")
 
     # ═══════════════════════════
-    # 🔗 نظام الإحالة
+‎    # 🎁 نظام الإحالة و Giveaway
     # ═══════════════════════════
     args = message.text.split()
-    if len(args) > 1 and u.get("invited_by") is None:
-        inv_id = args[1]
-        if get_user(inv_id) and inv_id != uid:
-            update_user_data(uid, invited_by=inv_id)
-            reward = bot_config.get("invite_reward", 20)
-            update_user_data(inv_id, points=reward, accumulated_points=reward,
-                           invite_count=1, referral_earnings=reward)
-            update_user_rank_and_quests(inv_id)
-            try:
-                bot.send_message(int(inv_id),
-                    f"╔═══════════════════╗\n"
-                    f"║ 🎊 <b>NEW REFERRAL!</b> ║\n"
-                    f"╚═══════════════════╝\n\n"
-                    f"🎉 Someone joined using your link!\n"
-                    f"🎁 <b>Reward:</b> +{reward} 💎\n\n"
-                    f"💡 <i>Keep inviting for more!</i>",
-                    parse_mode="HTML")
-            except: pass
+    if len(args) > 1:
+        param = args[1]
+        
+‎        # 🎁 رابط Giveaway
+        if param.startswith("gw_"):
+            gw_code = param[3:]  # حذف "gw_"
+            
+            if not enforce_subscription(message, lang): return
+            
+            if not u.get("verified", False):
+                require_verification_on_start(uid)
+                return
+            
+‎            # فحص صلاحية العرض
+            valid, reason = is_giveaway_valid(gw_code)
+            if not valid:
+                error_msg = format_giveaway_error(reason, lang)
+                return bot.send_message(message.chat.id, error_msg, parse_mode="HTML")
+            
+‎            # فحص إذا استلم من قبل
+            if has_user_claimed_giveaway(gw_code, uid):
+                return bot.send_message(message.chat.id,
+                    t(lang, "gw_already_claimed"), parse_mode="HTML")
+            
+‎            # بدء كابتشا الـ giveaway
+            gw = get_giveaway(gw_code)
+            remaining = gw["max_users"] - len(gw.get("claimed_by", []))
+            time_left = format_time_remaining(gw["expires"])
+            
+            bot.send_message(message.chat.id,
+                t(lang, "gw_welcome_claim",
+                  reward=gw["reward"], remaining=remaining,
+                  max=gw["max_users"], time=time_left),
+                parse_mode="HTML")
+            
+‎            # إرسال الكابتشا
+            time.sleep(0.5)
+            start_giveaway_captcha(uid, gw_code)
+            return
+        
+‎        # 🔗 نظام الإحالة العادي
+        if u.get("invited_by") is None:
+            inv_id = param
+            if get_user(inv_id) and inv_id != uid:
+                update_user_data(uid, invited_by=inv_id)
+                reward = bot_config.get("invite_reward", 20)
+                update_user_data(inv_id, points=reward, accumulated_points=reward,
+                               invite_count=1, referral_earnings=reward)
+                update_user_rank_and_quests(inv_id)
+                try:
+                    bot.send_message(int(inv_id),
+                        f"╔═══════════════════╗\n"
+                        f"║ 🎊 <b>NEW REFERRAL!</b> ║\n"
+                        f"╚═══════════════════╝\n\n"
+                        f"🎉 Someone joined using your link!\n"
+                        f"🎁 <b>Reward:</b> +{reward} 💎\n\n"
+                        f"💡 <i>Keep inviting for more!</i>", parse_mode="HTML")
+                except: pass
 
-    # فحص الاشتراك
     if not enforce_subscription(message, lang): return
 
-    # فحص التحقق
     if not u.get("verified", False):
         require_verification_on_start(uid)
         return
 
-    # اختيار اللغة أول مرة
     if not u.get("lang_selected", False):
-        return bot.send_message(message.chat.id,
-            t("ar", "welcome"),
-            reply_markup=get_lang_inline(),
-            parse_mode="HTML")
+        return bot.send_message(message.chat.id, t("ar", "welcome"),
+            reply_markup=get_lang_inline(), parse_mode="HTML")
 
     show_main_menu(message.chat.id, uid, lang)
 
 # =====================================================
-# 🏠 عرض القائمة الرئيسية (مع أنيميشن)
+‎# 🏠 عرض القائمة الرئيسية
 # =====================================================
 def show_main_menu(chat_id, uid, lang):
     u = get_user(uid) or {}
     name = u.get("username") or "User"
     
-    # ✨ رسالة ترحيب متدرجة (أنيميشن)
     welcome_frames = [
         f"⏳ <i>Loading...</i>",
         f"✨ <i>Welcome back...</i>",
@@ -228,7 +261,6 @@ def show_main_menu(chat_id, uid, lang):
             except: pass
     except: pass
     
-    # عرض إعلان الفلاش سيل إن وجد
     fs = get_active_flash_sale()
     if fs:
         try:
@@ -242,14 +274,12 @@ def show_main_menu(chat_id, uid, lang):
             bot.send_message(chat_id, fs_msg, parse_mode="HTML")
         except: pass
     
-    # الكيبورد
     bot.send_message(chat_id, "👇", reply_markup=get_main_keyboard(uid, lang))
 
 # =====================================================
-# 💬 معالج دردشة التذاكر (المستخدم)
+‎# 💬 معالجات دردشة التذاكر
 # =====================================================
 def handle_user_ticket_message(message, uid):
-    """المستخدم في دردشة تذكرة - يرسل للأدمن مباشرة"""
     tid = active_ticket_chats[uid]
     tickets = bot_config.get("tickets", {})
     
@@ -257,19 +287,16 @@ def handle_user_ticket_message(message, uid):
         active_ticket_chats.pop(uid, None)
         return
     
-    # حفظ الرسالة في التذكرة
     if "messages" not in tickets[tid]:
         tickets[tid]["messages"] = []
     tickets[tid]["messages"].append({
-        "from": "user",
-        "text": message.text or "[media]",
+        "from": "user", "text": message.text or "[media]",
         "time": datetime.now().isoformat()
     })
     save_json(DB_CONFIG, bot_config)
     
     u = get_user(uid) or {}
     
-    # إرسال للأدمن مع أزرار سريعة
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
         types.InlineKeyboardButton("💬 Reply Now", callback_data=f"admchat_{tid}"),
@@ -288,19 +315,12 @@ def handle_user_ticket_message(message, uid):
             reply_markup=m, parse_mode="HTML")
     except: pass
     
-    # تأكيد للمستخدم
     bot.send_message(message.chat.id,
         f"✅ <b>Message Sent</b> 📨\n\n"
         f"⏳ <i>Support will reply soon...</i>\n"
-        f"🔒 Type /close to end chat",
-        parse_mode="HTML")
+        f"🔒 Type /close to end chat", parse_mode="HTML")
 
-# =====================================================
-# 💬 معالج دردشة التذاكر (الأدمن)
-# =====================================================
 def handle_admin_ticket_message(message, admin_uid):
-    """الأدمن في دردشة تذكرة - يرد على المستخدم"""
-    # إغلاق
     if message.text and (message.text.startswith('/close') or message.text.startswith('/end')):
         info = admin_ticket_chats.pop(admin_uid)
         tid = info["ticket_id"]
@@ -316,8 +336,7 @@ def handle_admin_ticket_message(message, admin_uid):
                 f"║  🔒 <b>SUPPORT ENDED</b>  ║\n"
                 f"╚═══════════════════╝\n\n"
                 f"✅ Ticket <code>#{tid}</code> closed\n"
-                f"⭐ <i>Thank you for choosing us!</i>",
-                parse_mode="HTML")
+                f"⭐ <i>Thank you for choosing us!</i>", parse_mode="HTML")
         except: pass
         return bot.send_message(message.chat.id, f"✅ Ticket #{tid} closed")
     
@@ -325,19 +344,16 @@ def handle_admin_ticket_message(message, admin_uid):
     tid = info["ticket_id"]
     user_uid = info["user_uid"]
     
-    # حفظ في التذكرة
     tickets = bot_config.get("tickets", {})
     if tid in tickets:
         if "messages" not in tickets[tid]:
             tickets[tid]["messages"] = []
         tickets[tid]["messages"].append({
-            "from": "admin",
-            "text": message.text or "[media]",
+            "from": "admin", "text": message.text or "[media]",
             "time": datetime.now().isoformat()
         })
         save_json(DB_CONFIG, bot_config)
     
-    # إرسال للمستخدم كأنه رد من فريق الدعم
     try:
         bot.send_message(int(user_uid),
             f"╔═══════════════════╗\n"
@@ -346,25 +362,59 @@ def handle_admin_ticket_message(message, admin_uid):
             f"👨‍💻 <b>Support Team:</b>\n\n"
             f"<i>{message.text}</i>\n\n"
             f"━━━━━━━━━━━━━━━━━\n"
-            f"💡 <i>Reply anytime | Type /close to end</i>",
-            parse_mode="HTML")
+            f"💡 <i>Reply anytime | Type /close to end</i>", parse_mode="HTML")
         bot.send_message(message.chat.id, "✅ Reply sent to user")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Error: {e}")
 
 # =====================================================
-# 🎯 الموجّه الرئيسي (Main Router)
+‎# 🎯 الموجّه الرئيسي
 # =====================================================
 @bot.message_handler(func=lambda message: True)
 def main_router(message):
     uid = str(message.from_user.id)
     
-    # 💬 معالجة دردشة التذاكر (أولوية قصوى)
+‎    # دردشة التذاكر
     if uid in active_ticket_chats:
         return handle_user_ticket_message(message, uid)
-    
     if uid in admin_ticket_chats:
         return handle_admin_ticket_message(message, uid)
+    
+‎    # 📨 معالجة إرسال رسائل القناة (للأدمن)
+    if uid in last_channel_msgs:
+        action = last_channel_msgs[uid]
+        del last_channel_msgs[uid]
+        
+        if action == "send_styled":
+            msg_id = send_custom_channel_message(message.text)
+            if msg_id:
+                return bot.send_message(message.chat.id,
+                    f"✅ <b>تم النشر بنجاح!</b>\n\n"
+                    f"📋 <b>Message ID:</b> <code>{msg_id}</code>\n"
+                    f"💡 <i>احفظ الـ ID للحذف لاحقاً</i>", parse_mode="HTML")
+            else:
+                return bot.send_message(message.chat.id, "❌ فشل الإرسال")
+        
+        elif action == "send_raw":
+            msg_id = send_raw_channel_message(message.text)
+            if msg_id:
+                return bot.send_message(message.chat.id,
+                    f"✅ <b>تم النشر بنجاح!</b>\n\n"
+                    f"📋 <b>Message ID:</b> <code>{msg_id}</code>", parse_mode="HTML")
+            else:
+                return bot.send_message(message.chat.id, "❌ فشل الإرسال")
+        
+        elif action == "delete_msg":
+            try:
+                msg_id = int(message.text.strip())
+                if delete_channel_message(msg_id):
+                    return bot.send_message(message.chat.id,
+                        f"✅ <b>تم حذف الرسالة!</b>\n\n📋 ID: <code>{msg_id}</code>", parse_mode="HTML")
+                else:
+                    return bot.send_message(message.chat.id,
+‎                        "❌ فشل الحذف - تأكد من ID الرسالة")
+            except:
+                return bot.send_message(message.chat.id, "❌ ID غير صحيح")
     
     if check_spam(uid): return
     register_user(message.from_user)
@@ -374,11 +424,9 @@ def main_router(message):
     if is_user_banned(uid):
         return bot.send_message(message.chat.id, t(lang, "banned"), parse_mode="HTML")
     
-    # الكابتشا المعلقة
     if is_captcha_pending(uid):
         return bot.send_message(message.chat.id,
-            "🛡️ <b>Solve captcha first!</b>\nCheck the previous message.",
-            parse_mode="HTML")
+            "🛡️ <b>Solve captcha first!</b>", parse_mode="HTML")
     
     txt = message.text.strip() if message.text else ""
     admin_flag = is_admin(uid, u)
@@ -391,12 +439,9 @@ def main_router(message):
             f"║ 🛠️ <b>MAINTENANCE</b> 🛠️ ║\n"
             f"╚═══════════════════╝\n\n"
             f"⚠️ Bot is temporarily offline\n"
-            f"⏳ <i>We'll be back soon!</i>",
-            parse_mode="HTML")
+            f"⏳ <i>We'll be back soon!</i>", parse_mode="HTML")
 
-    # ═══════════════════════════════════════
-    # 🟢 أزرار المستخدم الرئيسية
-    # ═══════════════════════════════════════
+‎    # 🟢 أزرار المستخدم
     if txt == t(lang, "btn_account"):
         return bot.send_message(message.chat.id,
             f"{t(lang, 'account_title')}\n\n<i>{t(lang, 'account_desc')}</i>",
@@ -433,83 +478,84 @@ def main_router(message):
             f"⚡ <i>Full control at your fingertips</i>",
             reply_markup=get_admin_keyboard(), parse_mode="HTML")
 
-    # ═══════════════════════════════════════
-    # 🔴 أزرار الأدمن
-    # ═══════════════════════════════════════
+‎    # 🔴 أزرار الأدمن
     if admin_flag:
         if txt == "📦 المنتجات":
             return bot.send_message(message.chat.id, "📦 <b>إدارة المنتجات</b>",
                 reply_markup=admin_products_menu(), parse_mode="HTML")
-        
         if txt == "🔑 المفاتيح":
             return bot.send_message(message.chat.id, "🔑 <b>إدارة المفاتيح</b>",
                 reply_markup=admin_keys_menu(), parse_mode="HTML")
-        
         if txt == "👥 الأعضاء":
             return bot.send_message(message.chat.id, "👥 <b>إدارة الأعضاء</b>",
                 reply_markup=admin_members_menu(), parse_mode="HTML")
-        
         if txt == "🎫 التذاكر":
             return admin_show_tickets(message)
-        
         if txt == "💰 المبيعات":
             return bot.send_message(message.chat.id, "💰 <b>المبيعات والأكواد</b>",
                 reply_markup=admin_sales_menu(), parse_mode="HTML")
-        
         if txt == "📢 التسويق":
             return bot.send_message(message.chat.id, "📢 <b>التسويق</b>",
                 reply_markup=admin_marketing_menu(), parse_mode="HTML")
-        
         if txt == "⚡ عروض خاطفة":
             fs = get_active_flash_sale()
             status = ""
             if fs:
-                status = f"\n\n⚡ <b>Active:</b> {fs['product']} ({fs['discount']}% OFF)\n⏰ Expires: {format_time_remaining(fs['expires'])}"
+                status = f"\n\n⚡ <b>Active:</b> {fs['product']} ({fs['discount']}% OFF)"
             return bot.send_message(message.chat.id,
                 f"⚡ <b>العروض الخاطفة</b>{status}",
                 reply_markup=admin_flash_menu(), parse_mode="HTML")
         
+‎        # 🎁 قائمة Giveaway
+        if txt == "🎁 Giveaway":
+            stats = get_giveaways_stats()
+            return bot.send_message(message.chat.id,
+                f"╔═══════════════════╗\n"
+                f"║  🎁 <b>GIVEAWAY</b>  ║\n"
+                f"╚═══════════════════╝\n\n"
+                f"📊 <b>الإحصائيات:</b>\n"
+                f"├ الكل: {stats['total']}\n"
+                f"├ نشط: {stats['active']}\n"
+                f"├ منتهي: {stats['expired']}\n"
+                f"└ ممتلئ: {stats['full']}",
+                reply_markup=admin_giveaway_menu(), parse_mode="HTML")
+        
+‎        # 📨 قائمة رسائل القناة
+        if txt == "📨 رسائل القناة":
+            return bot.send_message(message.chat.id,
+                f"╔═══════════════════╗\n"
+                f"║ 📨 <b>CHANNEL MSGS</b> ║\n"
+                f"╚═══════════════════╝\n\n"
+                f"📢 اختر الإجراء:",
+                reply_markup=admin_channel_menu(), parse_mode="HTML")
+        
         if txt == "🎮 الألعاب":
             return bot.send_message(message.chat.id, "🎮 <b>إعدادات الألعاب</b>",
                 reply_markup=admin_games_menu(), parse_mode="HTML")
-        
         if txt == "⚙️ النظام":
             return bot.send_message(message.chat.id, "⚙️ <b>النظام</b>",
                 reply_markup=admin_system_menu(), parse_mode="HTML")
-        
         if txt == "📊 الإحصائيات":
             return admin_show_stats(message)
-        
         if txt == "💡 الطلبات":
             return admin_show_product_requests(message)
         
-        # 🛠️ زر الصيانة (Toggle)
         if txt == "🛠️ وضع الصيانة":
             current = bot_config.get("maintenance", False)
             new_state = not current
             bot_config["maintenance"] = new_state
             save_json(DB_CONFIG, bot_config)
-            
             if new_state:
-                msg = (
-                    f"╔═══════════════════╗\n"
-                    f"║ 🛠️ <b>MAINTENANCE ON</b> ║\n"
-                    f"╚═══════════════════╝\n\n"
-                    f"⚠️ Bot is now <b>OFFLINE</b> for users\n"
-                    f"✅ Only admins can use it\n\n"
-                    f"💡 <i>Press button again to disable</i>\n"
-                    f"📢 <i>Notice sent to channel</i>"
-                )
+                msg = (f"╔═══════════════════╗\n"
+                       f"║ 🛠️ <b>MAINTENANCE ON</b> ║\n"
+                       f"╚═══════════════════╝\n\n"
+                       f"⚠️ Bot is now <b>OFFLINE</b> for users")
                 publish_maintenance_notice(True)
             else:
-                msg = (
-                    f"╔═══════════════════╗\n"
-                    f"║ ✅ <b>MAINTENANCE OFF</b> ║\n"
-                    f"╚═══════════════════╝\n\n"
-                    f"🎉 Bot is now <b>ONLINE</b>\n"
-                    f"🚀 All users can use it normally\n\n"
-                    f"📢 <i>Notice sent to channel</i>"
-                )
+                msg = (f"╔═══════════════════╗\n"
+                       f"║ ✅ <b>MAINTENANCE OFF</b> ║\n"
+                       f"╚═══════════════════╝\n\n"
+                       f"🎉 Bot is now <b>ONLINE</b>")
                 publish_maintenance_notice(False)
             return bot.send_message(message.chat.id, msg, parse_mode="HTML")
         
@@ -517,15 +563,13 @@ def main_router(message):
             return show_main_menu(message.chat.id, uid, lang)
 
 # =====================================================
-# 🎨 دوال العرض
+‎# 🎨 دوال العرض
 # =====================================================
 def show_balance(chat_id, msg_id, uid, lang):
-    """عرض الرصيد التفصيلي"""
     update_user_rank_and_quests(uid)
     u = get_user(uid) or {}
     msg = t(lang, "balance_display",
-        uid=uid,
-        points=u.get('points', 0),
+        uid=uid, points=u.get('points', 0),
         rank=u.get('rank', '🔹'),
         discount=int((u.get('rank_discount', 0) or 0)*100),
         invites=u.get('invite_count', 0),
@@ -537,14 +581,12 @@ def show_balance(chat_id, msg_id, uid, lang):
     except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def show_myid(chat_id, msg_id, uid, u, lang):
-    """عرض معلومات المستخدم"""
     join_date = u.get("join_date", "")[:10] if u.get("join_date") else "N/A"
     msg = (f"🆔 <b>━━ My Info ━━</b>\n\n"
            f"┃ 👤 <b>ID:</b> <code>{uid}</code>\n"
            f"┃ 📝 <b>Username:</b> @{u.get('username', 'N/A')}\n"
            f"┃ 📅 <b>Joined:</b> {join_date}\n"
            f"┃ 🌐 <b>Language:</b> {u.get('lang', 'ar').upper()}\n"
-           f"┃ 🎨 <b>Theme:</b> {u.get('theme', 'dark').title()}\n"
            f"╰━━━━━━━━━━━━╯")
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
@@ -552,7 +594,6 @@ def show_myid(chat_id, msg_id, uid, u, lang):
     except: pass
 
 def show_rank(chat_id, msg_id, uid, lang):
-    """عرض الرتب والتقدم"""
     update_user_rank_and_quests(uid)
     u = get_user(uid) or {}
     msg = f"🏆 <b>━━ My Rank ━━</b>\n\n"
@@ -573,7 +614,6 @@ def show_rank(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_referral(chat_id, msg_id, uid, lang):
-    """عرض نظام الإحالة"""
     try: bu = bot.get_me().username
     except: bu = "your_bot"
     link = f"https://t.me/{bu}?start={uid}"
@@ -583,20 +623,18 @@ def show_referral(chat_id, msg_id, uid, lang):
     total = invites * reward
     msg = t(lang, "referral_msg", invites=invites, reward=reward, total=total, link=link)
     m = types.InlineKeyboardMarkup()
-    share = f"https://t.me/share/url?url={link}&text=🔥%20Join%20the%20best%20store%20bot!%20Get%20free%20rewards!"
+    share = f"https://t.me/share/url?url={link}&text=🔥%20Join%20the%20best%20store%20bot!"
     m.add(types.InlineKeyboardButton("📤 Share Link", url=share))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
 
 def show_purchases(chat_id, msg_id, uid, lang):
-    """عرض المشتريات"""
     sales = [x for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid]
     if not sales:
         msg = "📭 <b>No purchases yet</b>\n\n💡 <i>Visit the shop to start!</i>"
     else:
-        msg = f"📜 <b>━━ My Purchases ━━</b>\n\n"
-        msg += f"📊 <b>Total:</b> {len(sales)} orders\n\n"
+        msg = f"📜 <b>━━ My Purchases ━━</b>\n\n📊 <b>Total:</b> {len(sales)}\n\n"
         for s in sales[-10:]:
             msg += f"┃ 📦 <b>{s['product']}</b>\n"
             msg += f"┃ ⏱️ {s['plan']} | 💰 {s['price']} 💎\n"
@@ -608,7 +646,6 @@ def show_purchases(chat_id, msg_id, uid, lang):
     except: pass
 
 def claim_daily(chat_id, msg_id, uid, lang):
-    """المكافأة اليومية مع أنيميشن"""
     u = get_user(uid) or {}
     now = datetime.now()
     lc = u.get("last_claim")
@@ -636,7 +673,6 @@ def claim_daily(chat_id, msg_id, uid, lang):
     update_user_rank_and_quests(uid)
     u_new = get_user(uid) or {}
     
-    # 🎬 أنيميشن جميل
     frames = [
         "🎁 <b>Opening...</b>",
         "✨ <b>Opening...</b> ✨",
@@ -656,7 +692,6 @@ def claim_daily(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_quests(chat_id, msg_id, uid, lang):
-    """عرض المهام مع شريط تقدم"""
     update_user_rank_and_quests(uid)
     u = get_user(uid) or {}
     completed = u.get("completed_quests", "") or ""
@@ -686,16 +721,13 @@ def show_quests(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_flash_sale(chat_id, msg_id, uid, lang):
-    """عرض العرض الخاطف"""
     fs = get_active_flash_sale()
     if not fs:
         msg = t(lang, "no_flash_sale")
     else:
         remaining = format_time_remaining(fs["expires"])
         msg = t(lang, "flash_sale_active",
-                discount=fs["discount"],
-                product=fs["product"],
-                remaining=remaining)
+                discount=fs["discount"], product=fs["product"], remaining=remaining)
     mk = types.InlineKeyboardMarkup()
     if fs:
         mk.add(types.InlineKeyboardButton(
@@ -706,7 +738,6 @@ def show_flash_sale(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_lootbox(chat_id, msg_id, lang):
-    """عرض صندوق الحظ"""
     price = bot_config.get("lootbox_price", 50)
     chance = bot_config.get("lootbox_chance", 25)
     msg = (f"🎰 <b>━━ Loot Box ━━</b>\n\n"
@@ -722,7 +753,6 @@ def show_lootbox(chat_id, msg_id, lang):
     except: pass
 
 def show_wheel(chat_id, msg_id, lang):
-    """عرض عجلة الحظ"""
     price = bot_config.get("wheel_price", 40)
     chance = bot_config.get("wheel_chance", 5)
     msg = (f"🎡 <b>━━ Lucky Wheel ━━</b>\n\n"
@@ -738,14 +768,11 @@ def show_wheel(chat_id, msg_id, lang):
     except: pass
 
 def show_shop(message, uid, u, lang):
-    """عرض المتجر"""
     if not prices_config:
         return bot.send_message(message.chat.id, t(lang, "shop_empty"), parse_mode="HTML")
     u_disc = u.get("rank_discount", 0.0) or 0.0
     header = t(lang, "shop_header",
-               points=u.get('points', 0),
-               rank=u.get('rank', '🔹'),
-               disc=int(u_disc*100))
+               points=u.get('points', 0), rank=u.get('rank', '🔹'), disc=int(u_disc*100))
     
     fs = get_active_flash_sale()
     if fs:
@@ -759,18 +786,14 @@ def show_shop(message, uid, u, lang):
                                          callback_data=f"select_prod_{prod}"))
     bot.send_message(message.chat.id, header, reply_markup=m, parse_mode="HTML")
 
-# =====================================================
-# 💬 قسم التذاكر
-# =====================================================
+‎# قوائم أخرى
 def show_new_ticket_categories(chat_id, msg_id, lang):
-    """اختيار نوع التذكرة"""
     try:
         bot.edit_message_text(t(lang, "ticket_categories"), chat_id, msg_id,
             reply_markup=get_ticket_categories(lang), parse_mode="HTML")
     except: pass
 
 def show_my_tickets(chat_id, msg_id, uid, lang):
-    """عرض تذاكر المستخدم"""
     tickets = bot_config.get("tickets", {})
     my_t = {k: v for k, v in tickets.items() if str(v.get("uid")) == uid}
     if not my_t:
@@ -780,7 +803,6 @@ def show_my_tickets(chat_id, msg_id, uid, lang):
         try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: pass
         return
-    
     msg = t(lang, "my_tickets_title") + f"\n\n📊 <b>Total:</b> {len(my_t)}\n\n"
     m = types.InlineKeyboardMarkup(row_width=1)
     for tid, info in list(my_t.items())[-10:]:
@@ -794,34 +816,23 @@ def show_my_tickets(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_faq(chat_id, msg_id, lang):
-    """عرض الأسئلة الشائعة"""
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_support"))
     try: bot.edit_message_text(t(lang, "faq_title"), chat_id, msg_id,
         reply_markup=m, parse_mode="HTML")
     except: pass
 
-# =====================================================
-# ⚙️ الإعدادات
-# =====================================================
 def show_notifications(chat_id, msg_id, uid, lang):
-    """تبديل الإشعارات"""
+‎    """تبديل الإشعارات مع رسالة واضحة"""
     u = get_user(uid) or {}
     current = u.get("notifications_on", True)
     new_val = not current
     update_user_data(uid, notifications_on=new_val)
     
     if new_val:
-        msg = (f"🔔 <b>Notifications ON</b>\n\n"
-               f"✅ You'll receive:\n"
-               f"• 📦 New product alerts\n"
-               f"• ⚡ Flash sale notifications\n"
-               f"• 🎁 Special offers\n"
-               f"• 📢 Important updates")
+        msg = t(lang, "notif_updated_on")
     else:
-        msg = (f"🔕 <b>Notifications OFF</b>\n\n"
-               f"❌ You won't receive marketing messages\n"
-               f"💡 <i>You'll still get order confirmations</i>")
+        msg = t(lang, "notif_updated_off")
     
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_settings"))
@@ -829,7 +840,6 @@ def show_notifications(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_theme(chat_id, msg_id, uid, lang):
-    """عرض الثيمات"""
     u = get_user(uid) or {}
     current = u.get("theme", "dark").title()
     msg = (f"🎨 <b>━━ Theme ━━</b>\n\n"
@@ -838,8 +848,7 @@ def show_theme(chat_id, msg_id, uid, lang):
            f"🌙 <b>Dark</b> - Cool & modern\n"
            f"☀️ <b>Light</b> - Bright & fresh\n"
            f"🎨 <b>Neon</b> - Vibrant colors\n"
-           f"🌸 <b>Sakura</b> - Pink & pretty\n\n"
-           f"💡 <i>Themes affect message styles</i>")
+           f"🌸 <b>Sakura</b> - Pink & pretty")
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
         types.InlineKeyboardButton("🌙 Dark", callback_data="settheme_dark"),
@@ -854,17 +863,10 @@ def show_theme(chat_id, msg_id, uid, lang):
     except: pass
 
 def show_privacy(chat_id, msg_id, lang):
-    """عرض الخصوصية"""
     msg = (f"🔒 <b>━━ Privacy Policy ━━</b>\n\n"
            f"🛡️ <b>Your data is safe with us</b>\n\n"
-           f"✅ <b>We DO:</b>\n"
-           f"• Encrypt all transactions\n"
-           f"• Keep your data private\n"
-           f"• Use secure servers\n\n"
-           f"❌ <b>We DON'T:</b>\n"
-           f"• Share your info\n"
-           f"• Sell your data\n"
-           f"• Track you outside the bot\n\n"
+           f"✅ We DO: Encrypt all transactions\n"
+           f"❌ We DON'T: Share your info\n\n"
            f"📜 <i>By using this bot, you agree to our Terms</i>")
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_settings"))
@@ -872,23 +874,18 @@ def show_privacy(chat_id, msg_id, lang):
     except: pass
 
 def show_about(chat_id, msg_id, lang):
-    """عرض حول البوت"""
     stats = get_bot_stats()
     msg = t(lang, "about_title", users=stats["total_users"], sales=stats["total_sales"])
     msg += f"\n\n💻 <b>Developer:</b> @fkLJh00302"
-    msg += f"\n🌟 <b>Bot Version:</b> 3.0"
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton("📢 Our Channel", url=CHANNEL_LINK))
+    m.add(types.InlineKeyboardButton("📢 Channel", url=CHANNEL_LINK))
     m.add(types.InlineKeyboardButton("💻 Contact Developer", url="https://t.me/fkLJh00302"))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_settings"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
 
-# =====================================================
-# 👑 دوال الأدمن
-# =====================================================
+‎# 👑 دوال الأدمن
 def admin_show_tickets(message):
-    """عرض التذاكر للأدمن"""
     tickets = bot_config.get("tickets", {})
     open_t = {k: v for k, v in tickets.items() if v.get("status", "open") == "open"}
     if not open_t:
@@ -903,7 +900,6 @@ def admin_show_tickets(message):
         reply_markup=m, parse_mode="HTML")
 
 def admin_show_product_requests(message):
-    """عرض طلبات المنتجات"""
     reqs = bot_config.get("product_requests", {})
     if not reqs:
         return bot.send_message(message.chat.id, "📭 لا طلبات")
@@ -913,7 +909,6 @@ def admin_show_product_requests(message):
     bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
 def admin_show_stats(message):
-    """عرض إحصائيات شاملة"""
     stats = get_bot_stats()
     msg = (f"╔═══════════════════╗\n"
            f"║  📊 <b>STATISTICS</b>  ║\n"
@@ -924,17 +919,16 @@ def admin_show_stats(message):
            f"💰 <b>الأرباح:</b> {stats['total_earnings']} 💎\n"
            f"📦 <b>المنتجات:</b> {stats['total_products']}\n"
            f"🎫 <b>الأكواد:</b> {stats['total_codes']}\n"
-           f"🎟️ <b>التذاكر:</b> {stats['total_tickets']} ({stats['open_tickets']} مفتوحة)\n"
+           f"🎟️ <b>التذاكر:</b> {stats['total_tickets']}\n"
            f"💡 <b>الطلبات:</b> {stats['total_requests']}\n"
-           f"🛠️ <b>الصيانة:</b> {'ON' if stats['maintenance'] else 'OFF'}\n"
-           f"🌟 <b>الإصدار:</b> {stats['bot_version']}")
+           f"🛠️ <b>الصيانة:</b> {'ON' if stats['maintenance'] else 'OFF'}")
     bot.send_message(message.chat.id, msg, parse_mode="HTML")
     for f in [DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG]:
         if os.path.exists(f):
             try:
                 with open(f, "rb") as d: bot.send_document(message.chat.id, d)
-            except: pass# =====================================================
-# 🔁 معالج Callback الرئيسي
+            except: pass # =====================================================
+‎# 🔁 معالج Callback الرئيسي
 # =====================================================
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
@@ -947,7 +941,57 @@ def handle_callbacks(call):
     msg_id = call.message.message_id
 
     # ═══════════════════════════════════
-    # 🛡️ معالج الكابتشا (أولوية قصوى)
+‎    # 🎁 كابتشا Giveaway
+    # ═══════════════════════════════════
+    if data.startswith("gwcap_"):
+        answer = data.split("_", 1)[1]
+        result, code = verify_giveaway_captcha(uid, answer)
+        
+        if result == "correct":
+‎            # منح الجائزة!
+            success, reward_or_reason = process_giveaway_claim(uid, code)
+            if success:
+                u_new = get_user(uid) or {}
+                new_balance = u_new.get("points", 0)
+                
+‎                # 🎬 أنيميشن الفوز
+                frames = [
+                    "🎁 <b>Verifying...</b>",
+                    "✨ <b>Processing prize...</b>",
+                    "💫 <b>Almost there...</b>",
+                    "🎊 <b>YOU WON!</b> 🎊"
+                ]
+                for f in frames:
+                    try:
+                        bot.edit_message_text(f, chat_id, msg_id, parse_mode="HTML")
+                        time.sleep(0.4)
+                    except: pass
+                
+‎                # رسالة الفوز النهائية
+                win_msg = t(lang, "gw_success", reward=reward_or_reason, balance=new_balance)
+                try: bot.edit_message_text(win_msg, chat_id, msg_id, parse_mode="HTML")
+                except: pass
+            else:
+                error_msg = format_giveaway_error(reward_or_reason, lang)
+                try: bot.edit_message_text(error_msg, chat_id, msg_id, parse_mode="HTML")
+                except: pass
+        elif result == "wrong":
+            bot.answer_callback_query(call.id, t(lang, "captcha_wrong"), show_alert=True)
+        elif result == "banned":
+            try:
+                bot.edit_message_text(
+                    "🚫 <b>Too many wrong attempts!</b>\n\n⏰ Banned for 1 hour",
+                    chat_id, msg_id, parse_mode="HTML")
+            except: pass
+        elif result == "expired":
+            try:
+                bot.edit_message_text("⏰ <b>Captcha expired!</b>",
+                    chat_id, msg_id, parse_mode="HTML")
+            except: pass
+        return
+
+    # ═══════════════════════════════════
+‎    # 🛡️ كابتشا عادية
     # ═══════════════════════════════════
     if data.startswith("captcha_ans_"):
         ans = data.split("_", 2)[2]
@@ -964,12 +1008,10 @@ def handle_callbacks(call):
             try:
                 bot.edit_message_text(t(lang, "captcha_banned"), chat_id, msg_id, parse_mode="HTML")
             except: pass
-        elif r == "expired":
-            bot.answer_callback_query(call.id, "⏰ Expired! Try again.", show_alert=True)
         return
 
     # ═══════════════════════════════════
-    # 🌐 تغيير اللغة
+‎    # 🌐 تغيير اللغة
     # ═══════════════════════════════════
     if data.startswith("setlang_"):
         new_lang = data.split("_")[1]
@@ -981,23 +1023,17 @@ def handle_callbacks(call):
         return
 
     # ═══════════════════════════════════
-    # ✅ فحص الاشتراك (محسّن + منع الرشق)
+‎    # ✅ فحص الاشتراك
     # ═══════════════════════════════════
     if data == "check_join":
-        # منع الرشق
         if not can_check_join(uid):
             bot.answer_callback_query(call.id,
-                "⏳ Please wait 3 seconds before checking again",
-                show_alert=True)
+                "⏳ Please wait 3 seconds before checking again", show_alert=True)
             return
-        
-        # فحص فعلي
         if check_channel_join(uid):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
-            bot.answer_callback_query(call.id, "✅ Verified successfully!", show_alert=False)
-            
-            # رسالة ترحيب جميلة
+            bot.answer_callback_query(call.id, "✅ Verified!", show_alert=False)
             welcome_msg = (
                 f"╔═══════════════════╗\n"
                 f"║  🎉 <b>WELCOME!</b> 🎉  ║\n"
@@ -1009,19 +1045,15 @@ def handle_callbacks(call):
             show_main_menu(chat_id, uid, lang)
         else:
             bot.answer_callback_query(call.id,
-                "❌ You haven't joined yet!\n\nPlease join the channel first, then click verify.",
-                show_alert=True)
+                "❌ You haven't joined yet!", show_alert=True)
         return
 
-    # فحص الاشتراك لباقي الأزرار
     if not check_channel_join(uid):
-        bot.answer_callback_query(call.id,
-            "⚠️ Join the channel first!",
-            show_alert=True)
+        bot.answer_callback_query(call.id, "⚠️ Join the channel first!", show_alert=True)
         return
 
     # ═══════════════════════════════════
-    # 🔙 أزرار الرجوع للأقسام
+‎    # 🔙 أزرار الرجوع
     # ═══════════════════════════════════
     if data == "back_account":
         try: bot.edit_message_text(
@@ -1059,71 +1091,64 @@ def handle_callbacks(call):
         return
 
     # ═══════════════════════════════════
-    # 👤 قسم الحساب
+‎    # 👤 قوائم فرعية
     # ═══════════════════════════════════
     if data == "menu_balance": return show_balance(chat_id, msg_id, uid, lang)
     if data == "menu_myid": return show_myid(chat_id, msg_id, uid, u, lang)
     if data == "menu_rank": return show_rank(chat_id, msg_id, uid, lang)
     if data == "menu_referral": return show_referral(chat_id, msg_id, uid, lang)
     if data == "menu_purchases": return show_purchases(chat_id, msg_id, uid, lang)
-
-    # ═══════════════════════════════════
-    # 🎁 قسم المكافآت
-    # ═══════════════════════════════════
     if data == "menu_daily": return claim_daily(chat_id, msg_id, uid, lang)
     if data == "menu_quests": return show_quests(chat_id, msg_id, uid, lang)
     if data == "menu_flash": return show_flash_sale(chat_id, msg_id, uid, lang)
-    if data == "menu_redeem":
-        m = bot.send_message(chat_id,
-            "🎁 <b>━━ Redeem Code ━━</b>\n\n✍️ Enter your code:",
-            parse_mode="HTML")
-        bot.register_next_step_handler(m, process_redeem)
-        return
-
-    # ═══════════════════════════════════
-    # 🎮 قسم الترفيه
-    # ═══════════════════════════════════
     if data == "menu_lootbox": return show_lootbox(chat_id, msg_id, lang)
     if data == "menu_wheel": return show_wheel(chat_id, msg_id, lang)
-
-    # ═══════════════════════════════════
-    # 💬 قسم الدعم
-    # ═══════════════════════════════════
     if data == "menu_new_ticket": return show_new_ticket_categories(chat_id, msg_id, lang)
     if data == "menu_my_tickets": return show_my_tickets(chat_id, msg_id, uid, lang)
     if data == "menu_faq": return show_faq(chat_id, msg_id, lang)
+    if data == "menu_notif": return show_notifications(chat_id, msg_id, uid, lang)
+    if data == "menu_theme": return show_theme(chat_id, msg_id, uid, lang)
+    if data == "menu_privacy": return show_privacy(chat_id, msg_id, lang)
+    if data == "menu_about": return show_about(chat_id, msg_id, lang)
+
+    if data == "menu_redeem":
+        m = bot.send_message(chat_id,
+            "🎁 <b>━━ Redeem Code ━━</b>\n\n✍️ Enter your code:", parse_mode="HTML")
+        bot.register_next_step_handler(m, process_redeem)
+        return
+
     if data == "menu_request_product":
         m = bot.send_message(chat_id,
-            "💡 <b>━━ Request Product ━━</b>\n\n✍️ Write product name & details:",
-            parse_mode="HTML")
+            "💡 <b>━━ Request Product ━━</b>\n\n✍️ Write product name & details:", parse_mode="HTML")
         bot.register_next_step_handler(m, process_product_request)
         return
 
+    if data == "menu_lang":
+        try:
+            bot.edit_message_text(t(lang, "welcome"), chat_id, msg_id,
+                reply_markup=get_lang_inline(), parse_mode="HTML")
+        except: pass
+        return
+
     # ═══════════════════════════════════
-    # 🎫 اختيار نوع التذكرة
+‎    # 🎫 التذاكر
     # ═══════════════════════════════════
     if data.startswith("tcat_"):
         cat_key = data.split("_")[1]
         cat_name = TICKET_CATEGORIES.get(cat_key, {}).get(lang, "Other")
-        
         if "temp_ticket_cat" not in bot_config:
             bot_config["temp_ticket_cat"] = {}
         bot_config["temp_ticket_cat"][uid] = cat_key
         save_json(DB_CONFIG, bot_config)
-        
         try:
             bot.edit_message_text(
                 f"🎫 <b>Category:</b> {cat_name}\n\n{t(lang, 'ticket_write')}",
                 chat_id, msg_id, parse_mode="HTML")
         except: pass
-        
-        m = bot.send_message(chat_id, "💬 <i>Type your message below...</i>", parse_mode="HTML")
+        m = bot.send_message(chat_id, "💬 <i>Type your message...</i>", parse_mode="HTML")
         bot.register_next_step_handler(m, process_new_ticket)
         return
 
-    # ═══════════════════════════════════
-    # 🎫 عرض تذكرة معينة (المستخدم)
-    # ═══════════════════════════════════
     if data.startswith("myticket_"):
         tid = data.split("_")[1]
         tickets = bot_config.get("tickets", {})
@@ -1132,7 +1157,6 @@ def handle_callbacks(call):
         status = "🟢 Open" if info.get("status", "open") == "open" else "🔴 Closed"
         cat_key = info.get("category", "other")
         cat = TICKET_CATEGORIES.get(cat_key, {}).get(lang, "Other")
-        
         msg = (f"╔═══════════════════╗\n"
                f"║  🎫 <b>Ticket #{tid}</b>  ║\n"
                f"╚═══════════════════╝\n\n"
@@ -1140,15 +1164,13 @@ def handle_callbacks(call):
                f"┃ 📊 <b>Status:</b> {status}\n"
                f"┃ 📅 <b>Date:</b> {info.get('date', '')[:16]}\n"
                f"╰━━━━━━━━━━━━╯\n\n"
-               f"💬 <b>Original:</b>\n{info.get('text', '')}\n\n")
-        
+               f"💬 <b>Original:</b>\n{info.get('text', '')}")
         messages = info.get("messages", [])
         if messages:
-            msg += "📜 <b>Conversation:</b>\n"
+            msg += "\n\n📜 <b>Conversation:</b>\n"
             for m_item in messages[-5:]:
                 who = "👤 You" if m_item["from"] == "user" else "👨‍💻 Support"
                 msg += f"\n{who}: {m_item['text'][:100]}"
-        
         m = types.InlineKeyboardMarkup()
         if info.get("status", "open") == "open":
             m.add(types.InlineKeyboardButton("💬 Open Live Chat", callback_data=f"opentchat_{tid}"))
@@ -1158,9 +1180,6 @@ def handle_callbacks(call):
         except: pass
         return
 
-    # ═══════════════════════════════════
-    # 💬 فتح دردشة تذكرة (المستخدم)
-    # ═══════════════════════════════════
     if data.startswith("opentchat_"):
         tid = data.split("_")[1]
         active_ticket_chats[uid] = tid
@@ -1184,20 +1203,8 @@ def handle_callbacks(call):
         return
 
     # ═══════════════════════════════════
-    # ⚙️ الإعدادات
+‎    # 🎨 الثيمات
     # ═══════════════════════════════════
-    if data == "menu_lang":
-        try:
-            bot.edit_message_text(t(lang, "welcome"), chat_id, msg_id,
-                reply_markup=get_lang_inline(), parse_mode="HTML")
-        except: pass
-        return
-
-    if data == "menu_notif": return show_notifications(chat_id, msg_id, uid, lang)
-    if data == "menu_theme": return show_theme(chat_id, msg_id, uid, lang)
-    if data == "menu_privacy": return show_privacy(chat_id, msg_id, lang)
-    if data == "menu_about": return show_about(chat_id, msg_id, lang)
-
     if data.startswith("settheme_"):
         theme = data.split("_")[1]
         update_user_data(uid, theme=theme)
@@ -1205,7 +1212,7 @@ def handle_callbacks(call):
         return show_theme(chat_id, msg_id, uid, lang)
 
     # ═══════════════════════════════════
-    # 🎰 صندوق الحظ (مع أنيميشن)
+‎    # 🎰 صندوق الحظ
     # ═══════════════════════════════════
     if data == "game_buy_lootbox":
         price = bot_config.get("lootbox_price", 50)
@@ -1213,7 +1220,6 @@ def handle_callbacks(call):
             return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
         update_user_data(uid, points=-price)
         
-        # 🎬 أنيميشن مذهل
         frames = [
             "🎁 <b>Opening the box...</b>",
             "✨ <b>Almost there...</b> ✨",
@@ -1233,13 +1239,13 @@ def handle_callbacks(call):
                    f"║  🎊 <b>YOU WON!</b> 🎊  ║\n"
                    f"╚═══════════════════╝\n\n"
                    f"💎 <b>+{win}</b> points added!\n\n"
-                   f"✨ <i>Luck is on your side today!</i>")
+                   f"✨ <i>Luck is on your side!</i>")
         else:
             msg = (f"╔═══════════════════╗\n"
                    f"║  😔 <b>EMPTY BOX</b>  ║\n"
                    f"╚═══════════════════╝\n\n"
                    f"💔 Better luck next time!\n\n"
-                   f"💪 <i>Don't give up, try again!</i>")
+                   f"💪 <i>Try again!</i>")
         
         mk = types.InlineKeyboardMarkup()
         mk.add(types.InlineKeyboardButton("🔄 Try Again", callback_data="game_buy_lootbox"))
@@ -1250,7 +1256,7 @@ def handle_callbacks(call):
         return
 
     # ═══════════════════════════════════
-    # 🎡 عجلة الحظ (مع أنيميشن مميز)
+‎    # 🎡 عجلة الحظ
     # ═══════════════════════════════════
     if data == "game_spin_wheel":
         price = bot_config.get("wheel_price", 40)
@@ -1258,13 +1264,12 @@ def handle_callbacks(call):
             return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
         update_user_data(uid, points=-price)
         
-        # 🎬 أنيميشن عجلة الحظ
         frames = [
             "🎡 <b>[ 🔴 ]</b>\n<i>Spinning...</i>",
             "🎡 <b>[ 🟡 ]</b>\n<i>Spinning...</i>",
-            "🎡 <b>[ 🟢 ]</b>\n<i>Spinning fast...</i>",
-            "🎡 <b>[ 🔵 ]</b>\n<i>Slowing down...</i>",
-            "🎡 <b>[ 🟣 ]</b>\n<i>Almost there...</i>",
+            "🎡 <b>[ 🟢 ]</b>\n<i>Fast!</i>",
+            "🎡 <b>[ 🔵 ]</b>\n<i>Slowing...</i>",
+            "🎡 <b>[ 🟣 ]</b>\n<i>Almost...</i>",
             "🎡 <b>[ ⚪ ]</b>\n<i>Stopping...</i>"
         ]
         for f in frames:
@@ -1279,28 +1284,20 @@ def handle_callbacks(call):
             msg = (f"╔═══════════════════╗\n"
                    f"║ 🏆 <b>GRAND PRIZE!</b> 🏆 ║\n"
                    f"╚═══════════════════╝\n\n"
-                   f"👑 <b>+{win} 💎</b> WON!\n\n"
+                   f"👑 <b>+{win} 💎</b>\n\n"
                    f"🎊 <i>You're a legend!</i>")
-            # نشر بالقناة (إنجليزي)
             try:
                 bot.send_message(CHANNEL_ID,
-                    f"🎡 <b>WHEEL EXPLOSION!</b>\n\n"
-                    f"🏆 A lucky user just won <b>+1000 💎</b>!\n\n"
-                    f"⚡ <i>Try your luck now!</i>\n"
-                    f"🤖 t.me/{bot.get_me().username}",
+                    f"🎡 <b>WHEEL EXPLOSION!</b>\n🏆 +1000 💎 WON!\n🤖 t.me/{bot.get_me().username}",
                     parse_mode="HTML")
             except: pass
         else:
             result = random.choice([0, 10, 20, price])
             if result > 0:
                 update_user_data(uid, points=result, accumulated_points=result)
-                msg = (f"🎡 <b>━━ Wheel Stopped! ━━</b>\n\n"
-                       f"🎁 You got: <b>+{result}</b> 💎\n\n"
-                       f"👍 <i>Not bad! Try again!</i>")
+                msg = f"🎡 <b>+{result}</b> 💎"
             else:
-                msg = (f"🎡 <b>━━ Wheel Stopped! ━━</b>\n\n"
-                       f"💔 <b>0</b> points\n\n"
-                       f"💪 <i>Better luck next time!</i>")
+                msg = "🎡 <b>0</b> pts\n💪 Try again!"
         
         mk = types.InlineKeyboardMarkup()
         mk.add(types.InlineKeyboardButton("🔄 Spin Again", callback_data="game_spin_wheel"))
@@ -1311,23 +1308,20 @@ def handle_callbacks(call):
         return
 
     # ═══════════════════════════════════
-    # 🛍️ اختيار منتج
+‎    # 🛍️ اختيار منتج
     # ═══════════════════════════════════
     if data.startswith("select_prod_"):
         prod = data.split("_", 2)[2]
         if prod not in prices_config: return
         u_disc = u.get("rank_discount", 0.0) or 0.0
-        
         fs = get_active_flash_sale()
         flash_active = fs and fs["product"] == prod
-        
         info = f"📦 <b>━━ {prod} ━━</b>\n\n"
-        info += f"┃ 💎 Your Rank Discount: <b>{int(u_disc*100)}%</b>\n"
-        info += f"┃ 💰 Your Balance: <b>{u.get('points', 0)}</b>\n"
+        info += f"┃ 💎 Your Discount: <b>{int(u_disc*100)}%</b>\n"
+        info += f"┃ 💰 Balance: <b>{u.get('points', 0)}</b>\n"
         if flash_active:
             info += f"┃ ⚡ <b>FLASH SALE:</b> {fs['discount']}% OFF!\n"
         info += "╰━━━━━━━━━━━━╯\n\n⏱️ <b>Choose duration:</b>"
-        
         m = types.InlineKeyboardMarkup()
         for plan in ["1 Day", "7 Days", "30 Days"]:
             base_p = prices_config[prod].get(plan, 0)
@@ -1337,9 +1331,8 @@ def handle_callbacks(call):
             final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
             stock = len(keys_store.get(prod, {}).get(plan, []))
             emoji = "✅" if stock > 0 else "❌"
-            btn_txt = f"{emoji} {plan} | {final_p} 💎"
+            btn_txt = f"{emoji} {plan} | {final_p} 💎 | 📊 {stock}"
             if flash_active: btn_txt = f"⚡ {btn_txt}"
-            btn_txt += f" | 📊 {stock}"
             m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
         m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_shop_back"))
         try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
@@ -1352,7 +1345,7 @@ def handle_callbacks(call):
         return show_shop(call.message, uid, u, lang)
 
     # ═══════════════════════════════════
-    # 🛒 تنفيذ الشراء (مع أنيميشن)
+‎    # 🛒 الشراء (مُصلح - يعطي المفتاح!)
     # ═══════════════════════════════════
     if data.startswith("buy_plan|"):
         _, prod, plan = data.split("|")
@@ -1369,71 +1362,71 @@ def handle_callbacks(call):
         if not keys_store.get(prod, {}).get(plan, []):
             return bot.answer_callback_query(call.id, "⚠️ Out of stock!", show_alert=True)
         
-        # 🎬 أنيميشن الشراء
-        frames = [
-            "⏳ <b>Processing payment...</b>",
-            "🔐 <b>Preparing your key...</b>",
-            "📦 <b>Packing your order...</b>",
-            "✅ <b>Delivering...</b>"
+‎        # 🎬 أنيميشن مراحل الشراء
+        steps = [
+            t(lang, "buy_step_1"),
+            t(lang, "buy_step_2"),
+            t(lang, "buy_step_3"),
+            t(lang, "buy_step_4")
         ]
-        for f in frames:
+        for step in steps:
             try:
-                bot.edit_message_text(f, chat_id, msg_id, parse_mode="HTML")
-                time.sleep(0.4)
+                bot.edit_message_text(step, chat_id, msg_id, parse_mode="HTML")
+                time.sleep(0.5)
             except: pass
         
-        key = keys_store[prod][plan].pop(0)
-        update_user_data(uid, points=-final_p, total_spent=final_p, purchases_count=1)
-        bot_config["total_sales"] = bot_config.get("total_sales", 0) + 1
-        bot_config["total_earnings"] = bot_config.get("total_earnings", 0) + final_p
-        if "sales_log" not in bot_config: bot_config["sales_log"] = []
-        bot_config["sales_log"].append({
-            "uid": uid,
-            "username": u.get("username", ""),
-            "product": prod,
-            "plan": plan,
-            "price": final_p,
-            "key": key,
-            "date": datetime.now().isoformat()
-        })
-        save_json(DB_KEYS, keys_store)
-        save_json(DB_CONFIG, bot_config)
-        update_user_rank_and_quests(uid)
-        
-        msg = t(lang, "purchase_success", prod=prod, plan=plan, price=final_p, key=key)
-        try: bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-        except: pass
-        
-        # نشر بالقناة (إنجليزي)
-        publish_sale_to_channel(prod, plan, final_p)
+‎        # ✅ إعطاء المفتاح فعلياً بعد الأنيميشن
+        try:
+            key = keys_store[prod][plan].pop(0)
+            update_user_data(uid, points=-final_p, total_spent=final_p, purchases_count=1)
+            bot_config["total_sales"] = bot_config.get("total_sales", 0) + 1
+            bot_config["total_earnings"] = bot_config.get("total_earnings", 0) + final_p
+            if "sales_log" not in bot_config: bot_config["sales_log"] = []
+            bot_config["sales_log"].append({
+                "uid": uid, "username": u.get("username", ""),
+                "product": prod, "plan": plan, "price": final_p,
+                "key": key, "date": datetime.now().isoformat()
+            })
+            save_json(DB_KEYS, keys_store)
+            save_json(DB_CONFIG, bot_config)
+            update_user_rank_and_quests(uid)
+            
+‎            # 🎁 رسالة الشراء النهائية الجميلة
+            msg = t(lang, "purchase_success", prod=prod, plan=plan, price=final_p, key=key)
+            msg += f"\n\n{t(lang, 'buy_gift_msg')}"
+            
+            try: bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
+            except: bot.send_message(chat_id, msg, parse_mode="HTML")
+            
+‎            # نشر بالقناة
+            publish_sale_to_channel(prod, plan, final_p)
+        except Exception as e:
+            print(f"⚠️ Error in purchase: {e}")
+            bot.send_message(chat_id, f"❌ خطأ في الشراء - راجع الأدمن")
         return
 
     # ═══════════════════════════════════
-    # 🎫 التذاكر (الأدمن)
+‎    # 🎫 التذاكر (الأدمن)
     # ═══════════════════════════════════
     if data.startswith("admview_ticket_"):
         tid = data.split("_")[2]
         tickets = bot_config.get("tickets", {})
-        if tid not in tickets:
-            return bot.answer_callback_query(call.id, "❌")
+        if tid not in tickets: return bot.answer_callback_query(call.id, "❌")
         info = tickets[tid]
         cat = TICKET_CATEGORIES.get(info.get("category", "other"), {}).get("ar", "أخرى")
-        
         msg = (f"╔═══════════════════╗\n"
                f"║  🎫 <b>Ticket #{tid}</b>  ║\n"
                f"╚═══════════════════╝\n\n"
-               f"👤 <b>UID:</b> <code>{info['uid']}</code>\n"
-               f"📂 <b>النوع:</b> {cat}\n"
-               f"📊 <b>الحالة:</b> {info.get('status', 'open')}\n\n"
-               f"💬 <b>الرسالة:</b>\n{info['text']}\n\n")
-        
+               f"👤 UID: <code>{info['uid']}</code>\n"
+               f"📂 النوع: {cat}\n"
+               f"📊 الحالة: {info.get('status', 'open')}\n\n"
+               f"💬 {info['text']}")
         messages = info.get("messages", [])
         if messages:
-            msg += "📜 <b>المحادثة:</b>\n"
+            msg += "\n\n📜 <b>المحادثة:</b>\n"
             for m_item in messages[-5:]:
-                who = "👤 المستخدم" if m_item["from"] == "user" else "👨‍💻 الإدارة"
+                who = "👤" if m_item["from"] == "user" else "👨‍💻"
                 msg += f"\n{who}: {m_item['text'][:100]}"
-        
         m = types.InlineKeyboardMarkup(row_width=2)
         m.add(types.InlineKeyboardButton("💬 دردشة مباشرة", callback_data=f"admchat_{tid}"))
         m.add(
@@ -1457,9 +1450,9 @@ def handle_callbacks(call):
                 f"╔═══════════════════╗\n"
                 f"║ 💬 <b>LIVE CHAT ON</b> ║\n"
                 f"╚═══════════════════╝\n\n"
-                f"🎫 <b>Ticket:</b> #{tid}\n"
-                f"👤 <b>User:</b> <code>{user_uid}</code>\n\n"
-                f"✅ Your messages go directly to user\n"
+                f"🎫 Ticket: #{tid}\n"
+                f"👤 User: <code>{user_uid}</code>\n\n"
+                f"✅ Your messages go to user\n"
                 f"⚠️ Type <code>/close</code> to end",
                 chat_id, msg_id, parse_mode="HTML")
         except: pass
@@ -1469,10 +1462,9 @@ def handle_callbacks(call):
                 f"╔═══════════════════╗\n"
                 f"║ 💬 <b>SUPPORT ONLINE</b> ║\n"
                 f"╚═══════════════════╝\n\n"
-                f"✅ An agent is chatting with you now!\n"
-                f"📝 Send your messages here\n\n"
-                f"🔒 Type /close to end anytime",
-                parse_mode="HTML")
+                f"✅ An agent is chatting with you!\n"
+                f"📝 Send your messages\n"
+                f"🔒 Type /close to end", parse_mode="HTML")
         except: pass
         return
 
@@ -1500,7 +1492,7 @@ def handle_callbacks(call):
         if ban_type == "temp":
             until = (datetime.now() + timedelta(days=1)).isoformat()
             update_user_data(target, banned_until=until)
-            bot.answer_callback_query(call.id, "⚠️ حظر مؤقت 24 ساعة", show_alert=True)
+            bot.answer_callback_query(call.id, "⚠️ حظر مؤقت 24س", show_alert=True)
         elif ban_type == "demote":
             update_user_data(target, is_admin=False)
             bot.answer_callback_query(call.id, "⬇️ إزالة الإدارة", show_alert=True)
@@ -1510,16 +1502,182 @@ def handle_callbacks(call):
         return
 
     # ═══════════════════════════════════
-    # 👑 الأدمن - إدارة المنتجات
+    # 🎁 GIVEAWAY - الأدمن
     # ═══════════════════════════════════
     if not is_admin(uid, u): return
 
+    if data == "admgw_create":
+        temp_giveaway_setup[uid] = {"step": "reward"}
+        try:
+            bot.edit_message_text(
+                f"🎁 <b>━━ Create Giveaway ━━</b>\n\n"
+                f"💎 <b>Step 1/3:</b> اختر الجائزة",
+                chat_id, msg_id, reply_markup=giveaway_reward_menu(), parse_mode="HTML")
+        except: pass
+        return
+
+    if data.startswith("gwset_reward_"):
+        val = data.split("_")[2]
+        if val == "custom":
+            m = bot.send_message(chat_id, "💎 أرسل قيمة الجائزة (رقم):")
+            bot.register_next_step_handler(m, lambda msg: process_gw_custom_reward(msg, uid, chat_id))
+            return
+        temp_giveaway_setup[uid] = {"step": "users", "reward": int(val)}
+        try:
+            bot.edit_message_text(
+                f"🎁 <b>━━ Create Giveaway ━━</b>\n\n"
+                f"💎 <b>Reward:</b> {val} 💎\n\n"
+                f"👥 <b>Step 2/3:</b> عدد المستخدمين",
+                chat_id, msg_id, reply_markup=giveaway_users_menu(), parse_mode="HTML")
+        except: pass
+        return
+
+    if data.startswith("gwset_users_"):
+        val = data.split("_")[2]
+        if val == "custom":
+            m = bot.send_message(chat_id, "👥 أرسل عدد المستخدمين (رقم):")
+            bot.register_next_step_handler(m, lambda msg: process_gw_custom_users(msg, uid, chat_id))
+            return
+        setup = temp_giveaway_setup.get(uid, {})
+        setup["step"] = "hours"
+        setup["users"] = int(val)
+        temp_giveaway_setup[uid] = setup
+        try:
+            bot.edit_message_text(
+                f"🎁 <b>━━ Create Giveaway ━━</b>\n\n"
+                f"💎 <b>Reward:</b> {setup['reward']} 💎\n"
+                f"👥 <b>Users:</b> {val}\n\n"
+                f"⏰ <b>Step 3/3:</b> المدة",
+                chat_id, msg_id, reply_markup=giveaway_hours_menu(), parse_mode="HTML")
+        except: pass
+        return
+
+    if data.startswith("gwset_hours_"):
+        hours = int(data.split("_")[2])
+        setup = temp_giveaway_setup.get(uid, {})
+        reward = setup.get("reward", 100)
+        users = setup.get("users", 10)
+        
+‎        # إنشاء الـ giveaway
+        code = create_giveaway(reward, users, hours)
+        
+‎        # نشره في القناة
+        msg_id_channel = publish_giveaway_to_channel(code)
+        
+‎        # مسح البيانات المؤقتة
+        temp_giveaway_setup.pop(uid, None)
+        
+        try:
+            bot.get_me().username
+            bot_user = bot.get_me().username
+        except:
+            bot_user = "bot"
+        
+        try:
+            bot.edit_message_text(
+                f"╔═══════════════════╗\n"
+                f"║ ✅ <b>GIVEAWAY CREATED!</b> ║\n"
+                f"╚═══════════════════╝\n\n"
+                f"🎁 <b>Code:</b> <code>{code}</code>\n"
+                f"💎 <b>Reward:</b> {reward} 💎\n"
+                f"👥 <b>Max Users:</b> {users}\n"
+                f"⏰ <b>Duration:</b> {hours}h\n\n"
+                f"🔗 <b>Link:</b>\n<code>https://t.me/{bot_user}?start=gw_{code}</code>\n\n"
+                f"📢 <i>تم النشر بالقناة!</i>",
+                chat_id, msg_id, parse_mode="HTML")
+        except: pass
+        return
+
+    if data == "admgw_list":
+        gws = get_all_giveaways()
+        if not gws:
+            try: bot.edit_message_text("📭 لا يوجد giveaways", chat_id, msg_id)
+            except: pass
+            return
+        msg = "🎁 <b>━━ All Giveaways ━━</b>\n\n"
+        for code, gw in list(gws.items())[-10:]:
+            status_icon = {"active": "🟢", "expired": "🔴", "full": "🟡", "cancelled": "⚫"}.get(gw.get("status"), "⚪")
+            claimed = len(gw.get("claimed_by", []))
+            msg += f"{status_icon} <code>{code}</code>\n"
+            msg += f"   💎 {gw['reward']} | 👥 {claimed}/{gw['max_users']}\n"
+            msg += f"   📅 {gw.get('created', '')[:10]}\n\n"
+        m = types.InlineKeyboardMarkup()
+        for code in list(gws.keys())[-5:]:
+            m.add(types.InlineKeyboardButton(f"❌ Cancel {code}", callback_data=f"admgw_cancel_{code}"))
+        try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+        except: pass
+        return
+
+    if data.startswith("admgw_cancel_"):
+        code = data.split("_")[2]
+        if cancel_giveaway(code):
+            bot.answer_callback_query(call.id, f"✅ Cancelled {code}", show_alert=True)
+        else:
+            bot.answer_callback_query(call.id, "❌ Failed", show_alert=True)
+        return
+
+    if data == "admgw_stats":
+        stats = get_giveaways_stats()
+        msg = (f"╔═══════════════════╗\n"
+               f"║ 📊 <b>GIVEAWAY STATS</b> ║\n"
+               f"╚═══════════════════╝\n\n"
+               f"📊 <b>Total:</b> {stats['total']}\n"
+               f"🟢 <b>Active:</b> {stats['active']}\n"
+               f"🔴 <b>Expired:</b> {stats['expired']}\n"
+               f"🟡 <b>Full:</b> {stats['full']}\n"
+               f"⚫ <b>Cancelled:</b> {stats['cancelled']}\n\n"
+               f"👥 <b>Total Claimed:</b> {stats['total_claimed']}\n"
+               f"💎 <b>Points Given:</b> {stats['total_points_given']}")
+        try: bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
+        except: pass
+        return
+
+    # ═══════════════════════════════════
+‎    # 📨 رسائل القناة
+    # ═══════════════════════════════════
+    if data == "admch_send_styled":
+        last_channel_msgs[uid] = "send_styled"
+        try:
+            bot.edit_message_text(
+                f"📝 <b>━━ رسالة مزخرفة ━━</b>\n\n"
+                f"✍️ أرسل نص الرسالة الآن\n"
+                f"💡 <i>سيتم زخرفتها تلقائياً</i>",
+                chat_id, msg_id, parse_mode="HTML")
+        except: pass
+        return
+
+    if data == "admch_send_raw":
+        last_channel_msgs[uid] = "send_raw"
+        try:
+            bot.edit_message_text(
+                f"✏️ <b>━━ رسالة خام ━━</b>\n\n"
+                f"✍️ أرسل نص الرسالة الآن\n"
+                f"💡 <i>ستُنشر كما هي بدون تعديل</i>\n"
+                f"📝 <i>يدعم HTML tags</i>",
+                chat_id, msg_id, parse_mode="HTML")
+        except: pass
+        return
+
+    if data == "admch_delete":
+        last_channel_msgs[uid] = "delete_msg"
+        try:
+            bot.edit_message_text(
+                f"🗑️ <b>━━ حذف رسالة ━━</b>\n\n"
+                f"✍️ أرسل Message ID للحذف\n"
+                f"💡 <i>احصل عليه عند الإرسال</i>",
+                chat_id, msg_id, parse_mode="HTML")
+        except: pass
+        return
+
+    # ═══════════════════════════════════
+‎    # المنتجات والمفاتيح
+    # ═══════════════════════════════════
     if data == "admp_add":
-        m = bot.send_message(chat_id, "➕ اسم المنتج الجديد:")
+        m = bot.send_message(chat_id, "➕ اسم المنتج:")
         bot.register_next_step_handler(m, admin_add_product)
         return
     if data == "admp_del":
-        m = bot.send_message(chat_id, "❌ اسم المنتج للحذف:")
+        m = bot.send_message(chat_id, "❌ اسم المنتج:")
         bot.register_next_step_handler(m, admin_del_product)
         return
     if data == "admp_prices":
@@ -1550,9 +1708,6 @@ def handle_callbacks(call):
         bot.register_next_step_handler(m, lambda msg: admin_save_price(msg, prod, plan))
         return
 
-    # ═══════════════════════════════════
-    # 🔑 الأدمن - إدارة المفاتيح
-    # ═══════════════════════════════════
     if data == "admk_add":
         if not prices_config: return bot.answer_callback_query(call.id, "❌")
         m = types.InlineKeyboardMarkup()
@@ -1627,11 +1782,8 @@ def handle_callbacks(call):
         for p in prices_config.keys():
             keys_store[p] = {"1 Day": [], "7 Days": [], "30 Days": []}
         save_json(DB_KEYS, keys_store)
-        return bot.answer_callback_query(call.id, "🗑️ تم مسح كل المفاتيح!", show_alert=True)
+        return bot.answer_callback_query(call.id, "🗑️ تم!", show_alert=True)
 
-    # ═══════════════════════════════════
-    # 👥 الأدمن - إدارة الأعضاء
-    # ═══════════════════════════════════
     if data == "admm_view":
         m = bot.send_message(chat_id, "👤 آيدي العضو:")
         bot.register_next_step_handler(m, admin_view_member)
@@ -1641,9 +1793,6 @@ def handle_callbacks(call):
         bot.register_next_step_handler(m, admin_charge_member)
         return
 
-    # ═══════════════════════════════════
-    # 💰 الأدمن - المبيعات
-    # ═══════════════════════════════════
     if data == "adms_code":
         m = bot.send_message(chat_id, "🎫 <code>CODE القيمة</code>", parse_mode="HTML")
         bot.register_next_step_handler(m, admin_create_code)
@@ -1653,9 +1802,6 @@ def handle_callbacks(call):
         bot.register_next_step_handler(m, admin_set_discount)
         return
 
-    # ═══════════════════════════════════
-    # 📢 الأدمن - التسويق
-    # ═══════════════════════════════════
     if data == "admmk_broadcast":
         m = bot.send_message(chat_id, "📢 نص الإذاعة:")
         bot.register_next_step_handler(m, admin_broadcast)
@@ -1664,23 +1810,21 @@ def handle_callbacks(call):
     if data == "admmk_prices":
         if not prices_config: return bot.answer_callback_query(call.id, "❌", show_alert=True)
         if publish_prices_to_channel(prices_config, bot_config.get("discount", 0)):
-            bot.answer_callback_query(call.id, "✅ نُشر بالقناة!", show_alert=True)
+            bot.answer_callback_query(call.id, "✅ نُشر!", show_alert=True)
         else:
-            bot.answer_callback_query(call.id, "❌ فشل", show_alert=True)
+            bot.answer_callback_query(call.id, "❌", show_alert=True)
         return
 
     if data == "admmk_fake":
         if publish_fake_marketing():
-            bot.answer_callback_query(call.id, "✅ نُشر منشور تسويقي!", show_alert=True)
+            bot.answer_callback_query(call.id, "✅ نُشر!", show_alert=True)
         else:
-            bot.answer_callback_query(call.id, "❌ فشل", show_alert=True)
+            bot.answer_callback_query(call.id, "❌", show_alert=True)
         return
 
-    # ═══════════════════════════════════
-    # ⚡ العروض الخاطفة
-    # ═══════════════════════════════════
+‎    # عروض خاطفة
     if data == "admf_create":
-        if not prices_config: return bot.answer_callback_query(call.id, "❌ لا منتجات", show_alert=True)
+        if not prices_config: return bot.answer_callback_query(call.id, "❌", show_alert=True)
         m = types.InlineKeyboardMarkup()
         for p in prices_config.keys():
             m.add(types.InlineKeyboardButton(f"📦 {p}", callback_data=f"admfsel_{p}"))
@@ -1701,7 +1845,7 @@ def handle_callbacks(call):
             types.InlineKeyboardButton("70%", callback_data=f"admfdisc_{prod}|70"),
             types.InlineKeyboardButton("80%", callback_data=f"admfdisc_{prod}|80")
         )
-        try: bot.edit_message_text(f"⚡ <b>{prod}</b>\n\nاختر نسبة الخصم:",
+        try: bot.edit_message_text(f"⚡ <b>{prod}</b>\nنسبة الخصم:",
             chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: pass
         return
@@ -1719,7 +1863,7 @@ def handle_callbacks(call):
             types.InlineKeyboardButton("12h", callback_data=f"admfhr_{prod}|{discount}|12"),
             types.InlineKeyboardButton("24h", callback_data=f"admfhr_{prod}|{discount}|24")
         )
-        try: bot.edit_message_text(f"⚡ <b>{prod}</b> - {discount}% OFF\n\nاختر المدة:",
+        try: bot.edit_message_text(f"⚡ {prod} - {discount}%\nالمدة:",
             chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: pass
         return
@@ -1730,8 +1874,6 @@ def handle_callbacks(call):
         prod, discount, hours = parts[0], int(parts[1]), int(parts[2])
         expires = create_flash_sale(prod, discount, hours)
         publish_flash_sale_to_channel(prod, discount, hours)
-        
-        # إشعار المستخدمين
         sent = 0
         for u_id in get_all_user_ids():
             try:
@@ -1740,22 +1882,13 @@ def handle_callbacks(call):
                     u_lang = u_info.get("lang", "ar")
                     bot.send_message(int(u_id),
                         t(u_lang, "flash_sale_active",
-                          discount=discount, product=prod,
-                          remaining=f"{hours}h"),
+                          discount=discount, product=prod, remaining=f"{hours}h"),
                         parse_mode="HTML")
                     sent += 1
                     time.sleep(0.05)
             except: pass
-        
         try: bot.edit_message_text(
-            f"╔═══════════════════╗\n"
-            f"║ ⚡ <b>FLASH SALE ON!</b> ║\n"
-            f"╚═══════════════════╝\n\n"
-            f"📦 <b>{prod}</b>\n"
-            f"🔥 <b>{discount}%</b> OFF\n"
-            f"⏰ <b>{hours}</b> hours\n\n"
-            f"📢 نُشر بالقناة\n"
-            f"🔔 أُشعِر {sent} مستخدم",
+            f"✅ <b>FLASH SALE ON!</b>\n📦 {prod}\n🔥 {discount}%\n⏰ {hours}h\n🔔 {sent} مستخدم",
             chat_id, msg_id, parse_mode="HTML")
         except: pass
         return
@@ -1764,27 +1897,21 @@ def handle_callbacks(call):
         if "flash_sales" in bot_config:
             bot_config["flash_sales"]["current"] = None
             save_json(DB_CONFIG, bot_config)
-        bot.answer_callback_query(call.id, "✅ تم إلغاء العرض", show_alert=True)
+        bot.answer_callback_query(call.id, "✅ ألغي", show_alert=True)
         return
 
-    # ═══════════════════════════════════
-    # 🎮 إعدادات الألعاب
-    # ═══════════════════════════════════
     if data == "admg_lootbox": return show_lootbox_settings(chat_id, msg_id)
     if data == "admg_wheel": return show_wheel_settings(chat_id, msg_id)
     if data == "admg_quests": return show_quests_settings(chat_id, msg_id)
 
-    # ═══════════════════════════════════
-    # ⚙️ إعدادات النظام
-    # ═══════════════════════════════════
     if data == "adsys_daily":
         m = bot.send_message(chat_id,
-            f"✨ القيمة الحالية: {bot_config.get('daily_gift', 10)}\n\nالقيمة الجديدة:")
+            f"✨ الحالي: {bot_config.get('daily_gift', 10)}\n\nالقيمة الجديدة:")
         bot.register_next_step_handler(m, admin_edit_daily)
         return
     if data == "adsys_invite":
         m = bot.send_message(chat_id,
-            f"🔗 القيمة الحالية: {bot_config.get('invite_reward', 20)}\n\nالقيمة الجديدة:")
+            f"🔗 الحالي: {bot_config.get('invite_reward', 20)}\n\nالقيمة الجديدة:")
         bot.register_next_step_handler(m, admin_edit_invite)
         return
 
@@ -1792,12 +1919,39 @@ def handle_callbacks(call):
         return handle_cfg_callback(call, data, chat_id, msg_id, uid, u)
 
 # =====================================================
-# ⚙️ معالج تعديل إعدادات الألعاب
+‎# معالجات giveaway custom
+# =====================================================
+def process_gw_custom_reward(message, uid, chat_id):
+    try:
+        val = int(message.text.strip())
+        if val <= 0: raise ValueError
+        temp_giveaway_setup[uid] = {"step": "users", "reward": val}
+        bot.send_message(chat_id,
+            f"💎 <b>Reward:</b> {val}\n\n👥 اختر عدد المستخدمين:",
+            reply_markup=giveaway_users_menu(), parse_mode="HTML")
+    except:
+        bot.send_message(chat_id, "❌ أرقام فقط")
+
+def process_gw_custom_users(message, uid, chat_id):
+    try:
+        val = int(message.text.strip())
+        if val <= 0: raise ValueError
+        setup = temp_giveaway_setup.get(uid, {})
+        setup["step"] = "hours"
+        setup["users"] = val
+        temp_giveaway_setup[uid] = setup
+        bot.send_message(chat_id,
+            f"👥 <b>Users:</b> {val}\n\n⏰ اختر المدة:",
+            reply_markup=giveaway_hours_menu(), parse_mode="HTML")
+    except:
+        bot.send_message(chat_id, "❌ أرقام فقط")
+
+# =====================================================
+‎# ⚙️ إعدادات الألعاب
 # =====================================================
 def handle_cfg_callback(call, data, chat_id, msg_id, uid, u):
     if not is_admin(uid, u):
         return bot.answer_callback_query(call.id, "❌", show_alert=True)
-    
     if data.startswith("cfg_q_"):
         parts = data.split("_")
         tt, ft, ac = parts[2], parts[3], parts[4]
@@ -1812,7 +1966,6 @@ def handle_cfg_callback(call, data, chat_id, msg_id, uid, u):
         save_json(DB_CONFIG, bot_config)
         bot.answer_callback_query(call.id, "✅")
         return show_quests_settings(chat_id, msg_id)
-    
     if data.startswith("cfg_box_") or data.startswith("cfg_wheel_"):
         if data == "cfg_box_price_up": bot_config["lootbox_price"] = bot_config.get("lootbox_price", 50) + 5
         elif data == "cfg_box_price_down": bot_config["lootbox_price"] = max(5, bot_config.get("lootbox_price", 50) - 5)
@@ -1880,10 +2033,9 @@ def show_quests_settings(chat_id, msg_id=None):
     else: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 # =====================================================
-# 📥 معالجات الإدخال
+‎# 📥 معالجات الإدخال
 # =====================================================
 def process_redeem(message):
-    """استرداد كود شحن"""
     uid = str(message.from_user.id)
     u = get_user(uid) or {}
     lang = u.get("lang", "ar")
@@ -1897,36 +2049,29 @@ def process_redeem(message):
             f"╔═══════════════════╗\n"
             f"║  🎉 <b>CODE VALID!</b>  ║\n"
             f"╚═══════════════════╝\n\n"
-            f"💎 <b>+{added}</b> points added!",
-            parse_mode="HTML")
+            f"💎 <b>+{added}</b> points!", parse_mode="HTML")
     else:
         bot.send_message(message.chat.id, "❌ Invalid or used code")
 
 def process_new_ticket(message):
-    """إنشاء تذكرة جديدة"""
     uid = str(message.from_user.id)
     u = get_user(uid) or {}
     lang = u.get("lang", "ar")
     txt = message.text.strip() if message.text else ""
     if not txt: return
-    
     temp = bot_config.get("temp_ticket_cat", {})
     cat_key = temp.get(uid, "other")
     cat_name = TICKET_CATEGORIES.get(cat_key, {}).get(lang, "Other")
-    
     tid = str(random.randint(10000, 99999))
     if "tickets" not in bot_config: bot_config["tickets"] = {}
     bot_config["tickets"][tid] = {
         "uid": uid, "text": txt, "status": "open",
-        "category": cat_key, "date": datetime.now().isoformat(),
-        "messages": []
+        "category": cat_key, "date": datetime.now().isoformat(), "messages": []
     }
     if uid in temp: temp.pop(uid)
     save_json(DB_CONFIG, bot_config)
-    
     bot.send_message(message.chat.id,
         t(lang, "ticket_created", tid=tid, category=cat_name), parse_mode="HTML")
-    
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton("💬 دردشة مباشرة", callback_data=f"admchat_{tid}"))
     m.add(types.InlineKeyboardButton("🔒 إغلاق", callback_data=f"admclosetick_{tid}"))
@@ -1935,18 +2080,15 @@ def process_new_ticket(message):
             f"╔═══════════════════╗\n"
             f"║ 🎫 <b>NEW TICKET</b> ║\n"
             f"╚═══════════════════╝\n\n"
-            f"🆔 <b>ID:</b> #{tid}\n"
-            f"📂 <b>النوع:</b> {TICKET_CATEGORIES.get(cat_key, {}).get('ar', 'أخرى')}\n"
-            f"👤 <b>من:</b> <code>{uid}</code> (@{u.get('username', 'N/A')})\n\n"
-            f"💬 <b>المشكلة:</b>\n{txt}",
+            f"🆔 #{tid}\n"
+            f"📂 {TICKET_CATEGORIES.get(cat_key, {}).get('ar', 'أخرى')}\n"
+            f"👤 <code>{uid}</code> (@{u.get('username', 'N/A')})\n\n"
+            f"💬 {txt}",
             reply_markup=m, parse_mode="HTML")
     except: pass
 
 def process_product_request(message):
-    """طلب منتج جديد"""
     uid = str(message.from_user.id)
-    u = get_user(uid) or {}
-    lang = u.get("lang", "ar")
     txt = message.text.strip() if message.text else ""
     if not txt: return
     rid = str(random.randint(10000, 99999))
@@ -1954,10 +2096,8 @@ def process_product_request(message):
     bot_config["product_requests"][rid] = {"uid": uid, "text": txt, "date": datetime.now().isoformat()}
     save_json(DB_CONFIG, bot_config)
     bot.send_message(message.chat.id,
-        f"✅ <b>Request Sent!</b>\n\n🎫 ID: <code>#{rid}</code>\n⏳ <i>Will be reviewed soon</i>",
-        parse_mode="HTML")
-    try: bot.send_message(ADMIN_PRIMARY,
-        f"💡 <b>طلب #{rid}</b>\n👤 {uid}\n📦 {txt}", parse_mode="HTML")
+        f"✅ <b>Request Sent!</b>\n\n🎫 ID: <code>#{rid}</code>", parse_mode="HTML")
+    try: bot.send_message(ADMIN_PRIMARY, f"💡 <b>#{rid}</b>\n{uid}\n{txt}", parse_mode="HTML")
     except: pass
 
 def admin_add_product(message):
@@ -2013,18 +2153,12 @@ def admin_del_key(message, prod, plan):
 def admin_view_member(message):
     t_id = message.text.strip()
     u = get_user(t_id)
-    if not u: return bot.send_message(message.chat.id, "❌ العضو غير موجود")
+    if not u: return bot.send_message(message.chat.id, "❌")
     role = "مالك 👑" if int(t_id) == ADMIN_PRIMARY else ("أدمن 🛡️" if u.get("is_admin", False) else "عادي")
     ban = "محظور ⛔" if u.get("banned", False) else "نشط 🟢"
-    msg = (f"╔═══════════════════╗\n"
-           f"║  👤 <b>MEMBER INFO</b>  ║\n"
-           f"╚═══════════════════╝\n\n"
-           f"🆔 <code>{t_id}</code>\n"
-           f"📝 @{u.get('username', 'N/A')}\n"
-           f"💰 {u.get('points', 0)} 💎\n"
-           f"🏆 {u.get('rank', 'عادي')}\n"
-           f"🎖️ {role}\n"
-           f"🔴 {ban}")
+    msg = (f"👤 <code>{t_id}</code>\n📝 @{u.get('username', 'N/A')}\n"
+           f"💰 {u.get('points', 0)} 💎\n🏆 {u.get('rank', 'عادي')}\n"
+           f"🎖️ {role}\n🔴 {ban}")
     m = types.InlineKeyboardMarkup(row_width=2)
     if u.get("is_admin", False):
         m.add(types.InlineKeyboardButton("❌ إزالة الإدارة", callback_data=f"admbanuser_{t_id}_demote"))
@@ -2043,11 +2177,10 @@ def admin_charge_member(message):
             update_user_rank_and_quests(t_id)
             bot.send_message(message.chat.id, f"💰 +<b>{pts}</b> إلى {t_id}", parse_mode="HTML")
             try:
-                bot.send_message(int(t_id),
-                    f"🎉 <b>+{pts} 💎</b> من الإدارة!", parse_mode="HTML")
+                bot.send_message(int(t_id), f"🎉 <b>+{pts} 💎</b> من الإدارة!", parse_mode="HTML")
             except: pass
         else: bot.send_message(message.chat.id, "❌")
-    except: bot.send_message(message.chat.id, "❌ الصيغة: ID مسافة المبلغ")
+    except: bot.send_message(message.chat.id, "❌ ID مسافة المبلغ")
 
 def admin_create_code(message):
     try:
@@ -2077,7 +2210,7 @@ def admin_broadcast(message):
                 s += 1
                 time.sleep(0.04)
         except: pass
-    bot.send_message(message.chat.id, f"📢 أُذيع لـ <b>{s}</b> مستخدم", parse_mode="HTML")
+    bot.send_message(message.chat.id, f"📢 أُذيع لـ <b>{s}</b>", parse_mode="HTML")
 
 def admin_edit_daily(message):
     try:
@@ -2085,7 +2218,7 @@ def admin_edit_daily(message):
         if v >= 0:
             bot_config["daily_gift"] = v
             save_json(DB_CONFIG, bot_config)
-            bot.send_message(message.chat.id, f"✅ المكافأة اليومية: <b>{v}</b> 💎", parse_mode="HTML")
+            bot.send_message(message.chat.id, f"✅ المكافأة: <b>{v}</b>", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌")
 
 def admin_edit_invite(message):
@@ -2094,18 +2227,18 @@ def admin_edit_invite(message):
         if v >= 0:
             bot_config["invite_reward"] = v
             save_json(DB_CONFIG, bot_config)
-            bot.send_message(message.chat.id, f"✅ نقاط الإحالة: <b>{v}</b> 💎", parse_mode="HTML")
+            bot.send_message(message.chat.id, f"✅ الإحالة: <b>{v}</b>", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌")
 
 # =====================================================
-# 🚀 التشغيل
+‎# 🚀 التشغيل
 # =====================================================
 if __name__ == "__main__":
     print("=" * 50)
     print("🚀 EVE Store Bot v3.0 - Starting...")
     print("=" * 50)
     print("✅ Database initialized")
-    print("✅ All modules loaded")
+    print("✅ bot2.py loaded (Giveaway + Channel)")
     print("💻 Developer: @fkLJh00302")
     print("=" * 50)
     print("🤖 Bot is now RUNNING!")
