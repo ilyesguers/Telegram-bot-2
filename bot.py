@@ -27,7 +27,7 @@ from bot2.py import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_
                   get_giveaways_stats)
 
 # =====================================================
-‎# 🚀 تهيئة قاعدة البيانات
+‎# 🚀 loading database
 # =====================================================
 init_db()
 
