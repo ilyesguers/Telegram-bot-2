@@ -26,7 +26,7 @@ def get_join_inline(lang):
     return m
 
 # =====================================================
-# 🏠 القائمة الرئيسية
+# 🏠 القائمة الرئيسية (مع VIP و Stars)
 # =====================================================
 def get_main_keyboard(uid, lang):
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -38,6 +38,11 @@ def get_main_keyboard(uid, lang):
     m.add(
         types.KeyboardButton(t(lang, "btn_entertainment")),
         types.KeyboardButton(t(lang, "btn_support"))
+    )
+    # 🆕 صف VIP و Stars
+    m.add(
+        types.KeyboardButton("👑 VIP"),
+        types.KeyboardButton("⭐ Stars")
     )
     m.add(types.KeyboardButton(t(lang, "btn_settings")))
     u = get_user(str(uid)) or {}
@@ -103,13 +108,11 @@ def get_support_menu(lang):
     return m
 
 # =====================================================
-# ⚙️ قائمة الإعدادات (محسّنة - إشعارات واضحة)
+# ⚙️ قائمة الإعدادات
 # =====================================================
 def get_settings_menu(lang, u):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(types.InlineKeyboardButton(t(lang, "btn_change_lang"), callback_data="menu_lang"))
-    
-    # 🔔 زر الإشعارات واضح - يعرض الحالة الحالية بجرس واحد فقط
     notif_status = u.get("notifications_on", True)
     notif_text = "🔔 Notifications: ON" if notif_status else "🔕 Notifications: OFF"
     m.add(
@@ -120,7 +123,6 @@ def get_settings_menu(lang, u):
         types.InlineKeyboardButton(t(lang, "btn_privacy"), callback_data="menu_privacy"),
         types.InlineKeyboardButton(t(lang, "btn_about"), callback_data="menu_about")
     )
-    # 💻 زر برمجة البوت
     m.add(types.InlineKeyboardButton("💻 " + t(lang, "btn_bot_dev"), url="https://t.me/fkLJh00302"))
     return m
 
@@ -138,7 +140,7 @@ def get_ticket_categories(lang):
     return m
 
 # =====================================================
-# 👑 لوحة الإدارة (محدّثة - مع Giveaway ورسائل القناة)
+# 👑 لوحة الإدارة (مع VIP و التجديد التلقائي)
 # =====================================================
 def get_admin_keyboard():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -156,10 +158,15 @@ def get_admin_keyboard():
     )
     m.add(
         types.KeyboardButton("⚡ عروض خاطفة"),
-        types.KeyboardButton("🎁 Giveaway")  # 🆕 جديد
+        types.KeyboardButton("🎁 Giveaway")
+    )
+    # 🆕 صف VIP والتجديد التلقائي
+    m.add(
+        types.KeyboardButton("👑 إدارة VIP"),
+        types.KeyboardButton("📦 التجديد التلقائي")
     )
     m.add(
-        types.KeyboardButton("📨 رسائل القناة"),  # 🆕 جديد
+        types.KeyboardButton("📨 رسائل القناة"),
         types.KeyboardButton("🎮 الألعاب")
     )
     m.add(
@@ -236,7 +243,7 @@ def admin_system_menu():
     return m
 
 # =====================================================
-# 🎁 قائمة Giveaway (جديدة)
+# 🎁 قائمة Giveaway
 # =====================================================
 def admin_giveaway_menu():
     m = types.InlineKeyboardMarkup(row_width=1)
@@ -246,7 +253,7 @@ def admin_giveaway_menu():
     return m
 
 # =====================================================
-# 📨 قائمة رسائل القناة (جديدة)
+# 📨 قائمة رسائل القناة
 # =====================================================
 def admin_channel_menu():
     m = types.InlineKeyboardMarkup(row_width=1)
