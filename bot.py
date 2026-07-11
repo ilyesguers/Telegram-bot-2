@@ -25,12 +25,10 @@ from bot2.py import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_
                   cancel_giveaway, send_custom_channel_message, send_raw_channel_message,
                   delete_channel_message, format_giveaway_win_message, format_giveaway_error,
                   get_giveaways_stats)
-
 # =====================================================
-‎# 🚀 loading database
+‎# LOADING database
 # =====================================================
 init_db()
-
 ‎# متغير مؤقت لتخزين إعدادات giveaway قيد الإنشاء
 temp_giveaway_setup = {}
 
