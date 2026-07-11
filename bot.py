@@ -19,15 +19,18 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
 from keyboards import *
 
 # Import bot2 - Giveaway and Channel System
-from bot2.py import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
+# تم إصلاح السطر بالأسفل وحذف امتداد .py لأن البايثون لا يقبله في الـ import
+from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
                   claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
                   verify_giveaway_captcha, process_giveaway_claim, get_all_giveaways,
                   cancel_giveaway, send_custom_channel_message, send_raw_channel_message,
                   delete_channel_message, format_giveaway_win_message, format_giveaway_error,
                   get_giveaways_stats)
+
 # =====================================================
-‎# LOADING database
+# LOADING database (تم حذف الحرف المخفي من هنا بنجاح)
 # =====================================================
+
 init_db()
 ‎# متغير مؤقت لتخزين إعدادات giveaway قيد الإنشاء
 temp_giveaway_setup = {}
