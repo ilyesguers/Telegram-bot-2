@@ -17,20 +17,16 @@ def get_lang_inline():
     return m
 
 # =====================================================
-# 🔒 زر الاشتراك (بالإنجليزية + يفتح القناة مباشرة)
+# 🔒 زر الاشتراك
 # =====================================================
 def get_join_inline(lang):
-    """
-    زر يفتح القناة مباشرة عبر URL
-    الزر الثاني يتحقق من الاشتراك
-    """
     m = types.InlineKeyboardMarkup(row_width=1)
     m.add(types.InlineKeyboardButton("📢 Join Our Channel", url=CHANNEL_LINK))
     m.add(types.InlineKeyboardButton("✅ I've Joined - Verify", callback_data="check_join"))
     return m
 
 # =====================================================
-# 🏠 القائمة الرئيسية (5 أزرار أنيقة)
+# 🏠 القائمة الرئيسية
 # =====================================================
 def get_main_keyboard(uid, lang):
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -107,21 +103,24 @@ def get_support_menu(lang):
     return m
 
 # =====================================================
-# ⚙️ قائمة الإعدادات (مع زر برمجة البوت)
+# ⚙️ قائمة الإعدادات (محسّنة - إشعارات واضحة)
 # =====================================================
 def get_settings_menu(lang, u):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(types.InlineKeyboardButton(t(lang, "btn_change_lang"), callback_data="menu_lang"))
-    notif_icon = "🔔" if u.get("notifications_on", True) else "🔕"
+    
+    # 🔔 زر الإشعارات واضح - يعرض الحالة الحالية بجرس واحد فقط
+    notif_status = u.get("notifications_on", True)
+    notif_text = "🔔 Notifications: ON" if notif_status else "🔕 Notifications: OFF"
     m.add(
-        types.InlineKeyboardButton(f"{notif_icon} " + t(lang, "btn_notifications"), callback_data="menu_notif"),
+        types.InlineKeyboardButton(notif_text, callback_data="menu_notif"),
         types.InlineKeyboardButton(t(lang, "btn_theme"), callback_data="menu_theme")
     )
     m.add(
         types.InlineKeyboardButton(t(lang, "btn_privacy"), callback_data="menu_privacy"),
         types.InlineKeyboardButton(t(lang, "btn_about"), callback_data="menu_about")
     )
-    # 💻 زر برمجة البوت - يفتح محادثة المطور مباشرة
+    # 💻 زر برمجة البوت
     m.add(types.InlineKeyboardButton("💻 " + t(lang, "btn_bot_dev"), url="https://t.me/fkLJh00302"))
     return m
 
@@ -139,7 +138,7 @@ def get_ticket_categories(lang):
     return m
 
 # =====================================================
-# 👑 لوحة الإدارة (مع زر الصيانة)
+# 👑 لوحة الإدارة (محدّثة - مع Giveaway ورسائل القناة)
 # =====================================================
 def get_admin_keyboard():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -157,6 +156,10 @@ def get_admin_keyboard():
     )
     m.add(
         types.KeyboardButton("⚡ عروض خاطفة"),
+        types.KeyboardButton("🎁 Giveaway")  # 🆕 جديد
+    )
+    m.add(
+        types.KeyboardButton("📨 رسائل القناة"),  # 🆕 جديد
         types.KeyboardButton("🎮 الألعاب")
     )
     m.add(
@@ -171,7 +174,7 @@ def get_admin_keyboard():
     return m
 
 # =====================================================
-# 🔧 قوائم الإدارة الفرعية (Inline)
+# 🔧 قوائم الإدارة الفرعية
 # =====================================================
 def admin_products_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
@@ -208,8 +211,8 @@ def admin_sales_menu():
 
 def admin_marketing_menu():
     m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton("📢 إذاعة", callback_data="admmk_broadcast"))
-    m.add(types.InlineKeyboardButton("📤 نشر الأسعار", callback_data="admmk_prices"))
+    m.add(types.InlineKeyboardButton("📢 إذاعة للمستخدمين", callback_data="admmk_broadcast"))
+    m.add(types.InlineKeyboardButton("📤 نشر الأسعار بالقناة", callback_data="admmk_prices"))
     m.add(types.InlineKeyboardButton("📣 تسويق وهمي", callback_data="admmk_fake"))
     return m
 
@@ -230,4 +233,69 @@ def admin_system_menu():
     m = types.InlineKeyboardMarkup(row_width=1)
     m.add(types.InlineKeyboardButton("✨ المكافأة اليومية", callback_data="adsys_daily"))
     m.add(types.InlineKeyboardButton("🔗 نقاط الإحالة", callback_data="adsys_invite"))
+    return m
+
+# =====================================================
+# 🎁 قائمة Giveaway (جديدة)
+# =====================================================
+def admin_giveaway_menu():
+    m = types.InlineKeyboardMarkup(row_width=1)
+    m.add(types.InlineKeyboardButton("➕ إنشاء Giveaway جديد", callback_data="admgw_create"))
+    m.add(types.InlineKeyboardButton("📋 عرض جميع الـ Giveaways", callback_data="admgw_list"))
+    m.add(types.InlineKeyboardButton("📊 الإحصائيات", callback_data="admgw_stats"))
+    return m
+
+# =====================================================
+# 📨 قائمة رسائل القناة (جديدة)
+# =====================================================
+def admin_channel_menu():
+    m = types.InlineKeyboardMarkup(row_width=1)
+    m.add(types.InlineKeyboardButton("📝 إرسال رسالة مزخرفة", callback_data="admch_send_styled"))
+    m.add(types.InlineKeyboardButton("✏️ إرسال رسالة خام (بدون زخرفة)", callback_data="admch_send_raw"))
+    m.add(types.InlineKeyboardButton("🗑️ حذف رسالة من القناة", callback_data="admch_delete"))
+    return m
+
+# =====================================================
+# 🎁 اختيار قيمة Giveaway
+# =====================================================
+def giveaway_reward_menu():
+    m = types.InlineKeyboardMarkup(row_width=3)
+    m.add(
+        types.InlineKeyboardButton("50 💎", callback_data="gwset_reward_50"),
+        types.InlineKeyboardButton("100 💎", callback_data="gwset_reward_100"),
+        types.InlineKeyboardButton("200 💎", callback_data="gwset_reward_200")
+    )
+    m.add(
+        types.InlineKeyboardButton("500 💎", callback_data="gwset_reward_500"),
+        types.InlineKeyboardButton("1000 💎", callback_data="gwset_reward_1000"),
+        types.InlineKeyboardButton("✏️ يدوي", callback_data="gwset_reward_custom")
+    )
+    return m
+
+def giveaway_users_menu():
+    m = types.InlineKeyboardMarkup(row_width=3)
+    m.add(
+        types.InlineKeyboardButton("5", callback_data="gwset_users_5"),
+        types.InlineKeyboardButton("10", callback_data="gwset_users_10"),
+        types.InlineKeyboardButton("20", callback_data="gwset_users_20")
+    )
+    m.add(
+        types.InlineKeyboardButton("50", callback_data="gwset_users_50"),
+        types.InlineKeyboardButton("100", callback_data="gwset_users_100"),
+        types.InlineKeyboardButton("✏️ يدوي", callback_data="gwset_users_custom")
+    )
+    return m
+
+def giveaway_hours_menu():
+    m = types.InlineKeyboardMarkup(row_width=3)
+    m.add(
+        types.InlineKeyboardButton("1h", callback_data="gwset_hours_1"),
+        types.InlineKeyboardButton("6h", callback_data="gwset_hours_6"),
+        types.InlineKeyboardButton("12h", callback_data="gwset_hours_12")
+    )
+    m.add(
+        types.InlineKeyboardButton("24h", callback_data="gwset_hours_24"),
+        types.InlineKeyboardButton("48h", callback_data="gwset_hours_48"),
+        types.InlineKeyboardButton("72h", callback_data="gwset_hours_72")
+    )
     return m
