@@ -2,9 +2,6 @@ from telebot import types
 from config import LOCALES, CHANNEL_LINK, CHANNEL_ID, ADMIN_PRIMARY, ADMIN_SECONDARY, t, TICKET_CATEGORIES
 from database import get_user
 
-# =====================================================
-# 🌐 اختيار اللغة
-# =====================================================
 def get_lang_inline():
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -16,18 +13,12 @@ def get_lang_inline():
     )
     return m
 
-# =====================================================
-# 🔒 زر الاشتراك
-# =====================================================
 def get_join_inline(lang):
     m = types.InlineKeyboardMarkup(row_width=1)
     m.add(types.InlineKeyboardButton("📢 Join Our Channel", url=CHANNEL_LINK))
     m.add(types.InlineKeyboardButton("✅ I've Joined - Verify", callback_data="check_join"))
     return m
 
-# =====================================================
-# 🏠 القائمة الرئيسية (مع VIP و Stars)
-# =====================================================
 def get_main_keyboard(uid, lang):
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     m.add(types.KeyboardButton(t(lang, "btn_account")))
@@ -39,20 +30,18 @@ def get_main_keyboard(uid, lang):
         types.KeyboardButton(t(lang, "btn_entertainment")),
         types.KeyboardButton(t(lang, "btn_support"))
     )
-    # 🆕 صف VIP و Stars
     m.add(
         types.KeyboardButton("👑 VIP"),
         types.KeyboardButton("⭐ Stars")
     )
+    # 🆕 زر Mini Games
+    m.add(types.KeyboardButton("🎮 Mini Games"))
     m.add(types.KeyboardButton(t(lang, "btn_settings")))
     u = get_user(str(uid)) or {}
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
         m.add(types.KeyboardButton(t(lang, "btn_admin")))
     return m
 
-# =====================================================
-# 👤 قائمة الحساب
-# =====================================================
 def get_account_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -66,9 +55,6 @@ def get_account_menu(lang):
     m.add(types.InlineKeyboardButton(t(lang, "btn_my_purchases"), callback_data="menu_purchases"))
     return m
 
-# =====================================================
-# 🎁 قائمة المكافآت
-# =====================================================
 def get_rewards_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -81,9 +67,6 @@ def get_rewards_menu(lang):
     )
     return m
 
-# =====================================================
-# 🎮 قائمة الترفيه
-# =====================================================
 def get_entertainment_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -92,9 +75,6 @@ def get_entertainment_menu(lang):
     )
     return m
 
-# =====================================================
-# 💬 قائمة الدعم
-# =====================================================
 def get_support_menu(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -107,9 +87,6 @@ def get_support_menu(lang):
     )
     return m
 
-# =====================================================
-# ⚙️ قائمة الإعدادات
-# =====================================================
 def get_settings_menu(lang, u):
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(types.InlineKeyboardButton(t(lang, "btn_change_lang"), callback_data="menu_lang"))
@@ -126,9 +103,6 @@ def get_settings_menu(lang, u):
     m.add(types.InlineKeyboardButton("💻 " + t(lang, "btn_bot_dev"), url="https://t.me/fkLJh00302"))
     return m
 
-# =====================================================
-# 🎫 فئات التذاكر
-# =====================================================
 def get_ticket_categories(lang):
     m = types.InlineKeyboardMarkup(row_width=2)
     buttons = []
@@ -139,9 +113,6 @@ def get_ticket_categories(lang):
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_support"))
     return m
 
-# =====================================================
-# 👑 لوحة الإدارة (مع VIP و التجديد التلقائي)
-# =====================================================
 def get_admin_keyboard():
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     m.add(
@@ -160,7 +131,6 @@ def get_admin_keyboard():
         types.KeyboardButton("⚡ عروض خاطفة"),
         types.KeyboardButton("🎁 Giveaway")
     )
-    # 🆕 صف VIP والتجديد التلقائي
     m.add(
         types.KeyboardButton("👑 إدارة VIP"),
         types.KeyboardButton("📦 التجديد التلقائي")
@@ -168,6 +138,10 @@ def get_admin_keyboard():
     m.add(
         types.KeyboardButton("📨 رسائل القناة"),
         types.KeyboardButton("🎮 الألعاب")
+    )
+    m.add(
+        types.KeyboardButton("🛡️ مكافحة الرشق"),
+        types.KeyboardButton("🔧 استعادة المشتريات")
     )
     m.add(
         types.KeyboardButton("⚙️ النظام"),
@@ -180,9 +154,6 @@ def get_admin_keyboard():
     m.add(types.KeyboardButton("🔙 العودة"))
     return m
 
-# =====================================================
-# 🔧 قوائم الإدارة الفرعية
-# =====================================================
 def admin_products_menu():
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
@@ -242,9 +213,6 @@ def admin_system_menu():
     m.add(types.InlineKeyboardButton("🔗 نقاط الإحالة", callback_data="adsys_invite"))
     return m
 
-# =====================================================
-# 🎁 قائمة Giveaway
-# =====================================================
 def admin_giveaway_menu():
     m = types.InlineKeyboardMarkup(row_width=1)
     m.add(types.InlineKeyboardButton("➕ إنشاء Giveaway جديد", callback_data="admgw_create"))
@@ -252,9 +220,6 @@ def admin_giveaway_menu():
     m.add(types.InlineKeyboardButton("📊 الإحصائيات", callback_data="admgw_stats"))
     return m
 
-# =====================================================
-# 📨 قائمة رسائل القناة
-# =====================================================
 def admin_channel_menu():
     m = types.InlineKeyboardMarkup(row_width=1)
     m.add(types.InlineKeyboardButton("📝 إرسال رسالة مزخرفة", callback_data="admch_send_styled"))
@@ -262,9 +227,6 @@ def admin_channel_menu():
     m.add(types.InlineKeyboardButton("🗑️ حذف رسالة من القناة", callback_data="admch_delete"))
     return m
 
-# =====================================================
-# 🎁 اختيار قيمة Giveaway
-# =====================================================
 def giveaway_reward_menu():
     m = types.InlineKeyboardMarkup(row_width=3)
     m.add(
