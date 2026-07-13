@@ -80,7 +80,14 @@ def enforce_subscription(message, lang="ar"):
 @bot.message_handler(commands=['start', 'id', 'close', 'end', 'help'])
 def handle_commands(message):
     uid = str(message.from_user.id)
-    if check_spam(uid): return
+    allowed, shield_msg, needs_captcha = bot6.shield_check(uid, "command")
+    if not allowed:
+        return bot.send_message(message.chat.id, shield_msg, parse_mode="HTML")
+    if needs_captcha:
+        u = get_user(uid) or {}
+        return bot6.send_shield_captcha(message.chat.id, uid, u.get("lang", "ar"))
+    if check_spam(uid):
+        return
     register_user(message.from_user)
     u = get_user(uid) or {}
     lang = u.get("lang", "ar")
