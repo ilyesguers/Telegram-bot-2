@@ -501,6 +501,24 @@ def start_restock_thread():
     print("✅ Auto-restock thread started")
 
 start_restock_thread()
+# =====================================================
+# ✅ PRE-CHECKOUT HANDLER - إصلاح مشكلة تعليق الدفع
+# =====================================================
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def handle_pre_checkout(pre_checkout_query):
+    try:
+        payload = pre_checkout_query.invoice_payload
+        if payload.startswith("vip_purchase_") or payload.startswith("stars_convert_"):
+            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+            print(f"✅ Pre-checkout approved")
+        else:
+            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=False, error_message="❌ Invalid")
+    except Exception as e:
+        print(f"⚠️ Pre-checkout error: {e}")
+        try:
+            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+        except:
+            pass
 
 # =====================================================
 # VIP USER MENUS
