@@ -23,7 +23,6 @@ import bot5
 import bot6
 import bot7
 import bot9
-import bot8
 # 🎁 استيراد bot2 (نظام Giveaway ورسائل القناة)
 from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
                   claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
