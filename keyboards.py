@@ -151,6 +151,10 @@ def get_admin_keyboard():
         types.KeyboardButton("💡 الطلبات"),
         types.KeyboardButton("🛠️ وضع الصيانة")
     )
+    m.add(
+        types.KeyboardButton("🎮 ألعاب القناة التفاعلية"),
+        types.KeyboardButton("🧑‍💻 التحكم الشامل بالأعضاء")
+    )
     m.add(types.KeyboardButton("🔙 العودة"))
     return m
 
