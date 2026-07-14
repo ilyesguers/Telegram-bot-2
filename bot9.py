@@ -1,10 +1,11 @@
 """
 =====================================================
- bot9.py — نظام النجوم المتكامل + إصلاح عجلة الحظ
+ bot9.py — نظام النجوم المتكامل v3.0
 =====================================================
 ⭐ تحكم كامل بالنجوم للأدمن
 🎡 إصلاح عجلة الحظ
 💳 نظام الدفع الكامل
+💫 إدارة نجوم تيليجرام الحقيقية
 
 📌 الأوامر:
    /stars - لوحة تحكم النجوم (للأدمن فقط)
@@ -58,12 +59,10 @@ def init_stars_config():
     defaults = {
         "stars_stats": {
             "total_received": 0,
-            "total_sent": 0,
-            "total_gifts": 0,
-            "total_conversions": 0,
-            "transactions": []
+            "total_refunded": 0,
+            "transactions": [],
+            "payments_log": []  # سجل الدفعات للـ refund
         },
-        "stars_gifts_history": [],
         "stars_settings": {
             "conversion_rate": 2,
             "vip_price": 100,
@@ -78,6 +77,14 @@ def init_stars_config():
         if k not in bot_config:
             bot_config[k] = v
             changed = True
+    
+    # تأكد من وجود payments_log
+    if "payments_log" not in bot_config.get("stars_stats", {}):
+        if "stars_stats" not in bot_config:
+            bot_config["stars_stats"] = {}
+        bot_config["stars_stats"]["payments_log"] = []
+        changed = True
+    
     if changed:
         save_json(DB_CONFIG, bot_config)
 
@@ -100,23 +107,91 @@ def is_admin(uid):
 # =====================================================
 # 📝 تسجيل المعاملات
 # =====================================================
-def log_transaction(tx_type, uid, amount, details=""):
+def log_transaction(tx_type, uid, amount, details="", charge_id=None):
     tx = {
         "type": tx_type,
         "uid": str(uid),
         "amount": amount,
         "details": details,
-        "time": datetime.now().isoformat()
+        "charge_id": charge_id,
+        "time": datetime.now().isoformat(),
+        "refunded": False
     }
     if "stars_stats" not in bot_config:
-        bot_config["stars_stats"] = {"transactions": []}
+        bot_config["stars_stats"] = {"transactions": [], "payments_log": []}
     if "transactions" not in bot_config["stars_stats"]:
         bot_config["stars_stats"]["transactions"] = []
     
     bot_config["stars_stats"]["transactions"].append(tx)
-    # احتفظ بآخر 500 معاملة فقط
     bot_config["stars_stats"]["transactions"] = bot_config["stars_stats"]["transactions"][-500:]
+    
+    # حفظ في سجل الدفعات للـ refund
+    if charge_id and tx_type in ["vip", "convert"]:
+        if "payments_log" not in bot_config["stars_stats"]:
+            bot_config["stars_stats"]["payments_log"] = []
+        bot_config["stars_stats"]["payments_log"].append({
+            "uid": str(uid),
+            "amount": amount,
+            "charge_id": charge_id,
+            "type": tx_type,
+            "time": datetime.now().isoformat(),
+            "refunded": False
+        })
+        bot_config["stars_stats"]["payments_log"] = bot_config["stars_stats"]["payments_log"][-200:]
+    
     save_json(DB_CONFIG, bot_config)
+
+
+# =====================================================
+# 💫 دوال نجوم تيليجرام الحقيقية
+# =====================================================
+def get_telegram_star_transactions(limit=100):
+    """جلب معاملات النجوم من تيليجرام"""
+    try:
+        result = bot.get_star_transactions(limit=limit)
+        return result.transactions if result else []
+    except Exception as e:
+        print(f"⚠️ Error getting star transactions: {e}")
+        return None
+
+
+def get_telegram_star_balance():
+    """حساب رصيد النجوم من المعاملات"""
+    try:
+        transactions = get_telegram_star_transactions(limit=200)
+        if transactions is None:
+            return None, None
+        
+        incoming = 0
+        outgoing = 0
+        
+        for tx in transactions:
+            amount = tx.amount
+            if amount > 0:
+                incoming += amount
+            else:
+                outgoing += abs(amount)
+        
+        balance = incoming - outgoing
+        return balance, {"incoming": incoming, "outgoing": outgoing, "count": len(transactions)}
+    except Exception as e:
+        print(f"⚠️ Error calculating balance: {e}")
+        return None, None
+
+
+def refund_star_payment(user_id, charge_id):
+    """إرجاع النجوم للمستخدم"""
+    try:
+        bot.refund_star_payment(user_id=int(user_id), telegram_payment_charge_id=charge_id)
+        return True, "تم الإرجاع بنجاح"
+    except Exception as e:
+        error_msg = str(e)
+        if "CHARGE_ALREADY_REFUNDED" in error_msg:
+            return False, "تم إرجاع هذه الدفعة مسبقاً"
+        elif "CHARGE_NOT_FOUND" in error_msg:
+            return False, "الدفعة غير موجودة"
+        else:
+            return False, f"خطأ: {error_msg[:50]}"
 
 
 # =====================================================
@@ -137,67 +212,85 @@ def show_stars_admin_panel(chat_id, msg_id=None):
     stats = bot_config.get("stars_stats", {})
     settings = bot_config.get("stars_settings", {})
     
+    # إحصائيات محلية
     total_received = stats.get("total_received", 0)
-    total_sent = stats.get("total_sent", 0)
-    total_gifts = stats.get("total_gifts", 0)
-    total_conversions = stats.get("total_conversions", 0)
+    total_refunded = stats.get("total_refunded", 0)
+    
+    # محاولة جلب رصيد تيليجرام الحقيقي
+    tg_balance, tg_stats = get_telegram_star_balance()
+    
+    if tg_balance is not None:
+        balance_text = (
+            f"💫 رصيد النجوم الحقيقي:\n"
+            f"├── ⭐ الرصيد: {tg_balance}\n"
+            f"├── 📥 المستلمة: {tg_stats['incoming']}\n"
+            f"├── 📤 المرجعة: {tg_stats['outgoing']}\n"
+            f"└── 📊 المعاملات: {tg_stats['count']}"
+        )
+    else:
+        balance_text = (
+            f"📊 الإحصائيات المحلية:\n"
+            f"├── ⭐ المستلمة: {total_received}\n"
+            f"└── 🔄 المرجعة: {total_refunded}"
+        )
     
     rate = settings.get("conversion_rate", 2)
     vip_price = settings.get("vip_price", 100)
     
-    # آخر 5 معاملات
-    transactions = stats.get("transactions", [])[-5:]
-    tx_text = ""
-    if transactions:
-        for tx in reversed(transactions):
-            tx_type = tx.get("type", "?")
-            amount = tx.get("amount", 0)
-            tx_time = tx.get("time", "")[:16]
-            if tx_type == "vip":
-                tx_text += f"👑 VIP: {amount}⭐ @ {tx_time}\n"
-            elif tx_type == "convert":
-                tx_text += f"🔄 تحويل: {amount}⭐ @ {tx_time}\n"
-            elif tx_type == "gift":
-                tx_text += f"🎁 هدية: {amount}⭐ @ {tx_time}\n"
-    else:
-        tx_text = "📭 لا توجد معاملات بعد"
+    # عدد الدفعات القابلة للإرجاع
+    payments = stats.get("payments_log", [])
+    refundable = sum(1 for p in payments if not p.get("refunded", False))
     
     msg = (
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ ⭐ لوحة تحكم النجوم ⭐ ║\n"
-        f"╚═══════════════════════════╝\n\n"
-        f"📊 الإحصائيات الكلية:\n"
-        f"├── ⭐ المستلمة: {total_received}\n"
-        f"├── 📤 المرسلة: {total_sent}\n"
-        f"├── 🎁 الهدايا: {total_gifts}\n"
-        f"└── 🔄 التحويلات: {total_conversions}\n\n"
+        f"╚═══════════════════════════════╝\n\n"
+        f"{balance_text}\n\n"
         f"⚙️ الإعدادات:\n"
         f"├── 💱 سعر التحويل: 1⭐ = {rate}💎\n"
         f"└── 👑 سعر VIP: {vip_price}⭐\n\n"
-        f"📜 آخر المعاملات:\n{tx_text}"
+        f"📋 دفعات قابلة للإرجاع: {refundable}"
     )
     
     m = types.InlineKeyboardMarkup(row_width=2)
+    
+    # صف 1: النجوم الحقيقية
     m.add(
-        types.InlineKeyboardButton("🎁 إرسال هدية نجوم", callback_data="stradm_gift"),
+        types.InlineKeyboardButton("💫 معاملات تيليجرام", callback_data="stradm_tg_transactions"),
+        types.InlineKeyboardButton("🔄 إرجاع نجوم (Refund)", callback_data="stradm_refund")
+    )
+    
+    # صف 2: الهدايا والنقاط
+    m.add(
+        types.InlineKeyboardButton("🎁 إرسال هدية نقاط", callback_data="stradm_gift"),
         types.InlineKeyboardButton("💎 منح نقاط", callback_data="stradm_give_points")
     )
+    
+    # صف 3: VIP
     m.add(
         types.InlineKeyboardButton("👑 منح VIP مجاني", callback_data="stradm_free_vip"),
-        types.InlineKeyboardButton("📢 إعلان للجميع", callback_data="stradm_broadcast")
+        types.InlineKeyboardButton("📢 إذاعة للجميع", callback_data="stradm_broadcast")
     )
+    
+    # صف 4: الإعدادات
     m.add(
-        types.InlineKeyboardButton("💱 تغيير سعر التحويل", callback_data="stradm_rate"),
-        types.InlineKeyboardButton("👑 تغيير سعر VIP", callback_data="stradm_vip_price")
+        types.InlineKeyboardButton("💱 سعر التحويل", callback_data="stradm_rate"),
+        types.InlineKeyboardButton("👑 سعر VIP", callback_data="stradm_vip_price")
     )
+    
+    # صف 5: الإحصائيات
     m.add(
         types.InlineKeyboardButton("📊 إحصائيات مفصلة", callback_data="stradm_detailed_stats"),
-        types.InlineKeyboardButton("📜 كل المعاملات", callback_data="stradm_all_tx")
+        types.InlineKeyboardButton("📜 سجل المعاملات", callback_data="stradm_all_tx")
     )
+    
+    # صف 6: الألعاب والعروض
     m.add(
         types.InlineKeyboardButton("🎰 إعدادات الألعاب", callback_data="stradm_games"),
         types.InlineKeyboardButton("⚡ عرض خاطف", callback_data="stradm_flash")
     )
+    
+    # صف 7: تحديث
     m.add(types.InlineKeyboardButton("🔄 تحديث", callback_data="stradm_refresh"))
     
     if msg_id:
@@ -207,6 +300,222 @@ def show_stars_admin_panel(chat_id, msg_id=None):
         except:
             pass
     bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
+
+
+# =====================================================
+# 💫 معاملات تيليجرام الحقيقية
+# =====================================================
+def show_telegram_transactions(chat_id, msg_id=None):
+    """عرض معاملات النجوم من تيليجرام"""
+    transactions = get_telegram_star_transactions(limit=20)
+    
+    if transactions is None:
+        msg = (
+            "❌ لم نتمكن من جلب المعاملات\n\n"
+            "💡 تأكد أن البوت استلم نجوم من قبل"
+        )
+    elif len(transactions) == 0:
+        msg = "📭 لا توجد معاملات نجوم بعد"
+    else:
+        msg = (
+            "╔═══════════════════════════════╗\n"
+            "║ 💫 معاملات النجوم الحقيقية 💫 ║\n"
+            "╚═══════════════════════════════╝\n\n"
+        )
+        
+        for i, tx in enumerate(transactions[:15], 1):
+            amount = tx.amount
+            date = datetime.fromtimestamp(tx.date).strftime("%m/%d %H:%M")
+            
+            if amount > 0:
+                # دفعة واردة
+                source = tx.source
+                if hasattr(source, 'user') and source.user:
+                    user_info = f"@{source.user.username}" if source.user.username else f"ID:{source.user.id}"
+                else:
+                    user_info = "مستخدم"
+                msg += f"📥 +{amount}⭐ من {user_info} | {date}\n"
+            else:
+                # إرجاع
+                msg += f"📤 {amount}⭐ (إرجاع) | {date}\n"
+        
+        if len(transactions) > 15:
+            msg += f"\n... و {len(transactions) - 15} معاملة أخرى"
+    
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton("🔄 تحديث", callback_data="stradm_tg_transactions"))
+    m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="stradm_back"))
+    
+    if msg_id:
+        try:
+            bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+            return
+        except:
+            pass
+    bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
+
+
+# =====================================================
+# 🔄 نظام إرجاع النجوم (Refund)
+# =====================================================
+def show_refund_menu(chat_id, msg_id=None):
+    """عرض قائمة الدفعات القابلة للإرجاع"""
+    payments = bot_config.get("stars_stats", {}).get("payments_log", [])
+    
+    # فلترة الدفعات غير المرجعة
+    refundable = [p for p in payments if not p.get("refunded", False)]
+    
+    if not refundable:
+        msg = (
+            "╔═══════════════════════════════╗\n"
+            "║ 🔄 إرجاع النجوم (Refund) 🔄 ║\n"
+            "╚═══════════════════════════════╝\n\n"
+            "📭 لا توجد دفعات قابلة للإرجاع\n\n"
+            "💡 الدفعات تظهر هنا بعد أن يدفع\n"
+            "   مستخدم عبر VIP أو تحويل النجوم"
+        )
+        m = types.InlineKeyboardMarkup()
+        m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="stradm_back"))
+    else:
+        msg = (
+            "╔═══════════════════════════════╗\n"
+            "║ 🔄 إرجاع النجوم (Refund) 🔄 ║\n"
+            "╚═══════════════════════════════╝\n\n"
+            f"📋 الدفعات القابلة للإرجاع: {len(refundable)}\n\n"
+            "⚠️ عند الإرجاع:\n"
+            "├── النجوم ترجع للمستخدم الأصلي\n"
+            "├── لا يمكن التراجع عن الإرجاع\n"
+            "└── يجب إزالة VIP/النقاط يدوياً\n\n"
+            "👇 اختر الدفعة للإرجاع:"
+        )
+        
+        m = types.InlineKeyboardMarkup()
+        for i, p in enumerate(refundable[-10:]):  # آخر 10
+            u = get_user(p["uid"]) or {}
+            username = u.get("username", "N/A")[:10]
+            amount = p.get("amount", 0)
+            tx_type = "👑" if p.get("type") == "vip" else "🔄"
+            date = p.get("time", "")[:10]
+            
+            btn_text = f"{tx_type} {amount}⭐ @{username} ({date})"
+            m.add(types.InlineKeyboardButton(btn_text, callback_data=f"strrefund_{i}"))
+        
+        m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="stradm_back"))
+    
+    if msg_id:
+        try:
+            bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+            return
+        except:
+            pass
+    bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("strrefund_"))
+def handle_refund_selection(call):
+    uid = str(call.from_user.id)
+    if not is_admin(uid):
+        return
+    
+    try:
+        idx = int(call.data.split("_")[1])
+        payments = bot_config.get("stars_stats", {}).get("payments_log", [])
+        refundable = [p for p in payments if not p.get("refunded", False)]
+        
+        if idx >= len(refundable):
+            bot.answer_callback_query(call.id, "❌ الدفعة غير موجودة", show_alert=True)
+            return
+        
+        payment = refundable[idx]
+        
+        # عرض تأكيد
+        u = get_user(payment["uid"]) or {}
+        msg = (
+            "╔═══════════════════════════════╗\n"
+            "║ ⚠️ تأكيد الإرجاع ⚠️ ║\n"
+            "╚═══════════════════════════════╝\n\n"
+            f"👤 المستخدم: @{u.get('username', 'N/A')}\n"
+            f"🆔 ID: {payment['uid']}\n"
+            f"⭐ المبلغ: {payment['amount']} نجمة\n"
+            f"📝 النوع: {'VIP' if payment.get('type') == 'vip' else 'تحويل'}\n"
+            f"📅 التاريخ: {payment.get('time', '')[:16]}\n\n"
+            "⚠️ هل أنت متأكد من الإرجاع؟\n"
+            "النجوم سترجع للمستخدم فوراً!"
+        )
+        
+        m = types.InlineKeyboardMarkup()
+        m.add(
+            types.InlineKeyboardButton("✅ نعم، أرجع", callback_data=f"strrefundconfirm_{idx}"),
+            types.InlineKeyboardButton("❌ إلغاء", callback_data="stradm_refund")
+        )
+        
+        bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, 
+                              reply_markup=m, parse_mode="HTML")
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ خطأ: {str(e)[:30]}", show_alert=True)
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("strrefundconfirm_"))
+def handle_refund_confirm(call):
+    uid = str(call.from_user.id)
+    if not is_admin(uid):
+        return
+    
+    try:
+        idx = int(call.data.split("_")[1])
+        payments = bot_config.get("stars_stats", {}).get("payments_log", [])
+        refundable = [p for p in payments if not p.get("refunded", False)]
+        
+        if idx >= len(refundable):
+            bot.answer_callback_query(call.id, "❌ الدفعة غير موجودة", show_alert=True)
+            return
+        
+        payment = refundable[idx]
+        charge_id = payment.get("charge_id")
+        
+        if not charge_id:
+            bot.answer_callback_query(call.id, "❌ معرف الدفعة غير موجود", show_alert=True)
+            return
+        
+        # تنفيذ الإرجاع
+        success, message = refund_star_payment(payment["uid"], charge_id)
+        
+        if success:
+            # تحديث السجل
+            for p in payments:
+                if p.get("charge_id") == charge_id:
+                    p["refunded"] = True
+                    p["refund_time"] = datetime.now().isoformat()
+                    p["refund_by"] = uid
+            
+            bot_config["stars_stats"]["total_refunded"] = bot_config["stars_stats"].get("total_refunded", 0) + payment["amount"]
+            save_json(DB_CONFIG, bot_config)
+            
+            # إشعار المستخدم
+            try:
+                bot.send_message(int(payment["uid"]),
+                    f"╔═══════════════════════════╗\n"
+                    f"║ 🔄 تم إرجاع النجوم! 🔄 ║\n"
+                    f"╚═══════════════════════════╝\n\n"
+                    f"⭐ المبلغ: {payment['amount']} نجمة\n"
+                    f"💫 تم إرجاعها لحسابك\n\n"
+                    f"✨ شكراً لتفهمك!", parse_mode="HTML")
+            except:
+                pass
+            
+            bot.answer_callback_query(call.id, "✅ تم الإرجاع بنجاح!", show_alert=True)
+            
+            # إشعار الأدمن
+            u = get_user(payment["uid"]) or {}
+            bot.edit_message_text(
+                f"✅ تم إرجاع {payment['amount']}⭐ لـ @{u.get('username', 'N/A')}",
+                call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        else:
+            bot.answer_callback_query(call.id, f"❌ {message}", show_alert=True)
+        
+    except Exception as e:
+        bot.answer_callback_query(call.id, f"❌ خطأ: {str(e)[:30]}", show_alert=True)
 
 
 # =====================================================
@@ -230,10 +539,23 @@ def handle_stars_admin_callbacks(call):
         bot.answer_callback_query(call.id, "✅ تم التحديث")
         return
     
+    if data == "stradm_back":
+        show_stars_admin_panel(chat_id, msg_id)
+        return
+    
+    if data == "stradm_tg_transactions":
+        bot.answer_callback_query(call.id, "⏳ جاري الجلب...")
+        show_telegram_transactions(chat_id, msg_id)
+        return
+    
+    if data == "stradm_refund":
+        show_refund_menu(chat_id, msg_id)
+        return
+    
     if data == "stradm_gift":
         temp_admin_action[uid] = {"action": "gift", "step": "user"}
         msg = bot.send_message(chat_id, 
-            "🎁 إرسال هدية نجوم\n\n"
+            "🎁 إرسال هدية نقاط\n\n"
             "📝 أرسل معرف المستخدم (ID أو @username):")
         bot.register_next_step_handler(msg, process_gift_user)
         return
@@ -292,20 +614,15 @@ def handle_stars_admin_callbacks(call):
     if data == "stradm_flash":
         show_flash_sale_menu(chat_id, msg_id)
         return
-    
-    if data == "stradm_back":
-        show_stars_admin_panel(chat_id, msg_id)
-        return
 
 
 # =====================================================
-# 🎁 معالجة الهدايا
+# 🎁 معالجة الهدايا والنقاط
 # =====================================================
 def process_gift_user(message):
     uid = str(message.from_user.id)
     target = message.text.strip().replace("@", "")
     
-    # البحث عن المستخدم
     from database import search_user
     u = None
     if target.isdigit():
@@ -334,23 +651,18 @@ def process_gift_amount(message):
         
         target = temp_admin_action[uid]["target"]
         
-        # إضافة النقاط
         update_user_data(target, points=amount, accumulated_points=amount)
         update_user_rank_and_quests(target)
         
-        # تسجيل المعاملة
         log_transaction("gift", target, amount, f"من الأدمن {uid}")
-        bot_config["stars_stats"]["total_gifts"] = bot_config["stars_stats"].get("total_gifts", 0) + 1
-        save_json(DB_CONFIG, bot_config)
         
         u = get_user(target) or {}
         
-        # إشعار المستخدم
         try:
             bot.send_message(int(target),
-                f"╔═══════════════════════╗\n"
+                f"╔═══════════════════════════╗\n"
                 f"║ 🎁 هدية من الإدارة! 🎁 ║\n"
-                f"╚═══════════════════════╝\n\n"
+                f"╚═══════════════════════════╝\n\n"
                 f"🎊 مبروك!\n\n"
                 f"💎 حصلت على: +{amount} نقطة\n"
                 f"💰 رصيدك الجديد: {u.get('points', 0)}\n\n"
@@ -418,7 +730,6 @@ def process_free_vip(message):
             bot.send_message(message.chat.id, "❌ المستخدم غير موجود!")
             return
         
-        # تفعيل VIP
         expires = datetime.now() + timedelta(days=days)
         if "vip_subscribers" not in bot_config:
             bot_config["vip_subscribers"] = {}
@@ -434,9 +745,9 @@ def process_free_vip(message):
         
         try:
             bot.send_message(int(target),
-                f"╔═══════════════════════╗\n"
+                f"╔═══════════════════════════╗\n"
                 f"║ 👑 VIP مجاني! 👑 ║\n"
-                f"╚═══════════════════════╝\n\n"
+                f"╚═══════════════════════════╝\n\n"
                 f"🎊 مبروك!\n\n"
                 f"⏰ المدة: {days} يوم\n"
                 f"📅 حتى: {expires.strftime('%Y-%m-%d')}\n\n"
@@ -460,7 +771,7 @@ def process_new_rate(message):
         if "stars_settings" not in bot_config:
             bot_config["stars_settings"] = {}
         bot_config["stars_settings"]["conversion_rate"] = rate
-        bot_config["star_to_points_rate"] = rate  # للتوافق مع bot2
+        bot_config["star_to_points_rate"] = rate
         save_json(DB_CONFIG, bot_config)
         
         bot.send_message(message.chat.id,
@@ -480,7 +791,7 @@ def process_new_vip_price(message):
         if "stars_settings" not in bot_config:
             bot_config["stars_settings"] = {}
         bot_config["stars_settings"]["vip_price"] = price
-        bot_config["vip_price_stars"] = price  # للتوافق مع bot2
+        bot_config["vip_price_stars"] = price
         save_json(DB_CONFIG, bot_config)
         
         bot.send_message(message.chat.id,
@@ -531,7 +842,6 @@ def show_detailed_stats(chat_id, msg_id=None):
     stats = bot_config.get("stars_stats", {})
     settings = bot_config.get("stars_settings", {})
     
-    # إحصائيات اليوم
     today = datetime.now().date().isoformat()
     transactions = stats.get("transactions", [])
     
@@ -541,20 +851,23 @@ def show_detailed_stats(chat_id, msg_id=None):
     today_gift = sum(1 for tx in today_tx if tx.get("type") == "gift")
     today_stars = sum(tx.get("amount", 0) for tx in today_tx if tx.get("type") in ["vip", "convert"])
     
-    # إحصائيات الأسبوع
     week_ago = (datetime.now() - timedelta(days=7)).isoformat()
     week_tx = [tx for tx in transactions if tx.get("time", "") >= week_ago]
     week_stars = sum(tx.get("amount", 0) for tx in week_tx if tx.get("type") in ["vip", "convert"])
     
-    # عدد VIP النشطين
     vip_users = bot_config.get("vip_subscribers", {})
-    active_vip = sum(1 for v in vip_users.values() 
-                     if datetime.now() < datetime.fromisoformat(v.get("expires", "2000-01-01")))
+    active_vip = 0
+    for v in vip_users.values():
+        try:
+            if datetime.now() < datetime.fromisoformat(v.get("expires", "2000-01-01")):
+                active_vip += 1
+        except:
+            pass
     
     msg = (
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ 📊 إحصائيات مفصلة 📊 ║\n"
-        f"╚═══════════════════════════╝\n\n"
+        f"╚═══════════════════════════════╝\n\n"
         f"📅 إحصائيات اليوم:\n"
         f"├── ⭐ النجوم: {today_stars}\n"
         f"├── 👑 VIP: {today_vip}\n"
@@ -568,9 +881,7 @@ def show_detailed_stats(chat_id, msg_id=None):
         f"└── 📊 الكل: {len(vip_users)}\n\n"
         f"⚙️ الإعدادات:\n"
         f"├── 💱 التحويل: 1⭐ = {settings.get('conversion_rate', 2)}💎\n"
-        f"├── 👑 VIP: {settings.get('vip_price', 100)}⭐\n"
-        f"├── 🎁 الهدايا: {'✅' if settings.get('gift_enabled', True) else '❌'}\n"
-        f"└── 🔄 التحويل: {'✅' if settings.get('conversion_enabled', True) else '❌'}"
+        f"└── 👑 VIP: {settings.get('vip_price', 100)}⭐"
     )
     
     m = types.InlineKeyboardMarkup()
@@ -587,33 +898,25 @@ def show_detailed_stats(chat_id, msg_id=None):
 
 def show_all_transactions(chat_id, msg_id=None):
     stats = bot_config.get("stars_stats", {})
-    transactions = stats.get("transactions", [])[-20:]  # آخر 20
+    transactions = stats.get("transactions", [])[-20:]
     
     if not transactions:
         msg = "📭 لا توجد معاملات"
     else:
-        msg = "╔═══════════════════════════╗\n"
+        msg = "╔═══════════════════════════════╗\n"
         msg += "║ 📜 آخر المعاملات 📜 ║\n"
-        msg += "╚═══════════════════════════╝\n\n"
+        msg += "╚═══════════════════════════════╝\n\n"
         
         for tx in reversed(transactions):
             tx_type = tx.get("type", "?")
             amount = tx.get("amount", 0)
-            uid = tx.get("uid", "?")
-            tx_time = tx.get("time", "")[:16]
+            tx_time = tx.get("time", "")[:10]
+            refunded = "🔄" if tx.get("refunded") else ""
             
-            if tx_type == "vip":
-                msg += f"👑 VIP | {amount}⭐ | {uid[:8]}.. | {tx_time}\n"
-            elif tx_type == "convert":
-                msg += f"🔄 تحويل | {amount}⭐ | {uid[:8]}.. | {tx_time}\n"
-            elif tx_type == "gift":
-                msg += f"🎁 هدية | {amount}💎 | {uid[:8]}.. | {tx_time}\n"
-            elif tx_type == "wheel":
-                msg += f"🎡 عجلة | {amount}💎 | {uid[:8]}.. | {tx_time}\n"
-            elif tx_type == "lootbox":
-                msg += f"🎰 صندوق | {amount}💎 | {uid[:8]}.. | {tx_time}\n"
-            else:
-                msg += f"📝 {tx_type} | {amount} | {uid[:8]}.. | {tx_time}\n"
+            icons = {"vip": "👑", "convert": "🔄", "gift": "🎁", "wheel": "🎡", "lootbox": "🎰"}
+            icon = icons.get(tx_type, "📝")
+            
+            msg += f"{icon} {amount} | {tx_time} {refunded}\n"
     
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="stradm_back"))
@@ -637,12 +940,12 @@ def show_games_settings(chat_id, msg_id=None):
     lootbox_chance = bot_config.get("lootbox_chance", 25)
     
     msg = (
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ 🎰 إعدادات الألعاب 🎰 ║\n"
-        f"╚═══════════════════════════╝\n\n"
+        f"╚═══════════════════════════════╝\n\n"
         f"🎡 عجلة الحظ:\n"
         f"├── 💰 السعر: {wheel_price}💎\n"
-        f"└── 📊 نسبة الجائزة الكبرى: {wheel_chance}%\n\n"
+        f"└── 📊 نسبة الكبرى: {wheel_chance}%\n\n"
         f"🎰 صندوق الحظ:\n"
         f"├── 💰 السعر: {lootbox_price}💎\n"
         f"└── 📊 نسبة الفوز: {lootbox_chance}%"
@@ -650,20 +953,20 @@ def show_games_settings(chat_id, msg_id=None):
     
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
-        types.InlineKeyboardButton("🎡 سعر العجلة ➕", callback_data="strgame_wheel_price_up"),
-        types.InlineKeyboardButton("🎡 سعر العجلة ➖", callback_data="strgame_wheel_price_down")
+        types.InlineKeyboardButton("🎡 سعر ➕", callback_data="strgame_wheel_price_up"),
+        types.InlineKeyboardButton("🎡 سعر ➖", callback_data="strgame_wheel_price_down")
     )
     m.add(
-        types.InlineKeyboardButton("📊 نسبة العجلة ➕", callback_data="strgame_wheel_chance_up"),
-        types.InlineKeyboardButton("📊 نسبة العجلة ➖", callback_data="strgame_wheel_chance_down")
+        types.InlineKeyboardButton("📊 نسبة ➕", callback_data="strgame_wheel_chance_up"),
+        types.InlineKeyboardButton("📊 نسبة ➖", callback_data="strgame_wheel_chance_down")
     )
     m.add(
-        types.InlineKeyboardButton("🎰 سعر الصندوق ➕", callback_data="strgame_box_price_up"),
-        types.InlineKeyboardButton("🎰 سعر الصندوق ➖", callback_data="strgame_box_price_down")
+        types.InlineKeyboardButton("🎰 سعر ➕", callback_data="strgame_box_price_up"),
+        types.InlineKeyboardButton("🎰 سعر ➖", callback_data="strgame_box_price_down")
     )
     m.add(
-        types.InlineKeyboardButton("📊 نسبة الصندوق ➕", callback_data="strgame_box_chance_up"),
-        types.InlineKeyboardButton("📊 نسبة الصندوق ➖", callback_data="strgame_box_chance_down")
+        types.InlineKeyboardButton("📊 نسبة ➕", callback_data="strgame_box_chance_up"),
+        types.InlineKeyboardButton("📊 نسبة ➖", callback_data="strgame_box_chance_down")
     )
     m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="stradm_back"))
     
@@ -726,15 +1029,15 @@ def show_flash_sale_menu(chat_id, msg_id=None):
         status = "😴 لا يوجد عرض نشط"
     
     msg = (
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ ⚡ العروض الخاطفة ⚡ ║\n"
-        f"╚═══════════════════════════╝\n\n"
+        f"╚═══════════════════════════════╝\n\n"
         f"{status}"
     )
     
     m = types.InlineKeyboardMarkup()
     if not fs:
-        m.add(types.InlineKeyboardButton("⚡ إنشاء عرض جديد", callback_data="strflash_create"))
+        m.add(types.InlineKeyboardButton("⚡ إنشاء عرض", callback_data="strflash_create"))
     else:
         m.add(types.InlineKeyboardButton("❌ إلغاء العرض", callback_data="strflash_cancel"))
     m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="stradm_back"))
@@ -827,7 +1130,6 @@ def handle_flash_hours(call):
     discount = int(parts[1])
     hours = int(parts[2])
     
-    # إنشاء العرض
     from utils import create_flash_sale, publish_flash_sale_to_channel
     expires = create_flash_sale(prod, discount, hours)
     publish_flash_sale_to_channel(prod, discount, hours)
@@ -835,9 +1137,9 @@ def handle_flash_hours(call):
     bot.answer_callback_query(call.id, f"✅ تم إنشاء العرض!", show_alert=True)
     
     bot.edit_message_text(
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ ⚡ تم إنشاء العرض! ⚡ ║\n"
-        f"╚═══════════════════════════╝\n\n"
+        f"╚═══════════════════════════════╝\n\n"
         f"📦 المنتج: {prod}\n"
         f"🔥 الخصم: {discount}%\n"
         f"⏰ المدة: {hours} ساعة\n"
@@ -861,32 +1163,30 @@ WHEEL_PRIZES = [
 def handle_wheel_menu(call):
     uid = str(call.from_user.id)
     u = get_user(uid) or {}
-    lang = u.get("lang", "ar")
     
     wheel_price = bot_config.get("wheel_price", 40)
     user_points = u.get("points", 0)
     
     msg = (
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ 🎡 عجلة الحظ 🎡 ║\n"
-        f"╚═══════════════════════════╝\n\n"
+        f"╚═══════════════════════════════╝\n\n"
         f"💰 رصيدك: {user_points}💎\n"
         f"🎫 سعر الدورة: {wheel_price}💎\n\n"
-        f"🎁 الجوائز الممكنة:\n"
-        f"├── 💎 5-20 نقطة (35%)\n"
-        f"├── 🎁 25-50 نقطة (25%)\n"
-        f"├── ⭐ 60-100 نقطة (15%)\n"
-        f"├── 👑 120-200 نقطة (10%)\n"
-        f"├── 🏆 300-500 نقطة (5%)\n"
-        f"└── 💀 لا شيء (10%)\n\n"
-        f"🍀 جرّب حظك!"
+        f"🎁 الجوائز:\n"
+        f"├── 💎 5-20 (35%)\n"
+        f"├── 🎁 25-50 (25%)\n"
+        f"├── ⭐ 60-100 (15%)\n"
+        f"├── 👑 120-200 (10%)\n"
+        f"├── 🏆 300-500 (5%)\n"
+        f"└── 💀 لا شيء (10%)"
     )
     
     m = types.InlineKeyboardMarkup()
     if user_points >= wheel_price:
-        m.add(types.InlineKeyboardButton(f"🎡 دوّر العجلة ({wheel_price}💎)", callback_data="wheel_spin"))
+        m.add(types.InlineKeyboardButton(f"🎡 دوّر ({wheel_price}💎)", callback_data="wheel_spin"))
     else:
-        m.add(types.InlineKeyboardButton("❌ رصيد غير كافٍ", callback_data="wheel_no_balance"))
+        m.add(types.InlineKeyboardButton("❌ رصيد غير كافٍ", callback_data="wheel_no"))
     
     try:
         bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, 
@@ -907,32 +1207,24 @@ def handle_wheel_spin(call):
         bot.answer_callback_query(call.id, "❌ رصيد غير كافٍ!", show_alert=True)
         return
     
-    # خصم السعر
     update_user_data(uid, points=-wheel_price)
     
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
     
-    # أنيميشن الدوران
-    spin_frames = ["🎡 ⬆️", "🎡 ↗️", "🎡 ➡️", "🎡 ↘️", "🎡 ⬇️", "🎡 ↙️", "🎡 ⬅️", "🎡 ↖️"]
+    frames = ["🎡 ⬆️", "🎡 ➡️", "🎡 ⬇️", "🎡 ⬅️"]
     
-    for i in range(12):
+    for i in range(8):
         try:
-            bot.edit_message_text(
-                f"╔═══════════════════════════╗\n"
-                f"║ 🎡 العجلة تدور... 🎡 ║\n"
-                f"╚═══════════════════════════╝\n\n"
-                f"{spin_frames[i % len(spin_frames)]} جاري الدوران...\n\n"
-                f"{'🔵' * (i % 4)}{'⚪' * (4 - i % 4)}",
-                chat_id, msg_id, parse_mode="HTML")
-            time.sleep(0.25)
+            bot.edit_message_text(f"🎡 جاري الدوران...\n\n{frames[i % 4]}",
+                                  chat_id, msg_id, parse_mode="HTML")
+            time.sleep(0.3)
         except:
             pass
     
-    # اختيار الجائزة
     roll = random.randint(1, 100)
     cumulative = 0
-    prize = None
+    prize = WHEEL_PRIZES[-1]
     
     for p in WHEEL_PRIZES:
         cumulative += p["chance"]
@@ -940,48 +1232,39 @@ def handle_wheel_spin(call):
             prize = p
             break
     
-    if not prize:
-        prize = WHEEL_PRIZES[-1]
-    
-    # حساب المكسب
     if prize["max"] > 0:
         winnings = random.randint(prize["min"], prize["max"])
         update_user_data(uid, points=winnings, accumulated_points=winnings)
         update_user_rank_and_quests(uid)
         log_transaction("wheel", uid, winnings, prize["name"])
         
-        result_msg = (
-            f"╔═══════════════════════════╗\n"
-            f"║ 🎊 مبروك! 🎊 ║\n"
-            f"╚═══════════════════════════╝\n\n"
-            f"{prize['emoji']} {prize['name']}!\n\n"
-            f"💎 ربحت: +{winnings} نقطة\n"
-            f"💰 رصيدك الجديد: {u.get('points', 0) - wheel_price + winnings}"
+        u_new = get_user(uid) or {}
+        result = (
+            f"🎊 مبروك!\n\n"
+            f"{prize['emoji']} {prize['name']}\n"
+            f"💎 +{winnings}\n"
+            f"💰 رصيدك: {u_new.get('points', 0)}"
         )
     else:
-        result_msg = (
-            f"╔═══════════════════════════╗\n"
-            f"║ 😢 للأسف! 😢 ║\n"
-            f"╚═══════════════════════════╝\n\n"
-            f"{prize['emoji']} {prize['name']}\n\n"
-            f"💔 لم تربح هذه المرة\n"
-            f"💰 رصيدك: {u.get('points', 0) - wheel_price}\n\n"
-            f"🍀 حظاً أوفر المرة القادمة!"
+        u_new = get_user(uid) or {}
+        result = (
+            f"😢 للأسف!\n\n"
+            f"{prize['emoji']} {prize['name']}\n"
+            f"💰 رصيدك: {u_new.get('points', 0)}"
         )
     
     m = types.InlineKeyboardMarkup()
-    u_new = get_user(uid) or {}
     if u_new.get("points", 0) >= wheel_price:
-        m.add(types.InlineKeyboardButton("🎡 دوّر مرة أخرى", callback_data="wheel_spin"))
+        m.add(types.InlineKeyboardButton("🎡 مرة أخرى", callback_data="wheel_spin"))
     
     try:
-        bot.edit_message_text(result_msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+        bot.edit_message_text(result, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except:
-        bot.send_message(chat_id, result_msg, reply_markup=m, parse_mode="HTML")
+        bot.send_message(chat_id, result, reply_markup=m, parse_mode="HTML")
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "wheel_no_balance")
-def handle_wheel_no_balance(call):
+@bot.callback_query_handler(func=lambda call: call.data == "wheel_no")
+def handle_wheel_no(call):
     bot.answer_callback_query(call.id, "❌ رصيدك غير كافٍ!", show_alert=True)
 
 
@@ -1001,31 +1284,24 @@ def handle_lootbox_menu(call):
     uid = str(call.from_user.id)
     u = get_user(uid) or {}
     
-    lootbox_price = bot_config.get("lootbox_price", 50)
-    lootbox_chance = bot_config.get("lootbox_chance", 25)
-    user_points = u.get("points", 0)
+    price = bot_config.get("lootbox_price", 50)
+    chance = bot_config.get("lootbox_chance", 25)
+    points = u.get("points", 0)
     
     msg = (
-        f"╔═══════════════════════════╗\n"
+        f"╔═══════════════════════════════╗\n"
         f"║ 🎰 صندوق الحظ 🎰 ║\n"
-        f"╚═══════════════════════════╝\n\n"
-        f"💰 رصيدك: {user_points}💎\n"
-        f"🎫 سعر الصندوق: {lootbox_price}💎\n"
-        f"📊 نسبة الفوز: {lootbox_chance}%\n\n"
-        f"🎁 المحتويات الممكنة:\n"
-        f"├── 💎 10-30 ألماسة\n"
-        f"├── ⭐ 20-50 نجمة\n"
-        f"├── 🎁 30-70 هدية\n"
-        f"├── 👑 50-100 تاج\n"
-        f"└── 🏆 80-150 كأس\n\n"
-        f"🍀 افتح الصندوق!"
+        f"╚═══════════════════════════════╝\n\n"
+        f"💰 رصيدك: {points}💎\n"
+        f"🎫 السعر: {price}💎\n"
+        f"📊 نسبة الفوز: {chance}%"
     )
     
     m = types.InlineKeyboardMarkup()
-    if user_points >= lootbox_price:
-        m.add(types.InlineKeyboardButton(f"🎰 افتح الصندوق ({lootbox_price}💎)", callback_data="lootbox_open"))
+    if points >= price:
+        m.add(types.InlineKeyboardButton(f"🎰 افتح ({price}💎)", callback_data="lootbox_open"))
     else:
-        m.add(types.InlineKeyboardButton("❌ رصيد غير كافٍ", callback_data="lootbox_no_balance"))
+        m.add(types.InlineKeyboardButton("❌ رصيد غير كافٍ", callback_data="lootbox_no"))
     
     try:
         bot.edit_message_text(msg, call.message.chat.id, call.message.message_id,
@@ -1039,37 +1315,27 @@ def handle_lootbox_open(call):
     uid = str(call.from_user.id)
     u = get_user(uid) or {}
     
-    lootbox_price = bot_config.get("lootbox_price", 50)
-    lootbox_chance = bot_config.get("lootbox_chance", 25)
-    user_points = u.get("points", 0)
+    price = bot_config.get("lootbox_price", 50)
+    chance = bot_config.get("lootbox_chance", 25)
+    points = u.get("points", 0)
     
-    if user_points < lootbox_price:
+    if points < price:
         bot.answer_callback_query(call.id, "❌ رصيد غير كافٍ!", show_alert=True)
         return
     
-    # خصم السعر
-    update_user_data(uid, points=-lootbox_price)
+    update_user_data(uid, points=-price)
     
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
     
-    # أنيميشن الفتح
-    open_frames = ["🎰 📦", "🎰 📦✨", "🎰 📦💫", "🎰 🎁"]
-    
-    for frame in open_frames:
+    for frame in ["📦", "📦✨", "📦💫", "🎁"]:
         try:
-            bot.edit_message_text(
-                f"╔═══════════════════════════╗\n"
-                f"║ 🎰 جاري الفتح... 🎰 ║\n"
-                f"╚═══════════════════════════╝\n\n"
-                f"{frame}",
-                chat_id, msg_id, parse_mode="HTML")
+            bot.edit_message_text(f"🎰 جاري الفتح...\n\n{frame}", chat_id, msg_id)
             time.sleep(0.4)
         except:
             pass
     
-    # تحديد الفوز
-    won = random.randint(1, 100) <= lootbox_chance
+    won = random.randint(1, 100) <= chance
     
     if won:
         item = random.choice(LOOTBOX_ITEMS)
@@ -1078,38 +1344,33 @@ def handle_lootbox_open(call):
         update_user_rank_and_quests(uid)
         log_transaction("lootbox", uid, winnings, item["name"])
         
-        result_msg = (
-            f"╔═══════════════════════════╗\n"
-            f"║ 🎊 فزت! 🎊 ║\n"
-            f"╚═══════════════════════════╝\n\n"
-            f"🎁 فتحت الصندوق ووجدت:\n\n"
+        u_new = get_user(uid) or {}
+        result = (
+            f"🎊 فزت!\n\n"
             f"{item['emoji']} {item['name']}\n"
-            f"💎 +{winnings} نقطة!\n\n"
-            f"💰 رصيدك الجديد: {u.get('points', 0) - lootbox_price + winnings}"
+            f"💎 +{winnings}\n"
+            f"💰 رصيدك: {u_new.get('points', 0)}"
         )
     else:
-        result_msg = (
-            f"╔═══════════════════════════╗\n"
-            f"║ 📦 الصندوق فارغ! 📦 ║\n"
-            f"╚═══════════════════════════╝\n\n"
-            f"😢 للأسف الصندوق كان فارغاً!\n\n"
-            f"💰 رصيدك: {u.get('points', 0) - lootbox_price}\n\n"
-            f"🍀 حظاً أوفر المرة القادمة!"
+        u_new = get_user(uid) or {}
+        result = (
+            f"📦 فارغ!\n\n"
+            f"😢 للأسف\n"
+            f"💰 رصيدك: {u_new.get('points', 0)}"
         )
     
     m = types.InlineKeyboardMarkup()
-    u_new = get_user(uid) or {}
-    if u_new.get("points", 0) >= lootbox_price:
-        m.add(types.InlineKeyboardButton("🎰 افتح صندوق آخر", callback_data="lootbox_open"))
+    if u_new.get("points", 0) >= price:
+        m.add(types.InlineKeyboardButton("🎰 مرة أخرى", callback_data="lootbox_open"))
     
     try:
-        bot.edit_message_text(result_msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+        bot.edit_message_text(result, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except:
-        bot.send_message(chat_id, result_msg, reply_markup=m, parse_mode="HTML")
+        bot.send_message(chat_id, result, reply_markup=m, parse_mode="HTML")
 
 
-@bot.callback_query_handler(func=lambda call: call.data == "lootbox_no_balance")
-def handle_lootbox_no_balance(call):
+@bot.callback_query_handler(func=lambda call: call.data == "lootbox_no")
+def handle_lootbox_no(call):
     bot.answer_callback_query(call.id, "❌ رصيدك غير كافٍ!", show_alert=True)
 
 
@@ -1122,21 +1383,18 @@ def bot9_handle_pre_checkout(pre_checkout_query):
         uid = str(pre_checkout_query.from_user.id)
         payload = pre_checkout_query.invoice_payload
         
-        print(f"🔔 bot9: Pre-checkout from {uid}, payload={payload}")
+        print(f"🔔 bot9: Pre-checkout from {uid}")
         
-        valid_prefixes = ["vip_purchase_", "stars_convert_"]
-        is_valid = any(payload.startswith(prefix) for prefix in valid_prefixes)
+        valid = payload.startswith("vip_purchase_") or payload.startswith("stars_convert_")
         
-        if is_valid:
+        if valid:
             bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-            print(f"✅ bot9: Pre-checkout APPROVED")
+            print(f"✅ bot9: Approved")
         else:
             bot.answer_pre_checkout_query(pre_checkout_query.id, ok=False, 
                                           error_message="❌ طلب غير صالح")
-            print(f"❌ bot9: Pre-checkout REJECTED")
-            
     except Exception as e:
-        print(f"⚠️ bot9: Pre-checkout error: {e}")
+        print(f"⚠️ bot9: Error: {e}")
         try:
             bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
         except:
@@ -1153,16 +1411,15 @@ def bot9_handle_successful_payment(message):
         payment = message.successful_payment
         payload = payment.invoice_payload
         total_amount = payment.total_amount
+        charge_id = payment.telegram_payment_charge_id
         
-        print(f"💰 bot9: Payment from {uid}, amount={total_amount}")
+        print(f"💰 bot9: Payment from {uid}, amount={total_amount}, charge={charge_id}")
         
-        # تحديث الإحصائيات
         if "stars_stats" not in bot_config:
             bot_config["stars_stats"] = {}
         bot_config["stars_stats"]["total_received"] = bot_config["stars_stats"].get("total_received", 0) + total_amount
         
         if payload.startswith("vip_purchase_"):
-            # تفعيل VIP
             expires = datetime.now() + timedelta(days=30)
             if "vip_subscribers" not in bot_config:
                 bot_config["vip_subscribers"] = {}
@@ -1173,25 +1430,19 @@ def bot9_handle_successful_payment(message):
             }
             save_json(DB_CONFIG, bot_config)
             
-            log_transaction("vip", uid, total_amount, "VIP 30 days")
+            log_transaction("vip", uid, total_amount, "VIP 30 days", charge_id)
             
             bot.send_message(message.chat.id,
                 f"╔═══════════════════════════╗\n"
                 f"║ 🎊 VIP مفعّل! 🎊 ║\n"
                 f"╚═══════════════════════════╝\n\n"
-                f"👑 أهلاً بك في نادي VIP!\n\n"
-                f"⏰ صالح حتى: {expires.strftime('%Y-%m-%d')}\n"
-                f"💎 كل المزايا مفعّلة\n\n"
-                f"✨ استمتع!", parse_mode="HTML")
+                f"👑 أهلاً بك!\n"
+                f"⏰ حتى: {expires.strftime('%Y-%m-%d')}", parse_mode="HTML")
             
-            # إشعار الأدمن
             try:
                 u = get_user(uid) or {}
                 bot.send_message(ADMIN_PRIMARY,
-                    f"💰 VIP جديد!\n\n"
-                    f"👤 @{u.get('username', 'N/A')}\n"
-                    f"🆔 {uid}\n"
-                    f"⭐ دفع: {total_amount}", parse_mode="HTML")
+                    f"💰 VIP جديد!\n@{u.get('username', 'N/A')}\n{total_amount}⭐", parse_mode="HTML")
             except:
                 pass
                 
@@ -1203,26 +1454,14 @@ def bot9_handle_successful_payment(message):
             update_user_data(uid, points=points, accumulated_points=points)
             update_user_rank_and_quests(uid)
             
-            log_transaction("convert", uid, stars, f"{stars}⭐ → {points}💎")
-            bot_config["stars_stats"]["total_conversions"] = bot_config["stars_stats"].get("total_conversions", 0) + 1
-            save_json(DB_CONFIG, bot_config)
+            log_transaction("convert", uid, stars, f"{stars}⭐→{points}💎", charge_id)
             
             u_new = get_user(uid) or {}
             bot.send_message(message.chat.id,
-                f"╔═══════════════════════════╗\n"
-                f"║ 🎉 تم التحويل! 🎉 ║\n"
-                f"╚═══════════════════════════╝\n\n"
-                f"⭐ النجوم: {stars}\n"
-                f"💎 النقاط: +{points}\n"
-                f"💰 الرصيد: {u_new.get('points', 0)}", parse_mode="HTML")
+                f"✅ تم!\n⭐ {stars} → 💎 {points}\n💰 رصيدك: {u_new.get('points', 0)}", parse_mode="HTML")
             
-            # إشعار الأدمن
             try:
-                u = get_user(uid) or {}
-                bot.send_message(ADMIN_PRIMARY,
-                    f"⭐ تحويل!\n"
-                    f"@{u.get('username', 'N/A')}\n"
-                    f"⭐{stars} → 💎{points}", parse_mode="HTML")
+                bot.send_message(ADMIN_PRIMARY, f"⭐ تحويل: {stars}→{points}💎", parse_mode="HTML")
             except:
                 pass
                 
@@ -1234,10 +1473,10 @@ def bot9_handle_successful_payment(message):
 # 🚀 تأكيد التحميل
 # =====================================================
 print("=" * 55)
-print("✅ bot9.py v2.0 — نظام النجوم المتكامل")
-print("⭐ لوحة تحكم النجوم: /stars")
-print("💳 نظام الدفع: Active")
+print("✅ bot9.py v3.0 — نظام النجوم المتكامل")
+print("⭐ لوحة التحكم: /stars")
+print("💫 معاملات تيليجرام: Active")
+print("🔄 نظام Refund: Active")
 print("🎡 عجلة الحظ: Fixed")
 print("🎰 صندوق الحظ: Fixed")
-print("📊 الإحصائيات: Active")
 print("=" * 55)
