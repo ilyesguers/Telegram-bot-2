@@ -1,27 +1,23 @@
 """
 =====================================================================
- bot6.py — ألعاب القناة/المجموعة التفاعلية (Reaction Games + Comment Races)
+ bot6.py - Interactive channel/group games
 =====================================================================
-⚠️ ملاحظة تقنية مهمة من تيليجرام (وليست قيداً مني):
-   تيليجرام لا يرسل للبوت هوية الشخص الذي تفاعل بإيموجي على منشور
-   "قناة" (Channel) — يرسل فقط عدّاد مجهول (message_reaction_count).
-   لكي نعرف مين بالضبط تفاعل (لإعطائه/سحب نقاطه)، يجب أن تُنشر
-   لعبة "التفاعل بإيموجي" داخل مجموعة (Group/Supergroup) — والحل
-   الأمثل: مجموعة التعليقات (Discussion Group) المرتبطة بقناتك،
-   لأن كل منشور بالقناة يظهر تلقائياً هناك ويمكن التفاعل معه فيها.
-   لعبة "سباق التعليقات" تعمل بنفس المجموعة أيضاً.
+Features:
+- Reaction games.
+- Comment race games.
+- Full English bot messages.
+- Supports answers written as replies/comments under channel posts in a
+  linked discussion group.
+- Sends a private winner message.
+- Sends detailed winner reports to admins.
 
-   لذلك أول خطوة تعملها: ⚙️ "تعيين مجموعة الألعاب" (مرة وحدة فقط)
-   بإرسال أي رسالة موجودة أصلاً داخل تلك المجموعة (Forward) للبوت،
-   أو إرسال الـ ID الرقمي (سالب) مباشرة. تأكد أن البوت "أدمن" فيها.
+Install in bot.py without changing anything else:
+    import bot6
 
-📌 طريقة التركيب (لا تلمس أي شيء آخر في bot.py):
-   ضع هذا السطر بعد "from bot2 import (...)" في bot.py:
-
-        import bot6
-
-   البوت سيبدأ تلقائياً باستقبال تحديثات التفاعلات (Reactions) دون
-   الحاجة لتعديل سطر bot.infinity_polling(...) الموجود أصلاً.
+Important Telegram note:
+Telegram does not expose the identity of users who react to pure channel
+posts through anonymous reaction counters. For identifiable winners, use
+the linked discussion group or publish the game inside a group/supergroup.
 =====================================================================
 """
 
@@ -31,23 +27,35 @@ from datetime import datetime
 
 from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY
-from database import (bot_config, save_json, DB_CONFIG, get_user,
-                       update_user_data, update_user_rank_and_quests)
+from database import (
+    bot_config,
+    save_json,
+    DB_CONFIG,
+    get_user,
+    update_user_data,
+    update_user_rank_and_quests,
+)
+
 
 # =====================================================================
-# 🔧 تفعيل استقبال تحديثات "التفاعلات" تلقائياً
-# (bot.py ينادي bot.infinity_polling(none_stop=True, timeout=60) بدون
-#  تحديد allowed_updates ← لن تصل تفاعلات الإيموجي إطلاقاً افتراضياً.
-#  الحل: نغلّف الدالة بذكاء دون تعديل bot.py على الإطلاق)
+# Polling patch: make sure reaction updates and normal messages arrive
+# even if the main bot.py calls infinity_polling without allowed_updates.
 # =====================================================================
 _original_infinity_polling = bot.infinity_polling
 
 
 def _patched_infinity_polling(*args, **kwargs):
-    kwargs.setdefault("allowed_updates", [
-        "message", "edited_message", "callback_query",
-        "message_reaction", "message_reaction_count", "chat_member"
-    ])
+    kwargs.setdefault(
+        "allowed_updates",
+        [
+            "message",
+            "edited_message",
+            "callback_query",
+            "message_reaction",
+            "message_reaction_count",
+            "chat_member",
+        ],
+    )
     return _original_infinity_polling(*args, **kwargs)
 
 
@@ -57,10 +65,17 @@ _original_polling = bot.polling
 
 
 def _patched_polling(*args, **kwargs):
-    kwargs.setdefault("allowed_updates", [
-        "message", "edited_message", "callback_query",
-        "message_reaction", "message_reaction_count", "chat_member"
-    ])
+    kwargs.setdefault(
+        "allowed_updates",
+        [
+            "message",
+            "edited_message",
+            "callback_query",
+            "message_reaction",
+            "message_reaction_count",
+            "chat_member",
+        ],
+    )
     return _original_polling(*args, **kwargs)
 
 
@@ -68,19 +83,21 @@ bot.polling = _patched_polling
 
 
 # =====================================================================
-# 🗂️ تهيئة التخزين (داخل bot_config نفسه — محمي تلقائياً عبر bot5.py)
+# Storage initialization
 # =====================================================================
 def _init_defaults():
     ig = bot_config.setdefault("interactive_games", {})
     ig.setdefault("games_chat_id", None)
     ig.setdefault("reaction_games", {})
     ig.setdefault("race_games", {})
+    ig.setdefault("admin_reports", True)
     save_json(DB_CONFIG, bot_config)
 
 
 _init_defaults()
 
-temp_setup = {}  # {admin_uid: {...بيانات الإعداد المؤقتة أثناء إنشاء لعبة...}}
+# Temporary admin setup state.
+temp_setup = {}
 
 
 def _is_admin(uid):
@@ -93,38 +110,177 @@ def _is_admin(uid):
     return bool(u.get("is_admin", False))
 
 
+def _admin_ids():
+    ids = []
+    for uid in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
+        try:
+            if uid and int(uid) not in ids:
+                ids.append(int(uid))
+        except Exception:
+            pass
+    return ids
+
+
 def _is_games_chat(message):
     try:
         ig = bot_config.get("interactive_games", {})
-        return (message.chat.id == ig.get("games_chat_id")
-                and message.chat.type in ("group", "supergroup"))
+        return (
+            message.chat.id == ig.get("games_chat_id")
+            and message.chat.type in ("group", "supergroup")
+        )
     except Exception:
         return False
 
 
+def _new_game_id(prefix):
+    stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+    return f"{prefix}_{stamp}_{rand}"
+
+
+def _display_user(user):
+    username = getattr(user, "username", None)
+    full_name = " ".join(
+        p for p in [getattr(user, "first_name", None), getattr(user, "last_name", None)] if p
+    ).strip()
+    if username:
+        return f"@{username}"
+    if full_name:
+        return full_name
+    return str(getattr(user, "id", "Unknown"))
+
+
+def _normalize_answer(text):
+    return (text or "").strip().casefold()
+
+
+def _extract_message_text(message):
+    return (getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
+
+
+def _message_link(chat_id, message_id):
+    # Public username links are not always available, so generate a private
+    # supergroup link when possible. Telegram uses the ID without -100.
+    try:
+        raw = str(chat_id)
+        if raw.startswith("-100"):
+            return f"https://t.me/c/{raw[4:]}/{message_id}"
+    except Exception:
+        pass
+    return "Unavailable"
+
+
+def _safe_send(chat_id, text, **kwargs):
+    try:
+        return bot.send_message(chat_id, text, **kwargs)
+    except Exception as e:
+        print(f"bot6 send error: {e}")
+        return None
+
+
+def _safe_reply(message, text, **kwargs):
+    try:
+        return bot.reply_to(message, text, **kwargs)
+    except Exception as e:
+        print(f"bot6 reply error: {e}")
+        return None
+
+
+def _try_react_to_answer(message):
+    # Available only on newer pyTelegramBotAPI/Bot API versions.
+    try:
+        reaction = [types.ReactionTypeEmoji("🏆")]
+        bot.set_message_reaction(message.chat.id, message.message_id, reaction=reaction)
+    except Exception:
+        pass
+
+
+def _award_points(uid, points):
+    update_user_data(str(uid), points=points, accumulated_points=points)
+    try:
+        update_user_rank_and_quests(str(uid))
+    except Exception as e:
+        print(f"bot6 rank/quest update error: {e}")
+
+
+def _send_winner_dm(uid, points, game_title, answer_text, game_id):
+    text = (
+        "Congratulations!\n\n"
+        f"You won {points} points in the comment race.\n"
+        f"Game: {game_title}\n"
+        f"Your answer: {answer_text}\n"
+        f"Game ID: {game_id}\n\n"
+        "Your points were added to your account automatically."
+    )
+    return _safe_send(uid, text)
+
+
+def _send_admin_report(game, message, points, dm_sent):
+    ig = bot_config.get("interactive_games", {})
+    if not ig.get("admin_reports", True):
+        return
+
+    user = message.from_user
+    u = get_user(str(user.id)) or {}
+    link = _message_link(message.chat.id, message.message_id)
+    text = (
+        "New comment race winner\n\n"
+        f"Game ID: {game.get('id')}\n"
+        f"Game title: {game.get('title', 'Comment race')}\n"
+        f"User: {_display_user(user)}\n"
+        f"User ID: {user.id}\n"
+        f"Database username: @{u.get('username', 'N/A')}\n"
+        f"Answer: {_extract_message_text(message)}\n"
+        f"Points awarded: {points}\n"
+        f"Total current points: {u.get('points', 'Unknown')}\n"
+        f"DM delivered: {'Yes' if dm_sent else 'No'}\n"
+        f"Chat ID: {message.chat.id}\n"
+        f"Message ID: {message.message_id}\n"
+        f"Message link: {link}\n"
+        f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+    recipients = set(_admin_ids())
+    creator = game.get("created_by")
+    try:
+        if creator:
+            recipients.add(int(creator))
+    except Exception:
+        pass
+
+    for admin_id in recipients:
+        _safe_send(admin_id, text)
+
+
 # =====================================================================
-# 🖥️ لوحة الأدمن الرئيسية للألعاب
+# Admin panel
 # =====================================================================
 def _show_games_panel(chat_id, msg_id=None):
     ig = bot_config.get("interactive_games", {})
     gcid = ig.get("games_chat_id")
-    active_r = sum(1 for g in ig.get("reaction_games", {}).values() if g.get("status") == "active")
-    active_c = sum(1 for g in ig.get("race_games", {}).values() if g.get("status") == "active")
+    active_r = sum(
+        1 for g in ig.get("reaction_games", {}).values() if g.get("status") == "active"
+    )
+    active_c = sum(
+        1 for g in ig.get("race_games", {}).values() if g.get("status") == "active"
+    )
+    reports = "On" if ig.get("admin_reports", True) else "Off"
     txt = (
-        "╔═══════════════════════╗\n"
-        "║ 🎮 ألعاب القناة التفاعلية ║\n"
-        "╚═══════════════════════╝\n\n"
-        f"📍 مجموعة الألعاب: {gcid if gcid else '❌ غير محددة بعد'}\n"
-        f"🔥 ألعاب تفاعل نشطة: {active_r}\n"
-        f"🏁 سباقات تعليقات نشطة: {active_c}\n\n"
-        "💡 اختر إجراءً:"
+        "Interactive Games Panel\n\n"
+        f"Games discussion group: {gcid if gcid else 'Not set'}\n"
+        f"Active reaction games: {active_r}\n"
+        f"Active comment races: {active_c}\n"
+        f"Admin winner reports: {reports}\n\n"
+        "Choose an action:"
     )
     m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton("⚙️ تعيين مجموعة الألعاب", callback_data="igadm_setchat"))
-    m.add(types.InlineKeyboardButton("🔥 إنشاء لعبة تفاعل إيموجي", callback_data="igadm_newreact"))
-    m.add(types.InlineKeyboardButton("🏁 إنشاء سباق تعليقات", callback_data="igadm_newrace"))
-    m.add(types.InlineKeyboardButton("📋 عرض / إدارة الألعاب النشطة", callback_data="igadm_list"))
-    m.add(types.InlineKeyboardButton("🔄 تحديث", callback_data="igadm_refresh"))
+    m.add(types.InlineKeyboardButton("Set games discussion group", callback_data="igadm_setchat"))
+    m.add(types.InlineKeyboardButton("Create reaction game", callback_data="igadm_newreact"))
+    m.add(types.InlineKeyboardButton("Create comment race", callback_data="igadm_newrace"))
+    m.add(types.InlineKeyboardButton("List/manage active games", callback_data="igadm_list"))
+    m.add(types.InlineKeyboardButton("Toggle admin reports", callback_data="igadm_reports"))
+    m.add(types.InlineKeyboardButton("Refresh", callback_data="igadm_refresh"))
+
     if msg_id:
         try:
             bot.edit_message_text(txt, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
@@ -134,7 +290,7 @@ def _show_games_panel(chat_id, msg_id=None):
     bot.send_message(chat_id, txt, reply_markup=m, parse_mode="HTML")
 
 
-@bot.message_handler(func=lambda m: m.text == "🎮 ألعاب القناة التفاعلية")
+@bot.message_handler(func=lambda m: m.text in ("🎮 ألعاب القناة التفاعلية", "Interactive Games"))
 def _open_games_panel(message):
     uid = str(message.from_user.id)
     if not _is_admin(uid):
@@ -142,14 +298,22 @@ def _open_games_panel(message):
     _show_games_panel(message.chat.id)
 
 
+@bot.message_handler(commands=["games", "interactive_games"])
+def _open_games_panel_cmd(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid):
+        return
+    _show_games_panel(message.chat.id)
+
+
 # =====================================================================
-# 🖱️ كولباك الأدمن
+# Admin callbacks
 # =====================================================================
 @bot.callback_query_handler(func=lambda c: c.data.startswith("igadm_"))
 def _games_admin_cb(call):
     uid = str(call.from_user.id)
     if not _is_admin(uid):
-        return bot.answer_callback_query(call.id, "❌ صلاحيات الإدارة فقط", show_alert=True)
+        return bot.answer_callback_query(call.id, "Admin access only", show_alert=True)
 
     data = call.data
     chat_id = call.message.chat.id
@@ -158,20 +322,34 @@ def _games_admin_cb(call):
     if data == "igadm_refresh":
         return _show_games_panel(chat_id, msg_id)
 
+    if data == "igadm_reports":
+        ig = bot_config.setdefault("interactive_games", {})
+        ig["admin_reports"] = not ig.get("admin_reports", True)
+        save_json(DB_CONFIG, bot_config)
+        bot.answer_callback_query(call.id, f"Admin reports: {'On' if ig['admin_reports'] else 'Off'}")
+        return _show_games_panel(chat_id, msg_id)
+
     if data == "igadm_setchat":
-        msg = bot.send_message(chat_id, "📩 مرّر (Forward) أي رسالة من مجموعة الألعاب، أو أرسل الـ ID الرقمي (سالب) مباشرة:")
+        msg = bot.send_message(
+            chat_id,
+            "Send a forwarded message from the linked discussion group, "
+            "or send the numeric group ID. The group ID is usually negative.",
+        )
         bot.register_next_step_handler(msg, _process_set_chat)
         return
 
     if data == "igadm_newreact":
         temp_setup[uid] = {"type": "react"}
-        msg = bot.send_message(chat_id, "📝 اكتب نص إعلان اللعبة (مثال: تفاعل معنا واربح جوائز رائعة!):")
+        msg = bot.send_message(chat_id, "Write the reaction game announcement text:")
         bot.register_next_step_handler(msg, _process_react_text)
         return
 
     if data == "igadm_newrace":
         temp_setup[uid] = {"type": "race"}
-        msg = bot.send_message(chat_id, "✍️ اكتب الكلمة أو الإيموجي الذي يجب على المستخدمين كتابته في التعليقات:")
+        msg = bot.send_message(
+            chat_id,
+            "Send the correct word, number, or phrase that users must write in comments:",
+        )
         bot.register_next_step_handler(msg, _process_race_keyword)
         return
 
@@ -179,74 +357,412 @@ def _games_admin_cb(call):
         return _show_active_list(chat_id, msg_id)
 
     if data.startswith("igadm_end_r_"):
-        gid = data.split("igadm_end_r_")[1]
+        gid = data.split("igadm_end_r_", 1)[1]
         g = bot_config.get("interactive_games", {}).get("reaction_games", {}).get(gid)
         if g:
             g["status"] = "ended"
             save_json(DB_CONFIG, bot_config)
-        bot.answer_callback_query(call.id, "✅ تم إنهاء اللعبة (النقاط الممنوحة تبقى)")
+        bot.answer_callback_query(call.id, "Reaction game ended")
         return _show_active_list(chat_id, msg_id)
 
     if data.startswith("igadm_cancel_r_"):
-        gid = data.split("igadm_cancel_r_")[1]
+        gid = data.split("igadm_cancel_r_", 1)[1]
         g = bot_config.get("interactive_games", {}).get("reaction_games", {}).get(gid)
         if g:
             for wuid, w in list(g.get("winners", {}).items()):
-                pts = w.get("points", 0)
-                update_user_data(wuid, points=-pts, accumulated_points=-pts)
+                pts = int(w.get("points", 0) or 0)
+                if pts:
+                    update_user_data(wuid, points=-pts, accumulated_points=-pts)
             g["status"] = "cancelled"
             g["winners"] = {}
             save_json(DB_CONFIG, bot_config)
-        bot.answer_callback_query(call.id, "🗑️ أُلغيت اللعبة واسترجعت كل النقاط الممنوحة", show_alert=True)
+        bot.answer_callback_query(call.id, "Reaction game cancelled and points reverted", show_alert=True)
         return _show_active_list(chat_id, msg_id)
 
     if data.startswith("igadm_end_c_"):
-        rid = data.split("igadm_end_c_")[1]
-        r = bot_config.get("interactive_games", {}).get("race_games", {}).get(rid)
-        if r:
-            r["status"] = "ended"
+        gid = data.split("igadm_end_c_", 1)[1]
+        g = bot_config.get("interactive_games", {}).get("race_games", {}).get(gid)
+        if g:
+            g["status"] = "ended"
             save_json(DB_CONFIG, bot_config)
-        bot.answer_callback_query(call.id, "✅ تم إنهاء السباق")
+        bot.answer_callback_query(call.id, "Comment race ended")
         return _show_active_list(chat_id, msg_id)
 
     if data.startswith("igadm_cancel_c_"):
-        rid = data.split("igadm_cancel_c_")[1]
-        r = bot_config.get("interactive_games", {}).get("race_games", {}).get(rid)
-        if r:
-            for wuid, w in list(r.get("winners", {}).items()):
-                pts = w.get("points", 0)
-                update_user_data(wuid, points=-pts, accumulated_points=-pts)
-            r["status"] = "cancelled"
-            r["winners"] = {}
+        gid = data.split("igadm_cancel_c_", 1)[1]
+        g = bot_config.get("interactive_games", {}).get("race_games", {}).get(gid)
+        if g:
+            for wuid, w in list(g.get("winners", {}).items()):
+                pts = int(w.get("points", 0) or 0)
+                if pts:
+                    update_user_data(wuid, points=-pts, accumulated_points=-pts)
+            g["status"] = "cancelled"
+            g["winners"] = {}
             save_json(DB_CONFIG, bot_config)
-        bot.answer_callback_query(call.id, "🗑️ أُلغي السباق واسترجعت كل النقاط الممنوحة", show_alert=True)
+        bot.answer_callback_query(call.id, "Comment race cancelled and points reverted", show_alert=True)
         return _show_active_list(chat_id, msg_id)
 
+    if data.startswith("igadm_winners_r_"):
+        gid = data.split("igadm_winners_r_", 1)[1]
+        return _show_winners(chat_id, msg_id, "reaction", gid)
 
+    if data.startswith("igadm_winners_c_"):
+        gid = data.split("igadm_winners_c_", 1)[1]
+        return _show_winners(chat_id, msg_id, "race", gid)
+
+
+# =====================================================================
+# Setup steps
+# =====================================================================
+def _process_set_chat(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid):
+        return
+
+    chat_id = None
+    if getattr(message, "forward_from_chat", None):
+        chat_id = message.forward_from_chat.id
+    elif getattr(message, "forward_origin", None):
+        origin = message.forward_origin
+        chat = getattr(origin, "chat", None)
+        if chat:
+            chat_id = chat.id
+    else:
+        txt = (message.text or "").strip()
+        try:
+            chat_id = int(txt)
+        except Exception:
+            chat_id = None
+
+    if not chat_id:
+        bot.send_message(message.chat.id, "Could not read the group ID. Please try again.")
+        return
+
+    ig = bot_config.setdefault("interactive_games", {})
+    ig["games_chat_id"] = chat_id
+    save_json(DB_CONFIG, bot_config)
+    bot.send_message(
+        message.chat.id,
+        f"Games discussion group saved successfully.\nGroup ID: {chat_id}",
+    )
+
+
+def _process_react_text(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    temp_setup[uid]["text"] = _extract_message_text(message)
+    msg = bot.send_message(message.chat.id, "Which emoji should users react with? Example: ❤️")
+    bot.register_next_step_handler(msg, _process_react_emoji)
+
+
+def _process_react_emoji(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    temp_setup[uid]["emoji"] = _extract_message_text(message)[:8]
+    msg = bot.send_message(message.chat.id, "How many points should each winner receive?")
+    bot.register_next_step_handler(msg, _process_react_points)
+
+
+def _process_react_points(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    try:
+        pts = int((message.text or "").strip())
+        if pts <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "Please send a valid positive number.")
+        bot.register_next_step_handler(msg, _process_react_points)
+        return
+    temp_setup[uid]["points"] = pts
+    msg = bot.send_message(message.chat.id, "How many winners are allowed? Send 0 for unlimited.")
+    bot.register_next_step_handler(msg, _finish_react_game)
+
+
+def _finish_react_game(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    try:
+        max_winners = int((message.text or "0").strip())
+        if max_winners < 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "Please send a valid number. Use 0 for unlimited.")
+        bot.register_next_step_handler(msg, _finish_react_game)
+        return
+
+    ig = bot_config.setdefault("interactive_games", {})
+    games_chat_id = ig.get("games_chat_id")
+    if not games_chat_id:
+        temp_setup.pop(uid, None)
+        bot.send_message(message.chat.id, "Set the games discussion group first.")
+        return
+
+    setup = temp_setup.pop(uid)
+    gid = _new_game_id("react")
+    announcement = (
+        f"{setup['text']}\n\n"
+        f"React with: {setup['emoji']}\n"
+        f"Reward: {setup['points']} points"
+    )
+    sent = _safe_send(games_chat_id, announcement)
+    if not sent:
+        bot.send_message(message.chat.id, "Could not publish the game. Check bot permissions.")
+        return
+
+
+    ig.setdefault("reaction_games", {})[gid] = {
+        "id": gid,
+        "status": "active",
+        "text": setup["text"],
+        "emoji": setup["emoji"],
+        "points": setup["points"],
+        "max_winners": max_winners,
+        "chat_id": games_chat_id,
+        "message_id": sent.message_id,
+        "created_by": uid,
+        "created_at": datetime.now().isoformat(),
+        "winners": {},
+    }
+    save_json(DB_CONFIG, bot_config)
+    bot.send_message(
+        message.chat.id,
+        f"Reaction game published.\nGame ID: {gid}\nMessage ID: {sent.message_id}",
+    )
+
+
+def _process_race_keyword(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    keyword = _extract_message_text(message)
+    if not keyword:
+        msg = bot.send_message(message.chat.id, "The answer cannot be empty. Send it again:")
+        bot.register_next_step_handler(msg, _process_race_keyword)
+        return
+    temp_setup[uid]["keyword"] = keyword
+    msg = bot.send_message(message.chat.id, "How many points should the correct answer receive?")
+    bot.register_next_step_handler(msg, _process_race_points)
+
+
+def _process_race_points(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    try:
+        pts = int((message.text or "").strip())
+        if pts <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "Please send a valid positive number.")
+        bot.register_next_step_handler(msg, _process_race_points)
+        return
+    temp_setup[uid]["points"] = pts
+    msg = bot.send_message(message.chat.id, "How many winners are allowed? Send 1 for first correct answer only.")
+    bot.register_next_step_handler(msg, _process_race_winners)
+
+
+def _process_race_winners(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    try:
+        max_winners = int((message.text or "1").strip())
+        if max_winners <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "Please send a valid positive number.")
+        bot.register_next_step_handler(msg, _process_race_winners)
+        return
+    temp_setup[uid]["max_winners"] = max_winners
+    msg = bot.send_message(
+        message.chat.id,
+        "Send the public race title/announcement.\n"
+        "Tip: do not include the secret answer unless you want users to see it.",
+    )
+    bot.register_next_step_handler(msg, _process_race_title)
+
+
+def _process_race_title(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+    title = _extract_message_text(message) or "Comment Race"
+    temp_setup[uid]["title"] = title
+    m = types.InlineKeyboardMarkup(row_width=1)
+    m.add(types.InlineKeyboardButton("Publish race message in discussion group", callback_data="igrace_pub"))
+    m.add(types.InlineKeyboardButton("Bind race to an existing channel post comments", callback_data="igrace_bind"))
+    bot.send_message(
+        message.chat.id,
+        "Choose where the bot should watch for correct answers:",
+        reply_markup=m,
+    )
+
+
+@bot.callback_query_handler(func=lambda c: c.data in ("igrace_pub", "igrace_bind"))
+def _race_publish_mode_cb(call):
+    uid = str(call.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return bot.answer_callback_query(call.id, "No pending race setup", show_alert=True)
+
+    if call.data == "igrace_pub":
+        bot.answer_callback_query(call.id, "Publishing race")
+        return _finish_race_game(call.message, publish=True)
+
+    bot.answer_callback_query(call.id)
+    msg = bot.send_message(
+        call.message.chat.id,
+        "Now go to the linked discussion group and forward/copy the channel post message "
+        "as it appears there, or send its discussion message ID.\n\n"
+        "The bot will accept correct replies/comments under that exact message.",
+    )
+    bot.register_next_step_handler(msg, _process_race_target_message)
+
+
+def _process_race_target_message(message):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+
+    ig = bot_config.get("interactive_games", {})
+    games_chat_id = ig.get("games_chat_id")
+    if not games_chat_id:
+        temp_setup.pop(uid, None)
+        bot.send_message(message.chat.id, "Set the games discussion group first.")
+        return
+
+    target_message_id = None
+    target_chat_id = games_chat_id
+
+    if message.forward_from_chat or getattr(message, "forward_origin", None):
+        # If the admin forwards the automatic channel post from the discussion
+        # group, Telegram often keeps the forwarded message ID in this message.
+        target_message_id = getattr(message, "forward_from_message_id", None)
+    if not target_message_id and message.reply_to_message:
+        target_message_id = message.reply_to_message.message_id
+        target_chat_id = message.chat.id
+    if not target_message_id:
+        try:
+            target_message_id = int((message.text or "").strip())
+        except Exception:
+            target_message_id = None
+
+    if not target_message_id:
+        msg = bot.send_message(
+            message.chat.id,
+            "Could not detect the target message. Send the discussion message ID only, or reply to the target message.",
+        )
+        bot.register_next_step_handler(msg, _process_race_target_message)
+        return
+
+    temp_setup[uid]["target_chat_id"] = target_chat_id
+    temp_setup[uid]["target_message_id"] = target_message_id
+    _finish_race_game(message, publish=False)
+
+
+def _finish_race_game(message, publish=False):
+    uid = str(message.from_user.id)
+    if not _is_admin(uid) or uid not in temp_setup:
+        return
+
+    ig = bot_config.setdefault("interactive_games", {})
+    games_chat_id = ig.get("games_chat_id")
+    if not games_chat_id:
+        temp_setup.pop(uid, None)
+        bot.send_message(message.chat.id, "Set the games discussion group first.")
+        return
+
+    setup = temp_setup.pop(uid)
+    gid = _new_game_id("race")
+    target_chat_id = setup.get("target_chat_id") or games_chat_id
+    target_message_id = setup.get("target_message_id")
+    sent = None
+
+    if publish:
+        public_text = (
+            f"{setup['title']}\n\n"
+            "Write the correct answer in a reply/comment under this message.\n"
+            f"Reward: {setup['points']} points\n"
+            f"Winners: {setup['max_winners']}"
+        )
+        sent = _safe_send(games_chat_id, public_text)
+        if not sent:
+            bot.send_message(message.chat.id, "Could not publish the race. Check bot permissions.")
+            return
+        target_chat_id = games_chat_id
+        target_message_id = sent.message_id
+
+    ig.setdefault("race_games", {})[gid] = {
+        "id": gid,
+        "status": "active",
+        "title": setup["title"],
+        "keyword": setup["keyword"],
+        "keyword_norm": _normalize_answer(setup["keyword"]),
+        "points": setup["points"],
+        "max_winners": setup["max_winners"],
+        "chat_id": target_chat_id,
+        "message_id": target_message_id,
+        "created_by": uid,
+        "created_at": datetime.now().isoformat(),
+        "mode": "published" if publish else "bound_channel_comments",
+        "winners": {},
+        "winner_order": [],
+    }
+    save_json(DB_CONFIG, bot_config)
+
+    bot.send_message(
+        message.chat.id,
+        "Comment race is active.\n"
+        f"Game ID: {gid}\n"
+        f"Watching chat ID: {target_chat_id}\n"
+        f"Watching replies to message ID: {target_message_id}",
+    )
+
+
+# =====================================================================
+# Lists and winner views
+# =====================================================================
 def _show_active_list(chat_id, msg_id=None):
     ig = bot_config.get("interactive_games", {})
-    rg = ig.get("reaction_games", {})
-    cg = ig.get("race_games", {})
     m = types.InlineKeyboardMarkup(row_width=1)
-    txt = "📋 ━━ الألعاب ━━ \n\n"
-    found = False
-    for gid, g in rg.items():
-        if g.get("status") not in ("active", "full"):
+    lines = ["Active games", ""]
+
+    has_games = False
+    for gid, g in ig.get("reaction_games", {}).items():
+        if g.get("status") != "active":
             continue
-        found = True
-        txt += f"🔥 {gid} | {g.get('emoji')} | 👥 {len(g.get('winners', {}))}/{g.get('max_winners')} | 💎{g.get('points')} | {g.get('status')}\n"
-        m.add(types.InlineKeyboardButton(f"⏹️ إنهاء {gid}", callback_data=f"igadm_end_r_{gid}"))
-        m.add(types.InlineKeyboardButton(f"🗑️ إلغاء واسترجاع {gid}", callback_data=f"igadm_cancel_r_{gid}"))
-    for rid, r in cg.items():
-        if r.get("status") != "active":
+        has_games = True
+        lines.append(
+            f"Reaction: {gid}\nEmoji: {g.get('emoji')} | Points: {g.get('points')} | Winners: {len(g.get('winners', {}))}"
+        )
+        m.add(types.InlineKeyboardButton(f"Winners reaction {gid}", callback_data=f"igadm_winners_r_{gid}"))
+        m.add(
+            types.InlineKeyboardButton(f"End reaction {gid}", callback_data=f"igadm_end_r_{gid}"),
+            types.InlineKeyboardButton(f"Cancel reaction {gid}", callback_data=f"igadm_cancel_r_{gid}"),
+        )
+
+    for gid, g in ig.get("race_games", {}).items():
+        if g.get("status") != "active":
             continue
-        found = True
-        txt += f"🏁 {rid} | '{r.get('keyword')}' | 👥 {len(r.get('winners', {}))}/{r.get('max_winners')} | 💎{r.get('points')}\n"
-        m.add(types.InlineKeyboardButton(f"⏹️ إنهاء {rid}", callback_data=f"igadm_end_c_{rid}"))
-        m.add(types.InlineKeyboardButton(f"🗑️ إلغاء واسترجاع {rid}", callback_data=f"igadm_cancel_c_{rid}"))
-    if not found:
-        txt += "📭 لا توجد ألعاب نشطة حالياً"
-    m.add(types.InlineKeyboardButton("🔙 رجوع", callback_data="igadm_refresh"))
+        has_games = True
+        lines.append(
+            f"Race: {gid}\nTitle: {g.get('title')} | Points: {g.get('points')} | Winners: {len(g.get('winners', {}))}/{g.get('max_winners')}"
+        )
+        m.add(types.InlineKeyboardButton(f"Winners race {gid}", callback_data=f"igadm_winners_c_{gid}"))
+        m.add(
+            types.InlineKeyboardButton(f"End race {gid}", callback_data=f"igadm_end_c_{gid}"),
+            types.InlineKeyboardButton(f"Cancel race {gid}", callback_data=f"igadm_cancel_c_{gid}"),
+        )
+
+    if not has_games:
+        lines.append("No active games right now.")
+    m.add(types.InlineKeyboardButton("Back", callback_data="igadm_refresh"))
+    txt = "\n\n".join(lines)
+
     if msg_id:
         try:
             bot.edit_message_text(txt, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
@@ -256,273 +772,236 @@ def _show_active_list(chat_id, msg_id=None):
     bot.send_message(chat_id, txt, reply_markup=m, parse_mode="HTML")
 
 
-# =====================================================================
-# 📥 خطوات إنشاء لعبة (Next Step Handlers)
-# =====================================================================
-def _process_set_chat(message):
-    uid = str(message.from_user.id)
-    if not _is_admin(uid):
+def _show_winners(chat_id, msg_id, game_type, gid):
+    ig = bot_config.get("interactive_games", {})
+    group = "reaction_games" if game_type == "reaction" else "race_games"
+    g = ig.get(group, {}).get(gid)
+    if not g:
+        bot.send_message(chat_id, "Game not found.")
         return
-    chat_id_val = None
-    if getattr(message, "forward_from_chat", None):
-        chat_id_val = message.forward_from_chat.id
+
+    lines = [f"Winners for {gid}", ""]
+    winners = g.get("winners", {})
+    order = g.get("winner_order", list(winners.keys()))
+    if not winners:
+        lines.append("No winners yet.")
     else:
-        try:
-            chat_id_val = int(message.text.strip())
-        except Exception:
-            pass
-    if not chat_id_val:
-        bot.send_message(message.chat.id, "❌ لم أستطع تحديد المجموعة، حاول مجدداً من القائمة")
-        return
-    bot_config["interactive_games"]["games_chat_id"] = chat_id_val
-    save_json(DB_CONFIG, bot_config)
-    bot.send_message(message.chat.id, f"✅ تم تعيين مجموعة الألعاب بنجاح: {chat_id_val}\n\n⚠️ تأكد أن البوت أدمن في تلك المجموعة!")
+        for idx, wuid in enumerate(order, start=1):
+            w = winners.get(str(wuid), {})
+            lines.append(
+                f"{idx}. {w.get('display', wuid)}\n"
+                f"ID: {wuid}\n"
+                f"Points: {w.get('points')}\n"
+                f"Answer: {w.get('answer', '-')}\n"
+                f"Time: {w.get('time', '-')}"
+            )
 
-
-def _process_react_text(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
-    temp_setup[uid]["text"] = message.text
-    msg = bot.send_message(message.chat.id, "😀 أرسل الآن الإيموجي المطلوب للتفاعل (مثال: 🔥):")
-    bot.register_next_step_handler(msg, _process_react_emoji)
-
-
-def _process_react_emoji(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
-    temp_setup[uid]["emoji"] = message.text.strip()
-    msg = bot.send_message(message.chat.id, "💎 كم نقطة يحصل عليها كل فائز؟")
-    bot.register_next_step_handler(msg, _process_react_points)
-
-
-def _process_react_points(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton("Back", callback_data="igadm_list"))
+    txt = "\n\n".join(lines)
     try:
-        temp_setup[uid]["points"] = int(message.text.strip())
+        bot.edit_message_text(txt, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except Exception:
-        bot.send_message(message.chat.id, "❌ أرقام فقط، ابدأ من جديد من القائمة")
-        temp_setup.pop(uid, None)
-        return
-    msg = bot.send_message(message.chat.id, "👥 كم عدد الفائزين الأوائل المسموح؟ (مثال: 4)")
-    bot.register_next_step_handler(msg, _process_react_maxwin)
-
-
-def _process_react_maxwin(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
-    try:
-        max_w = int(message.text.strip())
-    except Exception:
-        bot.send_message(message.chat.id, "❌ أرقام فقط")
-        temp_setup.pop(uid, None)
-        return
-    setup = temp_setup.pop(uid)
-    ig = bot_config.setdefault("interactive_games", {})
-    gcid = ig.get("games_chat_id")
-    if not gcid:
-        bot.send_message(message.chat.id, "❌ يجب تعيين مجموعة الألعاب أولاً (⚙️ تعيين مجموعة الألعاب)")
-        return
-    gid = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
-    text_final = (
-        "╔═══════════════════════╗\n"
-        "║    🔥 لعبة تفاعل! 🔥    ║\n"
-        "╚═══════════════════════╝\n\n"
-        f"{setup['text']}\n\n"
-        f"👇 تفاعل بـ {setup['emoji']} على هذه الرسالة بالضبط\n"
-        f"💎 الجائزة: {setup['points']} نقطة لكل فائز\n"
-        f"👥 أول {max_w} فقط يفوزون!\n\n"
-        "⚠️ إذا أزلت تفاعلك لاحقاً، ستُسحب نقاطك تلقائياً!"
-    )
-    try:
-        sent = bot.send_message(gcid, text_final, parse_mode="HTML")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ فشل النشر في المجموعة: {e}")
-        return
-    ig.setdefault("reaction_games", {})[gid] = {
-        "chat_id": gcid, "message_id": sent.message_id, "emoji": setup["emoji"],
-        "points": setup["points"], "max_winners": max_w, "winners": {},
-        "status": "active", "text": setup["text"], "created_at": datetime.now().isoformat()
-    }
-    save_json(DB_CONFIG, bot_config)
-    bot.send_message(message.chat.id, f"✅ نُشرت اللعبة بنجاح! 🆔 {gid}")
-
-
-def _process_race_keyword(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
-    temp_setup[uid]["keyword"] = message.text.strip()
-    msg = bot.send_message(message.chat.id, "💎 كم نقطة يحصل عليها كل فائز؟")
-    bot.register_next_step_handler(msg, _process_race_points)
-
-
-def _process_race_points(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
-    try:
-        temp_setup[uid]["points"] = int(message.text.strip())
-    except Exception:
-        bot.send_message(message.chat.id, "❌ أرقام فقط")
-        temp_setup.pop(uid, None)
-        return
-    msg = bot.send_message(message.chat.id, "👥 كم عدد الفائزين؟ (مثال: 4)")
-    bot.register_next_step_handler(msg, _process_race_maxwin)
-
-
-def _process_race_maxwin(message):
-    uid = str(message.from_user.id)
-    if uid not in temp_setup:
-        return
-    try:
-        max_w = int(message.text.strip())
-    except Exception:
-        bot.send_message(message.chat.id, "❌ أرقام فقط")
-        temp_setup.pop(uid, None)
-        return
-    setup = temp_setup.pop(uid)
-    ig = bot_config.setdefault("interactive_games", {})
-    gcid = ig.get("games_chat_id")
-    if not gcid:
-        bot.send_message(message.chat.id, "❌ يجب تعيين مجموعة الألعاب أولاً")
-        return
-    rid = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
-    text_final = (
-        "╔═══════════════════════╗\n"
-        "║   🏁 سباق التعليقات! 🏁   ║\n"
-        "╚═══════════════════════╝\n\n"
-        f"✍️ أول {max_w} أشخاص يكتبون:\n\n"
-        f"👉 {setup['keyword']} 👈\n\n"
-        f"💎 الجائزة: {setup['points']} نقطة لكل فائز\n\n"
-        "🏃 استعدوا... انطلقوا!"
-    )
-    try:
-        sent = bot.send_message(gcid, text_final, parse_mode="HTML")
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ فشل النشر: {e}")
-        return
-    ig.setdefault("race_games", {})[rid] = {
-        "chat_id": gcid, "keyword": setup["keyword"], "points": setup["points"],
-        "max_winners": max_w, "winners": {}, "status": "active",
-        "created_at": datetime.now().isoformat()
-    }
-    save_json(DB_CONFIG, bot_config)
-    bot.send_message(message.chat.id, f"✅ انطلق السباق بنجاح! 🆔 {rid}")
+        bot.send_message(chat_id, txt, reply_markup=m, parse_mode="HTML")
 
 
 # =====================================================================
-# 🎯 مُعالج تحديثات التفاعل (Reactions) — القلب الحقيقي للعبة
+# Comment race answer handler
 # =====================================================================
-@bot.message_reaction_handler(func=lambda upd: True)
-def _on_reaction(upd):
+def _is_potential_race_answer(message):
     try:
-        if not getattr(upd, "user", None):
-            return  # تفاعل مجهول (قناة / أدمن مجهول) — نتجاهله لعدم القدرة على تحديد الهوية
-        uid = str(upd.user.id)
-        games = bot_config.get("interactive_games", {}).get("reaction_games", {})
-        for gid, g in games.items():
-            if g.get("status") != "active":
-                continue
-            if g.get("chat_id") != upd.chat.id or g.get("message_id") != upd.message_id:
-                continue
+        if not getattr(message, "from_user", None):
+            return False
+        if _is_admin(message.from_user.id):
+            return False
+        if not _is_games_chat(message):
+            return False
+        if not getattr(message, "reply_to_message", None):
+            return False
+        if not _extract_message_text(message):
+            return False
 
-            target = g.get("emoji")
-            new_set = {r.emoji for r in (upd.new_reaction or []) if getattr(r, "emoji", None)}
-            old_set = {r.emoji for r in (upd.old_reaction or []) if getattr(r, "emoji", None)}
-            winners = g.setdefault("winners", {})
-
-            # ✅ إضافة رياكشن الهدف = فوز بنقاط
-            if target in new_set and target not in old_set:
-                if uid in winners or len(winners) >= g.get("max_winners", 0):
-                    continue
-                pts = g.get("points", 0)
-                update_user_data(uid, points=pts, accumulated_points=pts)
-                update_user_rank_and_quests(uid)
-                winners[uid] = {"points": pts, "time": datetime.now().isoformat(), "place": len(winners) + 1}
-                save_json(DB_CONFIG, bot_config)
-                try:
-                    bot.send_message(int(uid), f"🎉 مبروك! فزت بـ {pts} 💎 لتفاعلك بـ {target} في لعبة القناة!", parse_mode="HTML")
-                except Exception:
-                    pass
-                if len(winners) >= g.get("max_winners", 0):
-                    g["status"] = "full"
-                    save_json(DB_CONFIG, bot_config)
-                    try:
-                        bot.send_message(g["chat_id"], "🏁 اكتملت اللعبة! تم توزيع كل الجوائز 🎉", reply_to_message_id=g["message_id"])
-                    except Exception:
-                        pass
-
-            # ⚠️ إزالة رياكشن الهدف = سحب النقاط تلقائياً (طلب الأدمن)
-            elif target in old_set and target not in new_set:
-                if uid in winners:
-                    pts = winners[uid].get("points", 0)
-                    update_user_data(uid, points=-pts, accumulated_points=-pts)
-                    del winners[uid]
-                    if g.get("status") == "full":
-                        g["status"] = "active"  # فتح مكان جديد
-                    save_json(DB_CONFIG, bot_config)
-                    try:
-                        bot.send_message(int(uid), f"⚠️ تم سحب {pts} 💎 منك لأنك أزلت تفاعلك بـ {target}", parse_mode="HTML")
-                    except Exception:
-                        pass
-    except Exception as e:
-        print(f"⚠️ bot6 reaction handler error: {e}")
-
-
-# =====================================================================
-# 🏁 مُعالج سباق التعليقات (رسائل نصية داخل مجموعة الألعاب)
-# =====================================================================
-@bot.message_handler(func=_is_games_chat, content_types=['text'])
-def _on_race_message(message):
-    try:
-        if not message.from_user:
-            return
-        uid = str(message.from_user.id)
-        txt = (message.text or "").strip().lower()
+        reply_to_id = message.reply_to_message.message_id
+        chat_id = message.chat.id
         races = bot_config.get("interactive_games", {}).get("race_games", {})
-        for rid, r in races.items():
-            if r.get("status") != "active" or r.get("chat_id") != message.chat.id:
+        for game in races.values():
+            if game.get("status") != "active":
                 continue
-            keyword = (r.get("keyword") or "").strip().lower()
-            if not keyword or keyword != txt:
-                continue
-            winners = r.setdefault("winners", {})
-            if uid in winners or len(winners) >= r.get("max_winners", 0):
-                continue
-            pts = r.get("points", 0)
-            place = len(winners) + 1
-            winners[uid] = {
-                "points": pts, "place": place, "time": datetime.now().isoformat(),
-                "username": message.from_user.username or message.from_user.first_name
-            }
-            update_user_data(uid, points=pts, accumulated_points=pts)
-            update_user_rank_and_quests(uid)
-            save_json(DB_CONFIG, bot_config)
-            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(place, "🏅")
-            try:
-                bot.reply_to(message, f"{medal} مبروك! أنت الفائز رقم {place}!\n💎 +{pts} نقطة أُضيفت لرصيدك فوراً!", parse_mode="HTML")
-            except Exception:
-                pass
-            if len(winners) >= r.get("max_winners", 0):
-                r["status"] = "ended"
-                save_json(DB_CONFIG, bot_config)
-                try:
-                    bot.send_message(message.chat.id, "🏁 انتهى السباق! تم الحصول على جميع الجوائز 🎉", parse_mode="HTML")
-                except Exception:
-                    pass
+            if int(game.get("chat_id")) == int(chat_id) and int(game.get("message_id")) == int(reply_to_id):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+@bot.message_handler(
+    content_types=["text", "photo", "video", "document", "animation", "sticker"],
+    func=_is_potential_race_answer,
+)
+def _handle_comment_race_answer(message):
+    if not getattr(message, "from_user", None):
+        return
+    if _is_admin(message.from_user.id):
+        # Admin answers should not accidentally win their own setup.
+        return
+    if not _is_games_chat(message):
+        return
+    if not getattr(message, "reply_to_message", None):
+        return
+
+    answer = _extract_message_text(message)
+    if not answer:
+        return
+    answer_norm = _normalize_answer(answer)
+    reply_to_id = message.reply_to_message.message_id
+    chat_id = message.chat.id
+
+    ig = bot_config.setdefault("interactive_games", {})
+    races = ig.setdefault("race_games", {})
+    changed = False
+
+    for gid, game in list(races.items()):
+        if game.get("status") != "active":
+            continue
+        if int(game.get("chat_id")) != int(chat_id):
+            continue
+        if int(game.get("message_id")) != int(reply_to_id):
+            continue
+        if answer_norm != game.get("keyword_norm", _normalize_answer(game.get("keyword"))):
+            continue
+
+        uid = str(message.from_user.id)
+        if uid in game.get("winners", {}):
+            _safe_reply(message, "You already won this race. Your points were already added.")
+            return
+
+        winners = game.setdefault("winners", {})
+        winner_order = game.setdefault("winner_order", [])
+        max_winners = int(game.get("max_winners", 1) or 1)
+        if len(winners) >= max_winners:
+            game["status"] = "ended"
+            changed = True
+            continue
+
+        points = int(game.get("points", 0) or 0)
+        _award_points(uid, points)
+
+        dm = _send_winner_dm(uid, points, game.get("title", "Comment race"), answer, gid)
+        dm_sent = bool(dm)
+        _try_react_to_answer(message)
+
+        winners[uid] = {
+            "uid": uid,
+            "display": _display_user(message.from_user),
+            "username": getattr(message.from_user, "username", None),
+            "points": points,
+            "answer": answer,
+            "message_id": message.message_id,
+            "chat_id": chat_id,
+            "dm_sent": dm_sent,
+            "time": datetime.now().isoformat(),
+        }
+        winner_order.append(uid)
+
+        _safe_reply(
+            message,
+            "Correct answer!\n"
+            f"Congratulations {_display_user(message.from_user)}.\n"
+            f"You received {points} points.",
+        )
+        _send_admin_report(game, message, points, dm_sent)
+
+        if len(winners) >= max_winners:
+            game["status"] = "ended"
+            _safe_send(
+                chat_id,
+                f"The comment race is now finished. Winners reached: {len(winners)}/{max_winners}.",
+            )
+
+        changed = True
+        break
+
+    if changed:
+        save_json(DB_CONFIG, bot_config)
+
+
+# =====================================================================
+# Reaction game handler
+# =====================================================================
+@bot.message_reaction_handler(func=lambda r: True)
+def _handle_reaction_game(reaction):
+    try:
+        chat_id = reaction.chat.id
+        message_id = reaction.message_id
+        user = reaction.user
+    except Exception:
+        return
+
+    if not user or _is_admin(user.id):
+        return
+
+    ig = bot_config.setdefault("interactive_games", {})
+    games = ig.setdefault("reaction_games", {})
+    changed = False
+
+    for gid, game in list(games.items()):
+        if game.get("status") != "active":
+            continue
+        if int(game.get("chat_id")) != int(chat_id):
+            continue
+        if int(game.get("message_id")) != int(message_id):
+            continue
+
+        new_reactions = getattr(reaction, "new_reaction", []) or []
+        wanted = game.get("emoji")
+        matched = False
+        for r in new_reactions:
+            emoji = getattr(r, "emoji", None)
+            if emoji == wanted:
+                matched = True
+                break
+        if not matched:
+            return
+
+        uid = str(user.id)
+        winners = game.setdefault("winners", {})
+        if uid in winners:
+            return
+
+        max_winners = int(game.get("max_winners", 0) or 0)
+        if max_winners and len(winners) >= max_winners:
+            game["status"] = "ended"
+            changed = True
             break
-    except Exception as e:
-        print(f"⚠️ bot6 race handler error: {e}")
+
+        points = int(game.get("points", 0) or 0)
+        _award_points(uid, points)
+        dm = _send_winner_dm(uid, points, "Reaction game", wanted, gid)
+
+        winners[uid] = {
+            "uid": uid,
+            "display": _display_user(user),
+            "username": getattr(user, "username", None),
+            "points": points,
+            "answer": wanted,
+            "message_id": message_id,
+            "chat_id": chat_id,
+            "dm_sent": bool(dm),
+            "time": datetime.now().isoformat(),
+        }
+
+        if max_winners and len(winners) >= max_winners:
+            game["status"] = "ended"
+
+        changed = True
+        break
+
+    if changed:
+        save_json(DB_CONFIG, bot_config)
 
 
 print("=" * 55)
-print("✅ bot6.py — ألعاب القناة التفاعلية جاهزة!")
-print("🔥 لعبة التفاعل بالإيموجي: نشطة")
-print("🏁 سباق التعليقات: نشط")
-print("📡 استقبال تحديثات Reactions: مُفعّل تلقائياً")
+print("bot6.py loaded: interactive games are active")
+print("Comment races watch replies under linked discussion messages")
+print("All user/admin messages in this module are English")
 print("=" * 55)
