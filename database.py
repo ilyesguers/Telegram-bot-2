@@ -125,11 +125,37 @@ save_json(DB_CONFIG, bot_config)
 # =====================================================
 # 🔌 الاتصال بقاعدة البيانات PostgreSQL
 # =====================================================
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("⚠️ WARNING: DATABASE_URL not set!")
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("DATABASE_PUBLIC_URL")
 
-engine = create_engine(DATABASE_URL)
+if not DATABASE_URL:
+    # Railway injects DATABASE_URL when a Postgres service is attached. Without
+    # it we fall back to a local file so the process still boots (and says why)
+    # instead of dying with an unreadable "create_engine(None)" traceback.
+    print("⚠️ WARNING: DATABASE_URL not set — falling back to local SQLite file!")
+    print("   ➜ On Railway: add a Postgres service and link it to this service.")
+    DATABASE_URL = "sqlite:///local_fallback.db"
+
+# Railway/Heroku still hand out the legacy 'postgres://' scheme, which
+# SQLAlchemy 2.x no longer recognises. Normalise it to 'postgresql://'.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+IS_SQLITE = DATABASE_URL.startswith("sqlite")
+
+_engine_options = {}
+if not IS_SQLITE:
+    # Managed Postgres drops idle connections; pre-ping + recycle keeps the
+    # long-running polling process from crashing on a stale socket.
+    _engine_options = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_size": 5,
+        "max_overflow": 5,
+    }
+else:
+    _engine_options = {"connect_args": {"check_same_thread": False}}
+
+engine = create_engine(DATABASE_URL, **_engine_options)
 
 # =====================================================
 # 🗄️ إنشاء الجداول
@@ -190,9 +216,24 @@ def init_db():
             ("referral_earnings", "INTEGER DEFAULT 0")
         ]
         
+        # SQLite has no "ADD COLUMN IF NOT EXISTS", so inspect the table first
+        # and only add what is genuinely missing. Works on both backends.
+        existing = set()
+        try:
+            if IS_SQLITE:
+                existing = {row[1] for row in conn.execute(text("PRAGMA table_info(users)"))}
+            else:
+                existing = {row[0] for row in conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'users'"))}
+        except Exception as e:
+            print(f"⚠️ تعذّر قراءة أعمدة الجدول: {e}")
+
         for col_name, col_def in missing_columns:
+            if col_name in existing:
+                continue
             try:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"))
             except Exception as e:
                 print(f"عمود {col_name}: {e}")
         
