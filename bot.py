@@ -31,7 +31,7 @@ from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_cla
                   verify_giveaway_captcha, process_giveaway_claim, get_all_giveaways,
                   cancel_giveaway, send_custom_channel_message, send_raw_channel_message,
                   delete_channel_message, format_giveaway_win_message, format_giveaway_error,
-                  get_giveaways_stats)
+                  get_giveaways_stats, show_vip_menu, show_stars_menu)
 
 # =====================================================
 # 🚀 تهيئة قاعدة البيانات
@@ -278,6 +278,32 @@ def show_main_menu(chat_id, uid, lang):
         except: pass
     
     bot.send_message(chat_id, "👇", reply_markup=get_main_keyboard(uid, lang))
+    # 🎨 القائمة الرئيسية الملونة (Inline Keyboard) — منظّمة وملوّنة مثل أزرار
+    # الاشتراك الإجباري، وتُرفق برسالة الترحيب أعلاه.
+    try:
+        bot.edit_message_reply_markup(chat_id, msg.message_id,
+                                      reply_markup=get_main_inline(uid, lang))
+    except Exception:
+        bot.send_message(chat_id, t(lang, "main_menu_title", name=name),
+                         reply_markup=get_main_inline(uid, lang), parse_mode="HTML")
+
+def send_mini_games_menu(chat_id, uid):
+    """Open the Mini Games centre from the inline main menu.
+
+    Mirrors bot4's text-button entry but is callable from a callback query
+    (which carries the user id on ``call.from_user`` rather than the message).
+    """
+    lang = bot4.get_user_lang(uid)
+    msg = f"{bot4.gt(lang, 'games_title')}\n\n<i>{bot4.gt(lang, 'games_desc')}</i>"
+    m = types.InlineKeyboardMarkup(row_width=1)
+    m.add(types.InlineKeyboardButton(bot4.gt(lang, "btn_rps"), callback_data="game_rps"))
+    m.add(types.InlineKeyboardButton(bot4.gt(lang, "btn_ttt"), callback_data="game_ttt"))
+    m.add(types.InlineKeyboardButton(bot4.gt(lang, "btn_hunt"), callback_data="game_hunt"))
+    m.add(
+        types.InlineKeyboardButton(bot4.gt(lang, "btn_stats"), callback_data="game_stats"),
+        types.InlineKeyboardButton(bot4.gt(lang, "btn_leaderboard"), callback_data="game_leaderboard")
+    )
+    bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 # =====================================================
 # 💬 معالجات دردشة التذاكر
@@ -1193,6 +1219,87 @@ def handle_callbacks(call):
             f"{t(lang, 'settings_title')}\n\n<i>{t(lang, 'settings_desc')}</i>",
             chat_id, msg_id, reply_markup=get_settings_menu(lang, u), parse_mode="HTML")
         except: pass
+        return
+
+    # ═══════════════════════════════════
+    # 🏠 القائمة الرئيسية الملونة (Inline)
+    # كل زر يفتح نفس القسم الفرعي الذي تفتحه أزرار Reply القديمة،
+    # مع الإبقاء على لوحة الأزرار القديمة للتوافق.
+    # ═══════════════════════════════════
+    if data == "main_account":
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id,
+            f"{t(lang, 'account_title')}\n\n<i>{t(lang, 'account_desc')}</i>",
+            reply_markup=get_account_menu(lang), parse_mode="HTML")
+        return
+
+    if data == "main_shop":
+        bot.answer_callback_query(call.id)
+        show_shop(call.message, uid, u, lang)
+        return
+
+    if data == "main_rewards":
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id,
+            f"{t(lang, 'rewards_title')}\n\n<i>{t(lang, 'rewards_desc')}</i>",
+            reply_markup=get_rewards_menu(lang), parse_mode="HTML")
+        return
+
+    if data == "main_entertainment":
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id,
+            f"{t(lang, 'entertainment_title')}\n\n<i>{t(lang, 'entertainment_desc')}</i>",
+            reply_markup=get_entertainment_menu(lang), parse_mode="HTML")
+        return
+
+    if data == "main_support":
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id,
+            f"{t(lang, 'support_title')}\n\n<i>{t(lang, 'support_desc')}</i>",
+            reply_markup=get_support_menu(lang), parse_mode="HTML")
+        return
+
+    if data == "main_settings":
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id,
+            f"{t(lang, 'settings_title')}\n\n<i>{t(lang, 'settings_desc')}</i>",
+            reply_markup=get_settings_menu(lang, u), parse_mode="HTML")
+        return
+
+    if data == "main_vip":
+        bot.answer_callback_query(call.id)
+        show_vip_menu(chat_id, uid)
+        return
+
+    if data == "main_stars":
+        bot.answer_callback_query(call.id)
+        show_stars_menu(chat_id, uid)
+        return
+
+    if data == "main_minigames":
+        bot.answer_callback_query(call.id)
+        send_mini_games_menu(chat_id, uid)
+        return
+
+    if data == "main_admin":
+        if not is_admin(uid, u):
+            bot.answer_callback_query(call.id, "❌ للإدارة فقط", show_alert=True)
+            return
+        bot.answer_callback_query(call.id)
+        bot.send_message(chat_id,
+            f"╔═══════════════════╗\n"
+            f"║  👑 <b>ADMIN PANEL</b>  ║\n"
+            f"╚═══════════════════╝\n\n"
+            f"⚡ <i>Full control at your fingertips</i>",
+            reply_markup=get_admin_keyboard(), parse_mode="HTML")
+        return
+
+    if data == "main_close":
+        bot.answer_callback_query(call.id, "✅")
+        try:
+            bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+        except Exception:
+            pass
         return
 
     # ═══════════════════════════════════
