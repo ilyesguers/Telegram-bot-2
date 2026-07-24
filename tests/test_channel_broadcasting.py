@@ -74,21 +74,21 @@ class ChannelBroadcastingTests(unittest.TestCase):
         )
         self.assertTrue(all("NEW SALE" in delivery[1] for delivery in self.bot.messages))
 
-    def test_vip_channel_announcement_requires_more_than_twenty_stars(self):
-        self.assertEqual(utils.publish_vip_purchase_to_channels(20, "vip-20"), {})
-        self.assertEqual(self.bot.messages, [])
-
-        delivered = utils.publish_vip_purchase_to_channels(21, "vip-21")
+    def test_every_vip_purchase_is_sent_to_every_channel(self):
+        delivered = utils.publish_vip_purchase_to_channels(1, "vip-1")
         self.assertEqual(set(delivered), {"-10001", "-10002", "-10003"})
         self.assertEqual(len(self.bot.messages), 3)
 
-    def test_stars_purchase_is_sent_once_to_every_channel(self):
-        delivered = utils.publish_stars_conversion_to_channels(50, 100, "stars-50")
+    def test_stars_purchase_requires_more_than_twenty_and_is_sent_once(self):
+        self.assertEqual(utils.publish_stars_conversion_to_channels(20, 40, "stars-20"), {})
+        self.assertEqual(self.bot.messages, [])
+
+        delivered = utils.publish_stars_conversion_to_channels(21, 42, "stars-21")
         self.assertEqual(set(delivered), {"-10001", "-10002", "-10003"})
         self.assertEqual(len(self.bot.messages), 3)
 
         # A duplicate Telegram update must not create duplicate channel posts.
-        self.assertEqual(utils.publish_stars_conversion_to_channels(50, 100, "stars-50"), {})
+        self.assertEqual(utils.publish_stars_conversion_to_channels(21, 42, "stars-21"), {})
         self.assertEqual(len(self.bot.messages), 3)
 
 

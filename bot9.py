@@ -1447,8 +1447,7 @@ def bot9_handle_successful_payment(message):
                 f"👑 أهلاً بك!\n"
                 f"⏰ حتى: {expires.strftime('%Y-%m-%d')}", parse_mode="HTML")
 
-            # The marketing post is broadcast to every added channel only for
-            # a VIP payment strictly greater than 20 Telegram Stars.
+            # Every paid VIP purchase is broadcast to all added channels.
             publish_vip_purchase_to_channels(total_amount, charge_id)
             
             try:
@@ -1472,7 +1471,7 @@ def bot9_handle_successful_payment(message):
             bot.send_message(message.chat.id,
                 f"✅ تم!\n⭐ {stars} → 💎 {points}\n💰 رصيدك: {u_new.get('points', 0)}", parse_mode="HTML")
 
-            # Every paid Stars conversion is announced in all added channels.
+            # Only a Stars conversion above 20 is announced in all channels.
             publish_stars_conversion_to_channels(stars, points, charge_id)
             
             try:

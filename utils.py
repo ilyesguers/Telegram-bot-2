@@ -298,7 +298,7 @@ def send_typing_action(chat_id, duration=1):
 # يتم جمع القنوات من قائمتي الاشتراك الإجباري والقنوات المُدارة، مع إزالة
 # التكرار. لذلك فإن أي قناة أضيفت من لوحة الإدارة تستقبل جميع إعلانات
 # التسويق ورسائل القناة وإشعارات المبيعات تلقائياً.
-VIP_CHANNEL_ANNOUNCEMENT_MIN_STARS = 20
+STARS_CHANNEL_ANNOUNCEMENT_MIN_STARS = 20
 
 
 def get_publish_channels():
@@ -389,13 +389,7 @@ def _claim_payment_announcement(event_type, charge_id):
 
 
 def publish_vip_purchase_to_channels(stars_amount, charge_id=None):
-    """Announce a paid VIP purchase only when it is strictly above 20 Stars."""
-    try:
-        stars_amount = int(stars_amount)
-    except (TypeError, ValueError):
-        return {}
-    if stars_amount <= VIP_CHANNEL_ANNOUNCEMENT_MIN_STARS:
-        return {}
+    """Announce every paid VIP purchase in all added channels."""
     if not _claim_payment_announcement("vip", charge_id):
         return {}
 
@@ -428,7 +422,13 @@ def publish_vip_purchase_to_channels(stars_amount, charge_id=None):
 
 
 def publish_stars_conversion_to_channels(stars_amount, points_amount, charge_id=None):
-    """Announce a Stars-to-points purchase in every added channel once."""
+    """Announce a Stars conversion only when it is strictly above 20 Stars."""
+    try:
+        stars_amount = int(stars_amount)
+    except (TypeError, ValueError):
+        return {}
+    if stars_amount <= STARS_CHANNEL_ANNOUNCEMENT_MIN_STARS:
+        return {}
     if not _claim_payment_announcement("stars_conversion", charge_id):
         return {}
     try:

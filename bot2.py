@@ -732,11 +732,7 @@ def format_giveaway_error(reason, lang="ar"):
 # =====================================================
 
 def publish_vip_purchase_to_channel(stars_amount=0, charge_id=None):
-    """Compatibility wrapper for the all-channel VIP announcement.
-
-    VIP marketing is intentionally withheld for a payment of 20 Stars or
-    fewer; the required threshold is strictly greater than 20 Stars.
-    """
+    """Compatibility wrapper for the all-channel VIP announcement."""
     return publish_vip_purchase_to_channels(stars_amount, charge_id)
 
 
@@ -1199,7 +1195,7 @@ def payment_success_handler(message):
             f"💎 All benefits activated\n\n"
             f"✨ <i>Enjoy!</i>",
             parse_mode="HTML")
-        # Send to every added channel only when the VIP payment is > 20 Stars.
+        # Every paid VIP purchase is announced in all added channels.
         publish_vip_purchase_to_channel(total_amount, charge_id)
         try:
             u = get_user(uid) or {}
