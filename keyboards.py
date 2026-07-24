@@ -11,6 +11,7 @@
 from telebot import types
 from config import LOCALES, CHANNEL_LINK, CHANNEL_ID, ADMIN_PRIMARY, ADMIN_SECONDARY, t, TICKET_CATEGORIES
 from database import get_user
+from utils import ikb, rkb
 
 
 # =====================================================
@@ -35,10 +36,13 @@ def get_lang_inline():
 # =====================================================
 
 def get_join_inline(lang):
-    """Join channel keyboard"""
+    """One labelled URL button per required channel, then verification."""
     m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton("📢 Join Our Channel", url=CHANNEL_LINK))
-    m.add(types.InlineKeyboardButton("✅ I've Joined — Verify", callback_data="check_join"))
+    from database import bot_config
+    channels = bot_config.get("force_sub_channels", [])
+    for channel in channels:
+        m.add(ikb(str(channel.get("label", "Join channel")), url=channel.get("url"), style="primary"))
+    m.add(ikb(t(lang, "check_btn"), cb="check_join", style="success"))
     return m
 
 
@@ -206,6 +210,10 @@ def get_admin_keyboard():
     )
     m.add(
         types.KeyboardButton("📨 رسائل القناة"),
+        types.KeyboardButton("📢 نشر في القنوات")
+    )
+    m.add(
+        types.KeyboardButton("🔐 إدارة الاشتراك الإجباري"),
         types.KeyboardButton("🎮 الألعاب")
     )
     m.add(

@@ -1,5 +1,24 @@
 import time
 import random
+import inspect
+from telebot import types
+
+# Bot API 9.4 style is optional on older pyTelegramBotAPI versions.
+_STYLE_OK = 'style' in inspect.signature(types.InlineKeyboardButton.__init__).parameters
+_REPLY_STYLE_OK = 'style' in inspect.signature(types.KeyboardButton.__init__).parameters
+
+def ikb(text, cb=None, url=None, style=None):
+    kw = {}
+    if cb is not None: kw['callback_data'] = cb
+    if url is not None: kw['url'] = url
+    if style and _STYLE_OK: kw['style'] = style
+    return types.InlineKeyboardButton(text, **kw)
+
+def rkb(text, style=None, **kwargs):
+    if style and _REPLY_STYLE_OK: kwargs['style'] = style
+    return types.KeyboardButton(text, **kwargs)
+
+import random
 import string
 from datetime import datetime, timedelta
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID, CHANNEL_LINK, t
@@ -60,51 +79,20 @@ def is_user_banned(uid):
 # 📢 فحص الاشتراك بالقناة (محسّن + منع الرشق)
 # =====================================================
 def check_channel_join(uid):
-    """
-    فحص محسّن:
-    - يعالج جميع أنواع الأخطاء
-    - يمنع الرشق بكولداون
-    - يعطي نتيجة دقيقة
-    """
-    uid_str = str(uid)
-    
-    # الأدمن دائماً مشترك
+    """Return True only when the user joined every configured channel."""
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY]:
         return True
-    
-    try:
-        member = bot.get_chat_member(CHANNEL_ID, int(uid))
-        status = str(member.status).lower()
-        
-        # حالات الاشتراك الصحيحة
-        valid_statuses = ['member', 'creator', 'administrator', 'owner']
-        
-        if any(s in status for s in valid_statuses):
-            return True
-        
-        # حالات عدم الاشتراك
-        if 'left' in status or 'kicked' in status or 'restricted' in status:
+    from database import bot_config
+    channels = bot_config.get("force_sub_channels", [])
+    for channel in channels:
+        try:
+            member = bot.get_chat_member(channel["id"], int(uid))
+            if str(member.status).lower() not in ("member", "creator", "administrator", "owner"):
+                return False
+        except Exception as e:
+            print(f"⚠️ Channel check error for {uid}: {e}")
             return False
-        
-        return False
-        
-    except Exception as e:
-        error_msg = str(e).lower()
-        
-        # المستخدم لم يشترك أبداً
-        if any(x in error_msg for x in ["user not found", "participant_id_invalid", 
-                                          "user_not_participant", "member_not_found"]):
-            return False
-        
-        # القناة غير موجودة أو البوت مش أدمن
-        if any(x in error_msg for x in ["chat not found", "chat_not_found", 
-                                          "bot is not a member", "not enough rights"]):
-            print(f"⚠️ CHANNEL SETUP ERROR: {e}")
-            print(f"⚠️ Make sure the bot is ADMIN in channel {CHANNEL_ID}")
-            return False
-        
-        print(f"⚠️ Channel check error for {uid}: {e}")
-        return False
+    return True
 
 def can_check_join(uid):
     """

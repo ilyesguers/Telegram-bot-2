@@ -413,6 +413,17 @@ LOCALES = {
     }
 }
 
+# Subscription screen copy is kept in every supported locale.
+_SUBSCRIPTION_LOCALE = {
+    "must_join": "🔐 يرجى الانضمام إلى القنوات المطلوبة أولاً" ,
+    "check_btn": "✅ تحقق من الاشتراك",
+    "join_channel": "📢 انضمام إلى القناة",
+    "subscription_admin": "🔐 إدارة الاشتراك الإجباري",
+}
+for _lang in ("ar", "en", "fr", "es", "vi"):
+    for _key, _value in _SUBSCRIPTION_LOCALE.items():
+        LOCALES.setdefault(_lang, {}).setdefault(_key, _value)
+
 def t(lang, key, **kwargs):
     if lang not in LOCALES: lang = "en"
     txt = LOCALES[lang].get(key, LOCALES["en"].get(key, key))
