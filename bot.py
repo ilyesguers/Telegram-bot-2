@@ -1297,6 +1297,7 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id, "✅")
         try:
             bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            bot.delete_message(chat_id, msg_id)
         except Exception:
             pass
         return
