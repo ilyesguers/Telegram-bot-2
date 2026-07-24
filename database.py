@@ -105,7 +105,11 @@ default_config = {
 
     # Subscription and administrator-managed publishing
     "force_sub_channels": [],
-    "managed_channels": []
+    "managed_channels": [],
+
+    # Bounded payment IDs used to prevent duplicate channel announcements when
+    # more than one Telegram payment handler receives the same update.
+    "channel_payment_announcements": []
 }
 
 # دمج الإعدادات الافتراضية مع الحالية

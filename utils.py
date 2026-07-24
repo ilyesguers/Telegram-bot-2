@@ -293,6 +293,168 @@ def send_typing_action(chat_id, duration=1):
     except: pass
 
 # =====================================================
+# 📢 النشر الموحد في كل القنوات المضافة
+# =====================================================
+# يتم جمع القنوات من قائمتي الاشتراك الإجباري والقنوات المُدارة، مع إزالة
+# التكرار. لذلك فإن أي قناة أضيفت من لوحة الإدارة تستقبل جميع إعلانات
+# التسويق ورسائل القناة وإشعارات المبيعات تلقائياً.
+VIP_CHANNEL_ANNOUNCEMENT_MIN_STARS = 20
+
+
+def get_publish_channels():
+    """Return every unique administrator-configured channel for publishing.
+
+    ``force_sub_channels`` is the source of truth for channels added through
+    the subscription panel, while ``managed_channels`` keeps compatibility
+    with the older publishing panel.  A channel may appear in both lists, so
+    it is deliberately sent to once only.
+    """
+    from database import bot_config
+
+    channels = []
+    seen_ids = set()
+    for config_key in ("force_sub_channels", "managed_channels"):
+        for channel in bot_config.get(config_key, []) or []:
+            if not isinstance(channel, dict) or channel.get("id") in (None, ""):
+                continue
+            try:
+                channel_id = int(channel["id"])
+            except (TypeError, ValueError):
+                # Keep supporting valid Telegram @usernames stored by an older
+                # configuration, while still deduplicating them reliably.
+                channel_id = str(channel["id"]).strip()
+            if not channel_id or channel_id in seen_ids:
+                continue
+            seen_ids.add(channel_id)
+            channels.append({
+                "id": channel_id,
+                "label": str(channel.get("label") or "قناة"),
+                "url": channel.get("url"),
+            })
+
+    # Fresh installations and legacy configurations may have no saved list
+    # yet.  Preserve their original single configured channel as a fallback.
+    if not channels and CHANNEL_ID:
+        channels.append({"id": int(CHANNEL_ID), "label": "القناة", "url": CHANNEL_LINK})
+    return channels
+
+
+def broadcast_channel_message(text, **kwargs):
+    """Send one text message to every added channel.
+
+    Returns ``{channel_id: message_id}`` for successfully delivered messages.
+    One inaccessible channel never prevents delivery to the remaining ones.
+    The bot must be an administrator with posting permission in each channel.
+    """
+    delivered = {}
+    for channel in get_publish_channels():
+        channel_id = channel["id"]
+        try:
+            sent = bot.send_message(channel_id, text, **kwargs)
+            delivered[str(channel_id)] = sent.message_id
+        except Exception as exc:
+            print(f"⚠️ Channel publish failed for {channel_id}: {exc}")
+    return delivered
+
+
+def broadcast_channel_voice(voice, **kwargs):
+    """Send a voice message to every added channel and return delivered IDs."""
+    delivered = {}
+    for channel in get_publish_channels():
+        channel_id = channel["id"]
+        try:
+            sent = bot.send_voice(channel_id, voice, **kwargs)
+            delivered[str(channel_id)] = sent.message_id
+        except Exception as exc:
+            print(f"⚠️ Channel voice publish failed for {channel_id}: {exc}")
+    return delivered
+
+
+def _claim_payment_announcement(event_type, charge_id):
+    """Prevent duplicate channel announcements when payment handlers overlap."""
+    if not charge_id:
+        return True
+    from database import bot_config, save_json, DB_CONFIG
+
+    key = f"{event_type}:{charge_id}"
+    announced = bot_config.setdefault("channel_payment_announcements", [])
+    if key in announced:
+        return False
+    announced.append(key)
+    # A bounded history is enough to deduplicate Telegram's payment updates
+    # without allowing the configuration file to grow indefinitely.
+    bot_config["channel_payment_announcements"] = announced[-1000:]
+    save_json(DB_CONFIG, bot_config)
+    return True
+
+
+def publish_vip_purchase_to_channels(stars_amount, charge_id=None):
+    """Announce a paid VIP purchase only when it is strictly above 20 Stars."""
+    try:
+        stars_amount = int(stars_amount)
+    except (TypeError, ValueError):
+        return {}
+    if stars_amount <= VIP_CHANNEL_ANNOUNCEMENT_MIN_STARS:
+        return {}
+    if not _claim_payment_announcement("vip", charge_id):
+        return {}
+
+    try:
+        bot_user = bot.get_me().username
+    except Exception:
+        bot_user = "bot"
+    hook = random.choice([
+        "👑 <b>NEW VIP MEMBER!</b>",
+        "💎 <b>VIP UPGRADED!</b>",
+        "⭐ <b>EXCLUSIVE MEMBER!</b>",
+        "🎊 <b>ANOTHER HAPPY VIP!</b>",
+    ])
+    message = (
+        f"╔═══════════════════════╗\n"
+        f"║ {hook} \n"
+        f"╚═══════════════════════╝\n\n"
+        f"🎉 A user just joined VIP club!\n\n"
+        f"💎 Exclusive Benefits:\n"
+        f"├── 🎁 2x Daily bonus\n"
+        f"├── 💰 15% off everything\n"
+        f"├── 📊 Advanced stock info\n"
+        f"├── 🎫 Weekly free code\n"
+        f"├── ⚡ Priority support\n"
+        f"└── 👑 VIP badge\n\n"
+        f"🌟 <b>Join VIP now:</b>\n"
+        f"🤖 t.me/{bot_user}"
+    )
+    return broadcast_channel_message(message, parse_mode="HTML")
+
+
+def publish_stars_conversion_to_channels(stars_amount, points_amount, charge_id=None):
+    """Announce a Stars-to-points purchase in every added channel once."""
+    if not _claim_payment_announcement("stars_conversion", charge_id):
+        return {}
+    try:
+        bot_user = bot.get_me().username
+    except Exception:
+        bot_user = "bot"
+    hook = random.choice([
+        "⭐ <b>NEW CONVERSION!</b>",
+        "💫 <b>STARS TO POINTS!</b>",
+        "🌟 <b>SMART TRADE!</b>",
+    ])
+    message = (
+        f"╔═══════════════════════╗\n"
+        f"║ {hook} \n"
+        f"╚═══════════════════════╝\n\n"
+        f"⚡ Instant conversion completed!\n\n"
+        f"⭐ Stars used: <b>{stars_amount}</b>\n"
+        f"💎 Points received: <b>{points_amount}</b>\n"
+        f"✅ Status: Delivered\n\n"
+        f"🌟 <b>Convert now:</b>\n"
+        f"🤖 t.me/{bot_user}"
+    )
+    return broadcast_channel_message(message, parse_mode="HTML")
+
+
+# =====================================================
 # 📢 دوال النشر بالقناة (بالإنجليزية - جميلة)
 # =====================================================
 def publish_sale_to_channel(product, plan, price):
@@ -315,9 +477,7 @@ def publish_sale_to_channel(product, plan, price):
         f"⭐ <b>24/7 Support Available</b>\n"
         f"🔒 <b>100% Secure Transactions</b>"
     )
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-    except: pass
+    broadcast_channel_message(msg, parse_mode="HTML")
 
 def publish_fake_marketing():
     """نشر منشور تسويقي وهمي جميل"""
@@ -353,11 +513,7 @@ def publish_fake_marketing():
         f"⭐ <b>Trusted by 1000+ users</b>\n"
         f"💎 <b>Best prices guaranteed</b>"
     )
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-        return True
-    except:
-        return False
+    return bool(broadcast_channel_message(msg, parse_mode="HTML"))
 
 def publish_prices_to_channel(prices_config, discount=0):
     """نشر قائمة الأسعار الكاملة بالقناة"""
@@ -395,11 +551,7 @@ def publish_prices_to_channel(prices_config, discount=0):
         f"🛒 <b>Buy Now:</b> t.me/{bot_user}"
     )
     
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-        return True
-    except:
-        return False
+    return bool(broadcast_channel_message(msg, parse_mode="HTML"))
 
 def publish_flash_sale_to_channel(product, discount, hours):
     """نشر إعلان عرض خاطف مميز"""
@@ -422,11 +574,7 @@ def publish_flash_sale_to_channel(product, discount, hours):
         f"🏃 <b>Hurry before it ends!</b>\n\n"
         f"🛒 <b>Grab Now:</b> t.me/{bot_user}"
     )
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-        return True
-    except:
-        return False
+    return bool(broadcast_channel_message(msg, parse_mode="HTML"))
 
 def publish_maintenance_notice(is_on):
     """نشر إشعار الصيانة بالقناة"""
@@ -449,6 +597,4 @@ def publish_maintenance_notice(is_on):
             f"⚡ <b>All services restored</b>\n\n"
             f"🛒 <i>Start shopping now!</i>"
         )
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-    except: pass
+    broadcast_channel_message(msg, parse_mode="HTML")

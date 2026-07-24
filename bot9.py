@@ -22,6 +22,10 @@ from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID
 from database import (bot_config, save_json, DB_CONFIG, get_user, 
                        update_user_data, update_user_rank_and_quests)
+from utils import (
+    broadcast_channel_message, publish_vip_purchase_to_channels,
+    publish_stars_conversion_to_channels,
+)
 
 # =====================================================
 # 🔧 إصلاح allowed_updates
@@ -829,10 +833,14 @@ def process_broadcast(message):
         bot.send_message(message.chat.id, f"❌ خطأ: {e}")
         return
     
+    # Keep the Stars-admin marketing broadcast visible in all added channels
+    # as well as in user private chats.
+    channel_deliveries = broadcast_channel_message(txt, parse_mode="HTML")
     bot.send_message(message.chat.id,
         f"✅ تم الإرسال!\n\n"
         f"📤 نجح: {sent}\n"
-        f"❌ فشل: {failed}")
+        f"❌ فشل: {failed}\n"
+        f"📣 القنوات: {len(channel_deliveries)}")
 
 
 # =====================================================
@@ -1438,6 +1446,10 @@ def bot9_handle_successful_payment(message):
                 f"╚═══════════════════════════╝\n\n"
                 f"👑 أهلاً بك!\n"
                 f"⏰ حتى: {expires.strftime('%Y-%m-%d')}", parse_mode="HTML")
+
+            # The marketing post is broadcast to every added channel only for
+            # a VIP payment strictly greater than 20 Telegram Stars.
+            publish_vip_purchase_to_channels(total_amount, charge_id)
             
             try:
                 u = get_user(uid) or {}
@@ -1459,6 +1471,9 @@ def bot9_handle_successful_payment(message):
             u_new = get_user(uid) or {}
             bot.send_message(message.chat.id,
                 f"✅ تم!\n⭐ {stars} → 💎 {points}\n💰 رصيدك: {u_new.get('points', 0)}", parse_mode="HTML")
+
+            # Every paid Stars conversion is announced in all added channels.
+            publish_stars_conversion_to_channels(stars, points, charge_id)
             
             try:
                 bot.send_message(ADMIN_PRIMARY, f"⭐ تحويل: {stars}→{points}💎", parse_mode="HTML")

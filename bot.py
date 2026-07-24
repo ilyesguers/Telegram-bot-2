@@ -15,7 +15,8 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    publish_sale_to_channel, publish_fake_marketing, publish_prices_to_channel,
                    publish_flash_sale_to_channel, publish_maintenance_notice,
                    get_active_flash_sale, create_flash_sale, format_time_remaining,
-                   send_typing_action, ikb)
+                   send_typing_action, ikb, broadcast_channel_message,
+                   broadcast_channel_voice, get_publish_channels)
 from keyboards import *
 import bot3
 import bot4
@@ -55,6 +56,19 @@ def is_admin(uid, u=None):
 def get_all_user_ids():
     with engine.connect() as conn:
         return [str(r[0]) for r in conn.execute(text("SELECT uid FROM users")).fetchall()]
+
+
+def format_channel_delivery(delivered):
+    """Create a short admin receipt for a multi-channel publication."""
+    if not delivered:
+        return ""
+    items = list(delivered.items())
+    ids = [f"<code>{channel_id}: {message_id}</code>" for channel_id, message_id in items[:10]]
+    extra = f"\n… و {len(items) - 10} قناة أخرى" if len(items) > 10 else ""
+    return (
+        f"📢 <b>تم النشر في {len(items)} قناة/قنوات مضافة.</b>\n\n"
+        f"📋 <b>Message IDs:</b>\n" + "\n".join(ids) + extra
+    )
 
 def enforce_subscription(message, lang="ar"):
     uid = str(message.from_user.id)
@@ -370,85 +384,79 @@ def main_router(message):
         return handle_admin_ticket_message(message, uid)
     
     # 📨 معالجة إرسال رسائل القناة (للأدمن)
+    # كل أنواع رسائل القناة، بما فيها النشر اليدوي والصوت، تُبث الآن إلى
+    # جميع القنوات المضافة بدلاً من قناة واحدة فقط.
     if uid in last_channel_msgs:
-        action = last_channel_msgs[uid]
-        del last_channel_msgs[uid]
-        
-        if action == "send_styled" or action == "pubch_styled":
+        action = last_channel_msgs.pop(uid)
+        is_managed_publish = action in ("pubch_styled", "pubch_raw")
+        if is_managed_publish:
+            temp_publish_channel.pop(uid, None)
+
+        if action in ("send_styled", "pubch_styled"):
             try:
-                if action == "pubch_styled" and uid in temp_publish_channel:
-                    ch_info = temp_publish_channel.pop(uid)
-                    ch_id = int(ch_info["channel_id"])
-                    formatted = (
-                        f"╔═══════════════════════╗\n"
-                        f"║  📢 NOTICE 📢   ║\n"
-                        f"╚═══════════════════════╝\n\n"
-                        f"{message.text}\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━━━\n"
-                        f"💎 Official Announcement"
+                formatted = (
+                    f"╔═══════════════════════╗\n"
+                    f"║  📢 NOTICE 📢   ║\n"
+                    f"╚═══════════════════════╝\n\n"
+                    f"{message.text}\n\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"💎 Official Announcement"
+                )
+                delivered = broadcast_channel_message(formatted, parse_mode="HTML")
+                if delivered:
+                    return bot.send_message(
+                        message.chat.id,
+                        "✅ <b>تم النشر في كل القنوات المضافة!</b>\n\n"
+                        + format_channel_delivery(delivered),
+                        parse_mode="HTML"
                     )
-                    sent = bot.send_message(ch_id, formatted, parse_mode="HTML")
-                    return bot.send_message(message.chat.id,
-                        f"✅ <b>تم النشر في {ch_info['channel_label']}!</b>\n\n"
-                        f"📋 <b>Message ID:</b> <code>{sent.message_id}</code>",
-                        parse_mode="HTML")
-                else:
-                    msg_id = send_custom_channel_message(message.text)
-                    if msg_id:
-                        return bot.send_message(message.chat.id,
-                            f"✅ <b>تم النشر بنجاح!</b>\n\n"
-                            f"📋 <b>Message ID:</b> <code>{msg_id}</code>\n"
-                            f"💡 <i>احفظ الـ ID للحذف لاحقاً</i>", parse_mode="HTML")
-                    else:
-                        return bot.send_message(message.chat.id, "❌ فشل الإرسال")
+                return bot.send_message(message.chat.id, "❌ فشل الإرسال إلى القنوات")
             except Exception as e:
                 return bot.send_message(message.chat.id, f"❌ خطأ: {e}", parse_mode="HTML")
-        
-        elif action == "send_raw" or action == "pubch_raw":
+
+        elif action in ("send_raw", "pubch_raw"):
             try:
-                if action == "pubch_raw" and uid in temp_publish_channel:
-                    ch_info = temp_publish_channel.pop(uid)
-                    ch_id = int(ch_info["channel_id"])
-                    sent = bot.send_message(ch_id, message.text, parse_mode="HTML")
-                    return bot.send_message(message.chat.id,
-                        f"✅ <b>تم النشر في {ch_info['channel_label']}!</b>\n\n"
-                        f"📋 <b>Message ID:</b> <code>{sent.message_id}</code>",
-                        parse_mode="HTML")
-                else:
-                    msg_id = send_raw_channel_message(message.text)
-                    if msg_id:
-                        return bot.send_message(message.chat.id,
-                            f"✅ <b>تم النشر بنجاح!</b>\n\n"
-                            f"📋 <b>Message ID:</b> <code>{msg_id}</code>", parse_mode="HTML")
-                    else:
-                        return bot.send_message(message.chat.id, "❌ فشل الإرسال")
+                delivered = broadcast_channel_message(message.text, parse_mode="HTML")
+                if delivered:
+                    return bot.send_message(
+                        message.chat.id,
+                        "✅ <b>تم النشر في كل القنوات المضافة!</b>\n\n"
+                        + format_channel_delivery(delivered),
+                        parse_mode="HTML"
+                    )
+                return bot.send_message(message.chat.id, "❌ فشل الإرسال إلى القنوات")
             except Exception as e:
                 return bot.send_message(message.chat.id, f"❌ خطأ: {e}", parse_mode="HTML")
-        
+
         elif action == "delete_msg":
             try:
                 msg_id = int(message.text.strip())
                 if delete_channel_message(msg_id):
-                    return bot.send_message(message.chat.id,
-                        f"✅ <b>تم حذف الرسالة!</b>\n\n📋 ID: <code>{msg_id}</code>", parse_mode="HTML")
-                else:
-                    return bot.send_message(message.chat.id,
-                        "❌ فشل الحذف - تأكد من ID الرسالة")
-            except:
+                    return bot.send_message(
+                        message.chat.id,
+                        f"✅ <b>تمت محاولة حذف الرسالة من كل القنوات المضافة!</b>\n\n"
+                        f"📋 ID: <code>{msg_id}</code>",
+                        parse_mode="HTML"
+                    )
+                return bot.send_message(message.chat.id, "❌ فشل الحذف - تأكد من ID الرسالة")
+            except Exception:
                 return bot.send_message(message.chat.id, "❌ ID غير صحيح")
 
-    # 🎤 معالجة إرسال صوت لقناة مُدارة
+    # 🎤 معالجة إرسال صوت إلى كل قناة مُدارة/مضافة
     if uid in temp_publish_channel:
         ch_info = temp_publish_channel[uid]
         if ch_info.get("waiting") == "voice" and message.voice:
             try:
-                ch_id = int(ch_info["channel_id"])
-                ch_label = ch_info.get("channel_label", "قناة")
-                bot.send_voice(ch_id, message.voice.file_id)
+                delivered = broadcast_channel_voice(message.voice.file_id)
                 del temp_publish_channel[uid]
-                return bot.send_message(message.chat.id,
-                    f"✅ <b>تم نشر الصوت في {ch_label}!</b>",
-                    parse_mode="HTML")
+                if delivered:
+                    return bot.send_message(
+                        message.chat.id,
+                        "✅ <b>تم نشر الصوت في كل القنوات المضافة!</b>\n\n"
+                        + format_channel_delivery(delivered),
+                        parse_mode="HTML"
+                    )
+                return bot.send_message(message.chat.id, "❌ فشل إرسال الصوت إلى القنوات")
             except Exception as e:
                 del temp_publish_channel[uid]
                 return bot.send_message(message.chat.id, f"❌ خطأ: {e}", parse_mode="HTML")
@@ -583,11 +591,11 @@ def main_router(message):
 
         if txt == "📢 نشر في القنوات":
             try:
-                channels = bot_config.get("managed_channels", [])
+                channels = get_publish_channels()
                 if not channels:
                     return bot.send_message(message.chat.id,
-                        "📢 <b>لا توجد قنوات مُدارة</b>\n\n"
-                        "💡 <i>أضف قناة من إدارة الاشتراك الإجباري أو أرسل معرف القناة الآن</i>",
+                        "📢 <b>لا توجد قنوات مضافة</b>\n\n"
+                        "💡 <i>أضف قناة من إدارة الاشتراك الإجباري أولاً</i>",
                         parse_mode="HTML")
                 m = types.InlineKeyboardMarkup(row_width=1)
                 for c in channels:
@@ -597,7 +605,9 @@ def main_router(message):
                         callback_data=f"pubch_{cid_str}"
                     ))
                 return bot.send_message(message.chat.id,
-                    "📢 <b>اختر قناة للنشر:</b>", reply_markup=m, parse_mode="HTML")
+                    "📢 <b>اختر أي قناة لبدء النشر.</b>\n"
+                    "✅ <i>سيتم إرسال المحتوى إلى كل القنوات المضافة.</i>",
+                    reply_markup=m, parse_mode="HTML")
             except Exception as e:
                 return bot.send_message(message.chat.id, f"❌ خطأ: {e}", parse_mode="HTML")
 
@@ -608,6 +618,7 @@ def main_router(message):
                 f"╔═══════════════════╗\n"
                 f"║ 📨 <b>CHANNEL MSGS</b> ║\n"
                 f"╚═══════════════════╝\n\n"
+                f"📢 <i>كل إجراء هنا يُنشر في جميع القنوات المضافة.</i>\n\n"
                 f"📢 اختر الإجراء:",
                 reply_markup=admin_channel_menu(), parse_mode="HTML")
         
@@ -1381,10 +1392,12 @@ def handle_callbacks(call):
                    f"👑 <b>+{win} 💎</b>\n\n"
                    f"🎊 <i>You're a legend!</i>")
             try:
-                bot.send_message(CHANNEL_ID,
+                broadcast_channel_message(
                     f"🎡 <b>WHEEL EXPLOSION!</b>\n🏆 +1000 💎 WON!\n🤖 t.me/{bot.get_me().username}",
-                    parse_mode="HTML")
-            except: pass
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
         else:
             result = random.choice([0, 10, 20, price])
             if result > 0:
@@ -1610,6 +1623,14 @@ def handle_callbacks(call):
             new_channels = [c for c in channels if str(c.get("id", "")) != channel_id_str]
             removed = len(channels) - len(new_channels)
             bot_config["force_sub_channels"] = new_channels
+            # Channels added from this panel are stored in both lists. Remove
+            # the matching managed entry too, so a deleted channel no longer
+            # receives all-channel publications.
+            managed_channels = bot_config.get("managed_channels", [])
+            bot_config["managed_channels"] = [
+                c for c in managed_channels
+                if str(c.get("id", "")) != channel_id_str
+            ]
             save_json(DB_CONFIG, bot_config)
             if removed > 0:
                 bot.answer_callback_query(call.id, "✅ تم حذف القناة!", show_alert=True)
@@ -1661,7 +1682,7 @@ def handle_callbacks(call):
     if data.startswith("pubch_"):
         try:
             channel_id_str = data.split("pubch_", 1)[1]
-            channels = bot_config.get("managed_channels", [])
+            channels = get_publish_channels()
             selected = None
             for c in channels:
                 if str(c.get("id", "")) == channel_id_str:
@@ -1680,7 +1701,8 @@ def handle_callbacks(call):
             m.add(types.InlineKeyboardButton("🎤 إرسال صوت", callback_data="pubch_voice"))
             try:
                 bot.edit_message_text(
-                    f"📢 <b>النشر في: {selected.get('label', 'قناة')}</b>\n\n"
+                    f"📢 <b>النشر في كل القنوات المضافة</b>\n\n"
+                    f"📌 تم البدء من: {selected.get('label', 'قناة')}\n"
                     f"اختر نوع المحتوى:",
                     chat_id, msg_id, reply_markup=m, parse_mode="HTML")
             except: pass
@@ -1699,9 +1721,9 @@ def handle_callbacks(call):
                 return
             last_channel_msgs[uid] = "pubch_styled"
             bot.edit_message_text(
-                f"📝 <b>نص منسّق → {info['channel_label']}</b>\n\n"
+                f"📝 <b>نص منسّق → كل القنوات المضافة</b>\n\n"
                 f"✍️ أرسل النص الآن\n"
-                f"💡 <i>سيتم زخرفته تلقائياً</i>",
+                f"💡 <i>سيتم زخرفته ونشره تلقائياً في الجميع</i>",
                 chat_id, msg_id, parse_mode="HTML")
             bot.answer_callback_query(call.id)
         except Exception as e:
@@ -1718,9 +1740,9 @@ def handle_callbacks(call):
                 return
             last_channel_msgs[uid] = "pubch_raw"
             bot.edit_message_text(
-                f"📄 <b>نص خام → {info['channel_label']}</b>\n\n"
+                f"📄 <b>نص خام → كل القنوات المضافة</b>\n\n"
                 f"✍️ أرسل النص الآن\n"
-                f"💡 <i>يدعم HTML tags</i>",
+                f"💡 <i>يدعم HTML tags وسيُنشر في الجميع</i>",
                 chat_id, msg_id, parse_mode="HTML")
             bot.answer_callback_query(call.id)
         except Exception as e:
@@ -1737,9 +1759,9 @@ def handle_callbacks(call):
                 return
             temp_publish_channel[uid]["waiting"] = "voice"
             bot.edit_message_text(
-                f"🎤 <b>إرسال صوت → {info['channel_label']}</b>\n\n"
+                f"🎤 <b>إرسال صوت → كل القنوات المضافة</b>\n\n"
                 f"✍️ أرسل رسالة صوت (voice) الآن\n"
-                f"💡 <i>سيتم نشرها في القناة المحددة</i>",
+                f"💡 <i>سيتم نشرها في جميع القنوات</i>",
                 chat_id, msg_id, parse_mode="HTML")
             bot.answer_callback_query(call.id)
         except Exception as e:
@@ -2452,7 +2474,16 @@ def admin_broadcast(message):
                 s += 1
                 time.sleep(0.04)
         except: pass
-    bot.send_message(message.chat.id, f"📢 أُذيع لـ <b>{s}</b>", parse_mode="HTML")
+
+    # "إذاعة للمستخدمين" remains a user broadcast and is also mirrored in
+    # every added channel, matching the all-channel marketing requirement.
+    channel_deliveries = broadcast_channel_message(message.text)
+    bot.send_message(
+        message.chat.id,
+        f"📢 أُذيع لـ <b>{s}</b> مستخدم\n"
+        f"📣 نُشر أيضاً في <b>{len(channel_deliveries)}</b> قناة/قنوات مضافة",
+        parse_mode="HTML"
+    )
 
 def admin_edit_daily(message):
     try:
