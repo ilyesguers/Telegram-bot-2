@@ -700,16 +700,30 @@ def show_balance(chat_id, msg_id, uid, lang):
 
 def show_myid(chat_id, msg_id, uid, u, lang):
     join_date = u.get("join_date", "")[:10] if u.get("join_date") else "N/A"
-    msg = (f"🆔 <b>━━ My Info ━━</b>\n\n"
-           f"┃ 👤 <b>ID:</b> <code>{uid}</code>\n"
-           f"┃ 📝 <b>Username:</b> @{u.get('username', 'N/A')}\n"
-           f"┃ 📅 <b>Joined:</b> {join_date}\n"
-           f"┃ 🌐 <b>Language:</b> {u.get('lang', 'ar').upper()}\n"
-           f"╰━━━━━━━━━━━━╯")
+    uname = u.get('username', 'N/A')
+    lang_upper = u.get('lang', 'ar').upper()
+    
+    UI = {
+        "ar": {"t": "🆔 <b>━━ معلوماتي ━━</b>", "id": "الآيدي:", "un": "اليوزر:", "jd": "انضم:", "lg": "اللغة:"},
+        "en": {"t": "🆔 <b>━━ My Info ━━</b>", "id": "ID:", "un": "Username:", "jd": "Joined:", "lg": "Lang:"},
+        "fr": {"t": "🆔 <b>━━ Mes Infos ━━</b>", "id": "ID:", "un": "Utilisateur:", "jd": "Inscrit:", "lg": "Langue:"},
+        "es": {"t": "🆔 <b>━━ Mi Info ━━</b>", "id": "ID:", "un": "Usuario:", "jd": "Unido:", "lg": "Idioma:"},
+        "vi": {"t": "🆔 <b>━━ Thông tin ━━</b>", "id": "ID:", "un": "Tên:", "jd": "Tham gia:", "lg": "Ngôn ngữ:"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
+    msg = f"{tx['t']}\n\n"
+    msg += f"┌────────────────────────────\n"
+    msg += f"│ 👤 <b>{tx['id']}</b> <code>{uid}</code>\n"
+    msg += f"│ 📝 <b>{tx['un']}</b> @{uname}\n"
+    msg += f"│ 📅 <b>{tx['jd']}</b> {join_date}\n"
+    msg += f"│ 🌐 <b>{tx['lg']}</b> {lang_upper}\n"
+    msg += f"└────────────────────────────"
+    
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-    except: pass
+    except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def show_rank(chat_id, msg_id, uid, lang):
     update_user_rank_and_quests(uid)
@@ -749,19 +763,29 @@ def show_referral(chat_id, msg_id, uid, lang):
 
 def show_purchases(chat_id, msg_id, uid, lang):
     sales = [x for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid]
+    
+    UI = {
+        "ar": {"no": "📭 <b>لا توجد مشتريات</b>\n\n💡 <i>قم بزيارة المتجر للبدء!</i>", "t": "📜 <b>━━ مشترياتي ━━</b>", "tot": "الإجمالي:"},
+        "en": {"no": "📭 <b>No purchases yet</b>\n\n💡 <i>Visit the shop to start!</i>", "t": "📜 <b>━━ My Purchases ━━</b>", "tot": "Total:"},
+        "fr": {"no": "📭 <b>Aucun achat</b>\n\n💡 <i>Visitez la boutique!</i>", "t": "📜 <b>━━ Mes Achats ━━</b>", "tot": "Total:"},
+        "es": {"no": "📭 <b>Sin compras aún</b>\n\n💡 <i>¡Visita la tienda!</i>", "t": "📜 <b>━━ Mis Compras ━━</b>", "tot": "Total:"},
+        "vi": {"no": "📭 <b>Chưa mua gì</b>\n\n💡 <i>Vào cửa hàng ngay!</i>", "t": "📜 <b>━━ Lịch sử Mua ━━</b>", "tot": "Tổng cộng:"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
     if not sales:
-        msg = "📭 <b>No purchases yet</b>\n\n💡 <i>Visit the shop to start!</i>"
+        msg = tx["no"]
     else:
-        msg = f"📜 <b>━━ My Purchases ━━</b>\n\n📊 <b>Total:</b> {len(sales)}\n\n"
+        msg = f"{tx['t']}\n\n📊 <b>{tx['tot']}</b> {len(sales)}\n\n"
         for s in sales[-10:]:
-            msg += f"┃ 📦 <b>{s['product']}</b>\n"
-            msg += f"┃ ⏱️ {s['plan']} | 💰 {s['price']} 💎\n"
-            msg += f"┃ 📅 {s.get('date','')[:10]}\n"
-            msg += f"┃ ━━━━━━━━━\n"
+            msg += f"┌ 📦 <b>{s['product']}</b>\n"
+            msg += f"│ ⏱️ {s['plan']} | 💰 {s['price']} 💎\n"
+            msg += f"└ 📅 {s.get('date','')[:10]}\n\n"
+            
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-    except: pass
+    except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def claim_daily(chat_id, msg_id, uid, lang):
     u = get_user(uid) or {}
@@ -840,17 +864,25 @@ def show_quests(chat_id, msg_id, uid, lang):
 
 def show_flash_sale(chat_id, msg_id, uid, lang):
     fs = get_active_flash_sale()
+    
+    UI_BUY = {
+        "ar": "🛒 شراء الآن (خصم {d}%)",
+        "en": "🛒 Buy Now ({d}% OFF)",
+        "fr": "🛒 Acheter ({d}% DE RÉD)",
+        "es": "🛒 Comprar ({d}% DTO)",
+        "vi": "🛒 Mua ngay (Giảm {d}%)"
+    }
+    
     if not fs:
         msg = t(lang, "no_flash_sale")
     else:
         remaining = format_time_remaining(fs["expires"])
-        msg = t(lang, "flash_sale_active",
-                discount=fs["discount"], product=fs["product"], remaining=remaining)
+        msg = t(lang, "flash_sale_active", discount=fs["discount"], product=fs["product"], remaining=remaining)
+        
     mk = types.InlineKeyboardMarkup()
     if fs:
-        mk.add(types.InlineKeyboardButton(
-            f"🛒 Buy Now ({fs['discount']}% OFF)",
-            callback_data=f"select_prod_{fs['product']}"))
+        btn_text = UI_BUY.get(lang, UI_BUY["en"]).replace("{d}", str(fs['discount']))
+        mk.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{fs['product']}"))
     mk.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_rewards"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=mk, parse_mode="HTML")
     except: pass
@@ -858,14 +890,26 @@ def show_flash_sale(chat_id, msg_id, uid, lang):
 def show_lootbox(chat_id, msg_id, lang):
     price = bot_config.get("lootbox_price", 50)
     chance = bot_config.get("lootbox_chance", 25)
-    msg = (f"🎰 <b>━━ Loot Box ━━</b>\n\n"
-           f"┃ 💸 <b>Price:</b> {price} 💎\n"
-           f"┃ 📊 <b>Win Chance:</b> {chance}%\n"
-           f"┃ 🏆 <b>Prize:</b> +100 to +500 💎\n"
-           f"╰━━━━━━━━━━━━╯\n\n"
-           f"🍀 <i>Feeling lucky?</i>")
+    
+    UI = {
+        "ar": {"t": "🎰 <b>━━ صندوق الحظ ━━</b>", "p": "السعر:", "c": "نسبة الفوز:", "w": "الجائزة:", "b": "العب صندوق الحظ", "luck": "🍀 <i>هل تشعر بالحظ؟</i>"},
+        "en": {"t": "🎰 <b>━━ Loot Box ━━</b>", "p": "Price:", "c": "Win Chance:", "w": "Prize:", "b": "Open Box", "luck": "🍀 <i>Feeling lucky?</i>"},
+        "fr": {"t": "🎰 <b>━━ Coffre Magique ━━</b>", "p": "Prix:", "c": "Chances:", "w": "Prix:", "b": "Ouvrir", "luck": "🍀 <i>Vous vous sentez chanceux?</i>"},
+        "es": {"t": "🎰 <b>━━ Caja Mágica ━━</b>", "p": "Precio:", "c": "Probabilidad:", "w": "Premio:", "b": "Abrir", "luck": "🍀 <i>¿Te sientes con suerte?</i>"},
+        "vi": {"t": "🎰 <b>━━ Hộp May Mắn ━━</b>", "p": "Giá:", "c": "Tỷ lệ:", "w": "Giải:", "b": "Mở Hộp", "luck": "🍀 <i>Bạn có may mắn không?</i>"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
+    msg = f"{tx['t']}\n\n"
+    msg += f"┌────────────────────────────\n"
+    msg += f"│ 💸 <b>{tx['p']}</b> {price} 💎\n"
+    msg += f"│ 📊 <b>{tx['c']}</b> {chance}%\n"
+    msg += f"│ 🏆 <b>{tx['w']}</b> +100 to +500 💎\n"
+    msg += f"└────────────────────────────\n\n"
+    msg += f"{tx['luck']}"
+    
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton(f"🎁 Open Box ({price} 💎)", callback_data="game_buy_lootbox"))
+    m.add(types.InlineKeyboardButton(f"🎁 {tx['b']} ({price} 💎)", callback_data="game_buy_lootbox"))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_entertainment"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
@@ -873,14 +917,26 @@ def show_lootbox(chat_id, msg_id, lang):
 def show_wheel(chat_id, msg_id, lang):
     price = bot_config.get("wheel_price", 40)
     chance = bot_config.get("wheel_chance", 5)
-    msg = (f"🎡 <b>━━ Lucky Wheel ━━</b>\n\n"
-           f"┃ 💸 <b>Spin:</b> {price} 💎\n"
-           f"┃ 📊 <b>Grand Prize:</b> {chance}%\n"
-           f"┃ 🏆 <b>Max Win:</b> +1000 💎\n"
-           f"╰━━━━━━━━━━━━╯\n\n"
-           f"🎯 <i>Spin to win big!</i>")
+    
+    UI = {
+        "ar": {"t": "🎡 <b>━━ عجلة الحظ ━━</b>", "p": "الدورة:", "c": "الجائزة الكبرى:", "w": "أقصى ربح:", "b": "دوّر العجلة", "luck": "🎯 <i>دوّر العجلة واربح!</i>"},
+        "en": {"t": "🎡 <b>━━ Lucky Wheel ━━</b>", "p": "Spin:", "c": "Grand Prize:", "w": "Max Win:", "b": "Spin", "luck": "🎯 <i>Spin to win big!</i>"},
+        "fr": {"t": "🎡 <b>━━ Roue de la Chance ━━</b>", "p": "Tour:", "c": "Gros Lot:", "w": "Gain Max:", "b": "Tourner", "luck": "🎯 <i>Tournez pour gagner!</i>"},
+        "es": {"t": "🎡 <b>━━ Ruleta de Suerte ━━</b>", "p": "Giro:", "c": "Premio Mayor:", "w": "Ganancia Máx:", "b": "Girar", "luck": "🎯 <i>¡Gira para ganar!</i>"},
+        "vi": {"t": "🎡 <b>━━ Vòng Quay ━━</b>", "p": "Quay:", "c": "Giải Đặc Biệt:", "w": "Thắng Max:", "b": "Quay", "luck": "🎯 <i>Quay để thắng lớn!</i>"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
+    msg = f"{tx['t']}\n\n"
+    msg += f"┌────────────────────────────\n"
+    msg += f"│ 💸 <b>{tx['p']}</b> {price} 💎\n"
+    msg += f"│ 📊 <b>{tx['c']}</b> {chance}%\n"
+    msg += f"│ 🏆 <b>{tx['w']}</b> +1000 💎\n"
+    msg += f"└────────────────────────────\n\n"
+    msg += f"{tx['luck']}"
+    
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton(f"💫 Spin ({price} 💎)", callback_data="game_spin_wheel"))
+    m.add(types.InlineKeyboardButton(f"💫 {tx['b']} ({price} 💎)", callback_data="game_spin_wheel"))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_entertainment"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
