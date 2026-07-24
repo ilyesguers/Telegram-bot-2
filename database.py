@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
+from config import CHANNEL_ID, CHANNEL_LINK
 
 # =====================================================
 # 📁 أسماء ملفات JSON
@@ -100,7 +101,11 @@ default_config = {
     
     # 💎 معلومات البوت
     "bot_version": "3.0",
-    "bot_launch_date": datetime.now().isoformat()
+    "bot_launch_date": datetime.now().isoformat(),
+
+    # Subscription and administrator-managed publishing
+    "force_sub_channels": [],
+    "managed_channels": []
 }
 
 # دمج الإعدادات الافتراضية مع الحالية
@@ -108,6 +113,9 @@ for key, val in default_config.items():
     if key not in bot_config:
         bot_config[key] = val
 
+# Seed the legacy channel once, while retaining administrator customisation.
+if not bot_config.get("force_sub_channels") and CHANNEL_ID:
+    bot_config["force_sub_channels"] = [{"id": int(CHANNEL_ID), "label": "القناة", "url": CHANNEL_LINK}]
 save_json(DB_CONFIG, bot_config)
 
 # =====================================================

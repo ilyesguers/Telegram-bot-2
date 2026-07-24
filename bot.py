@@ -15,7 +15,7 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    publish_sale_to_channel, publish_fake_marketing, publish_prices_to_channel,
                    publish_flash_sale_to_channel, publish_maintenance_notice,
                    get_active_flash_sale, create_flash_sale, format_time_remaining,
-                   send_typing_action)
+                   send_typing_action, ikb)
 from keyboards import *
 import bot3
 import bot4
@@ -58,17 +58,7 @@ def get_all_user_ids():
 def enforce_subscription(message, lang="ar"):
     uid = str(message.from_user.id)
     if not check_channel_join(uid):
-        msg = (
-            f"╔═══════════════════╗\n"
-            f"║ 🔐 <b>JOIN REQUIRED</b> 🔐 ║\n"
-            f"╚═══════════════════╝\n\n"
-            f"⚠️ You must join our channel to use this bot!\n\n"
-            f"📢 <b>Simple Steps:</b>\n"
-            f"1️⃣ Click <b>«Join Our Channel»</b> below\n"
-            f"2️⃣ Press <b>«Join»</b> in Telegram\n"
-            f"3️⃣ Come back & press <b>«Verify»</b>\n\n"
-            f"🎁 <i>Unlock all features after joining!</i>"
-        )
+        msg = t(lang, "must_join")
         try:
             bot.send_message(message.chat.id, msg,
                 reply_markup=get_join_inline(lang), parse_mode="HTML")
@@ -518,8 +508,27 @@ def main_router(message):
                 f"└ ممتلئ: {stats['full']}",
                 reply_markup=admin_giveaway_menu(), parse_mode="HTML")
         
+        if txt == "🔐 إدارة الاشتراك الإجباري":
+            channels = bot_config.get("force_sub_channels", [])
+            lines = ["🔐 <b>إدارة الاشتراك الإجباري</b>", ""]
+            for c in channels:
+                try:
+                    status = str(bot.get_chat_member(c["id"], int(uid)).status)
+                except Exception as e:
+                    status = "خطأ في الفحص"
+                lines.append(f"• {c.get('label')} — <code>{c.get('id')}</code> — {status}")
+            lines.append("\nأرسل @username أو رابط القناة لإضافتها.")
+            return bot.send_message(message.chat.id, "\n".join(lines), parse_mode="HTML")
+
+        if txt == "📢 نشر في القنوات":
+            channels = bot_config.get("managed_channels", [])
+            if not channels:
+                return bot.send_message(message.chat.id, "📢 لا توجد قنوات مُدارة. أرسل معرف القناة لإضافتها.")
+            return bot.send_message(message.chat.id, "📢 اختر قناة من القائمة: " + ", ".join(str(c.get("label")) for c in channels))
+
         # 📨 قائمة رسائل القناة
         if txt == "📨 رسائل القناة":
+
             return bot.send_message(message.chat.id,
                 f"╔═══════════════════╗\n"
                 f"║ 📨 <b>CHANNEL MSGS</b> ║\n"
