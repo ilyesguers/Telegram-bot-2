@@ -103,40 +103,117 @@ def deactivate_vip(uid):
     return False
 
 # =====================================================
-# GIVEAWAY SYSTEM
+# GIVEAWAY SYSTEM  —  Premium Multi-Type Engine v2.0
+# =====================================================
+# Supported campaign types (each boosts a different part of the channel):
+#   link      -> Classic "first N to claim" via private link + captcha
+#   draw      -> Random Winner Draw (enter, bot picks winners at the deadline)
+#   react     -> React/Comment to enter (boosts post reach), winners at deadline
+#   quiz      -> Answer a question correctly to enter the draw
+#   milestone -> Auto-publishes a reward drop when the channel hits a subscriber goal
 # =====================================================
 
+import string as _string
+import html as _html
+from utils import check_channel_join
+
+GW_TYPES = {
+    "link":      {"label": "🔗 Classic Link Claim",   "short": "Link",
+                  "desc": "First N users to open the link & solve a captcha win instantly."},
+    "draw":      {"label": "🎲 Random Winner Draw",   "short": "Draw",
+                  "desc": "Members enter the draw; the bot picks random winners when time ends."},
+    "react":     {"label": "❤️ React-to-Enter",       "short": "React",
+                  "desc": "Members react/comment on the channel post, then confirm to enter."},
+    "quiz":      {"label": "🧠 Quiz Giveaway",        "short": "Quiz",
+                  "desc": "Members must answer a question correctly to enter the draw."},
+    "milestone": {"label": "📈 Subscriber Milestone", "short": "Milestone",
+                  "desc": "Reward drop auto-publishes when the channel reaches a subscriber goal."},
+}
+
+
+def _esc(text):
+    """HTML-escape admin/user supplied text."""
+    try:
+        return _html.escape(str(text))
+    except Exception:
+        return str(text)
+
+
+def _now():
+    return datetime.now()
+
+
+def _notify_admins(text):
+    """Send a live report to both admins (best-effort)."""
+    for adm in (ADMIN_PRIMARY, ADMIN_SECONDARY):
+        try:
+            bot.send_message(adm, text, parse_mode="HTML")
+        except Exception:
+            pass
+
+
 def generate_giveaway_code():
-    import string
-    chars = string.ascii_uppercase + string.digits
+    chars = _string.ascii_uppercase + _string.digits
     return ''.join(random.choice(chars) for _ in range(8))
 
-def create_giveaway(reward, max_users, hours):
+
+def create_giveaway(reward, max_users, hours, gw_type="link", created_by=None, **extra):
+    """Create a giveaway of any type. Backward compatible with the classic signature."""
     code = generate_giveaway_code()
-    expires = datetime.now() + timedelta(hours=hours)
-    bot_config["giveaways"][code] = {
-        "code": code, "reward": reward, "max_users": max_users, "hours": hours,
-        "expires": expires.isoformat(), "created": datetime.now().isoformat(),
-        "claimed_by": [], "status": "active"
+    if gw_type not in GW_TYPES:
+        gw_type = "link"
+    data = {
+        "code": code,
+        "type": gw_type,
+        "reward": int(reward),
+        "max_users": int(max_users),
+        "hours": int(hours),
+        "expires": (_now() + timedelta(hours=int(hours))).isoformat(),
+        "created": _now().isoformat(),
+        "created_by": str(created_by) if created_by else None,
+        "claimed_by": [],
+        "entrants": [],
+        "winners": [],
+        "status": "active",
+        "published": False,
     }
+    if gw_type == "quiz":
+        data["quiz_question"] = extra.get("quiz_question", "")
+        data["quiz_options"] = extra.get("quiz_options", [])
+        data["quiz_answer"] = extra.get("quiz_answer", 0)  # index into quiz_options
+    if gw_type == "milestone":
+        data["milestone_target"] = int(extra.get("milestone_target", 0))
+        data["status"] = "waiting"  # not published until the target is reached
+    bot_config.setdefault("giveaways", {})[code] = data
     save_json(DB_CONFIG, bot_config)
     return code
+
 
 def get_giveaway(code):
     return bot_config.get("giveaways", {}).get(code)
 
+
+def get_all_giveaways():
+    return bot_config.get("giveaways", {})
+
+
+def _is_expired(gw):
+    try:
+        return _now() > datetime.fromisoformat(gw["expires"])
+    except Exception:
+        return False
+
+
 def is_giveaway_valid(code):
+    """Validity for CLAIM-style giveaways (link / milestone drops)."""
     gw = get_giveaway(code)
     if not gw:
         return False, "not_found"
     if gw.get("status") != "active":
-        return False, "inactive"
-    try:
-        if datetime.now() > datetime.fromisoformat(gw["expires"]):
-            gw["status"] = "expired"
-            save_json(DB_CONFIG, bot_config)
-            return False, "expired"
-    except:
+        return False, gw.get("status", "inactive")
+    if _is_expired(gw):
+        gw["status"] = "expired"
+        save_json(DB_CONFIG, bot_config)
         return False, "expired"
     if len(gw.get("claimed_by", [])) >= gw.get("max_users", 0):
         gw["status"] = "full"
@@ -144,59 +221,104 @@ def is_giveaway_valid(code):
         return False, "full"
     return True, "valid"
 
+
 def has_user_claimed_giveaway(code, uid):
     gw = get_giveaway(code)
     if not gw:
         return False
     return str(uid) in gw.get("claimed_by", [])
 
+
 def claim_giveaway(code, uid):
     gw = get_giveaway(code)
     if not gw:
         return False
-    if "claimed_by" not in gw:
-        gw["claimed_by"] = []
-    gw["claimed_by"].append(str(uid))
-    if len(gw["claimed_by"]) >= gw["max_users"]:
+    gw.setdefault("claimed_by", [])
+    uid = str(uid)
+    if uid not in gw["claimed_by"]:
+        gw["claimed_by"].append(uid)
+    if len(gw["claimed_by"]) >= gw.get("max_users", 0):
         gw["status"] = "full"
     save_json(DB_CONFIG, bot_config)
     return True
 
-def publish_giveaway_to_channel(code):
+
+def has_user_entered(code, uid):
     gw = get_giveaway(code)
     if not gw:
-        return None
-    try:
-        bot_user = bot.get_me().username
-    except:
-        bot_user = "bot"
-    link = f"https://t.me/{bot_user}?start=gw_{code}"
-    msg = (
-        f"╔═══════════════════════╗\n"
-        f"║  🎁 GIVEAWAY! 🎁  ║\n"
-        f"╚═══════════════════════╝\n\n"
-        f"🎊 FREE PRIZE! 🎊\n\n"
-        f"💎 Prize: {gw['reward']} points\n"
-        f"👥 Winners: {gw['max_users']}\n"
-        f"⏰ Duration: {gw['hours']}h"
-    )
-    m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton("🎁 CLAIM NOW", url=link))
-    try:
-        sent = bot.send_message(CHANNEL_ID, msg, reply_markup=m, parse_mode="HTML")
-        gw["channel_msg_id"] = sent.message_id
-        save_json(DB_CONFIG, bot_config)
-        return sent.message_id
-    except:
-        return None
+        return False
+    return str(uid) in gw.get("entrants", []) or str(uid) in gw.get("claimed_by", [])
+
+
+def enter_giveaway(code, uid):
+    """Register a participant for draw/react/quiz type giveaways."""
+    gw = get_giveaway(code)
+    if not gw:
+        return False
+    gw.setdefault("entrants", [])
+    uid = str(uid)
+    if uid in gw["entrants"]:
+        return False
+    gw["entrants"].append(uid)
+    save_json(DB_CONFIG, bot_config)
+    return True
+
+
+def process_giveaway_claim(uid, code):
+    """Classic instant-claim (link / milestone). Awards the reward immediately."""
+    valid, reason = is_giveaway_valid(code)
+    if not valid:
+        return False, reason
+    if has_user_claimed_giveaway(code, uid):
+        return False, "already_claimed"
+    gw = get_giveaway(code)
+    reward = gw["reward"]
+    update_user_data(uid, points=reward, accumulated_points=reward)
+    update_user_rank_and_quests(uid)
+    claim_giveaway(code, uid)
+    if bot_config.get("gw_live_reports", True):
+        u = get_user(str(uid)) or {}
+        _notify_admins(
+            "🎁 <b>Giveaway Claimed</b>\n"
+            f"├ Code: <code>{code}</code> ({gw.get('type', 'link')})\n"
+            f"├ User: @{_esc(u.get('username', 'N/A'))} (<code>{uid}</code>)\n"
+            f"├ Reward: +{reward} pts\n"
+            f"└ Progress: {len(gw.get('claimed_by', []))}/{gw.get('max_users', 0)}"
+        )
+    return True, reward
+
+
+def pick_winners(code):
+    """Randomly select winners among entrants for draw/react/quiz, award & record them."""
+    gw = get_giveaway(code)
+    if not gw:
+        return []
+    pool = list(dict.fromkeys(gw.get("entrants", []) + gw.get("claimed_by", [])))
+    need = min(gw.get("max_users", 0), len(pool))
+    winners = random.sample(pool, need) if need > 0 else []
+    reward = gw.get("reward", 0)
+    for w in winners:
+        try:
+            update_user_data(w, points=reward, accumulated_points=reward)
+            update_user_rank_and_quests(w)
+        except Exception:
+            pass
+    gw["winners"] = winners
+    gw["claimed_by"] = list(set(gw.get("claimed_by", []) + winners))
+    gw["status"] = "completed"
+    save_json(DB_CONFIG, bot_config)
+    return winners
+
+
+# ----- Captcha (kept for the classic link claim flow used by bot.py) -----
 
 def start_giveaway_captcha(uid, code):
     u = get_user(str(uid)) or {}
     lang = u.get("lang", "en")
     emoji, name, opts = generate_captcha(lang)
-    bot_config["giveaway_captchas"][str(uid)] = {
+    bot_config.setdefault("giveaway_captchas", {})[str(uid)] = {
         "code": code, "answer": emoji, "attempts": 0,
-        "expires": (datetime.now() + timedelta(minutes=5)).isoformat()
+        "expires": (_now() + timedelta(minutes=5)).isoformat()
     }
     save_json(DB_CONFIG, bot_config)
     m = types.InlineKeyboardMarkup(row_width=2)
@@ -210,7 +332,9 @@ def start_giveaway_captcha(uid, code):
             f"💎 Prize: {reward} points\n\n"
             f"🛡️ Press: <b>{name}</b> {emoji}",
             reply_markup=m, parse_mode="HTML")
-    except: pass
+    except Exception:
+        pass
+
 
 def verify_giveaway_captcha(uid, answer):
     uid = str(uid)
@@ -219,11 +343,12 @@ def verify_giveaway_captcha(uid, answer):
         return "no_session", None
     session = sessions[uid]
     try:
-        if datetime.now() > datetime.fromisoformat(session["expires"]):
+        if _now() > datetime.fromisoformat(session["expires"]):
             del sessions[uid]
             save_json(DB_CONFIG, bot_config)
             return "expired", None
-    except: pass
+    except Exception:
+        pass
     if str(answer) == session["answer"]:
         code = session["code"]
         del sessions[uid]
@@ -237,21 +362,151 @@ def verify_giveaway_captcha(uid, answer):
     save_json(DB_CONFIG, bot_config)
     return "wrong", None
 
-def process_giveaway_claim(uid, code):
-    valid, reason = is_giveaway_valid(code)
-    if not valid:
-        return False, reason
-    if has_user_claimed_giveaway(code, uid):
-        return False, "already_claimed"
-    gw = get_giveaway(code)
-    reward = gw["reward"]
-    update_user_data(uid, points=reward, accumulated_points=reward)
-    update_user_rank_and_quests(uid)
-    claim_giveaway(code, uid)
-    return True, reward
 
-def get_all_giveaways():
-    return bot_config.get("giveaways", {})
+# ----- Channel publishing (type-aware) -----
+
+def _bot_username():
+    try:
+        return bot.get_me().username
+    except Exception:
+        return "bot"
+
+
+def _time_left_text(gw):
+    try:
+        delta = datetime.fromisoformat(gw["expires"]) - _now()
+        secs = int(delta.total_seconds())
+        if secs <= 0:
+            return "Ended"
+        h, rem = divmod(secs, 3600)
+        mnt, _ = divmod(rem, 60)
+        if h >= 24:
+            return f"{h // 24}d {h % 24}h"
+        return f"{h}h {mnt}m"
+    except Exception:
+        return f"{gw.get('hours', 0)}h"
+
+
+def build_giveaway_post(code):
+    """Returns (text, keyboard) for the channel post, tailored to the giveaway type."""
+    gw = get_giveaway(code)
+    if not gw:
+        return None, None
+    gtype = gw.get("type", "link")
+    reward = gw.get("reward", 0)
+    slots = gw.get("max_users", 0)
+    tleft = _time_left_text(gw)
+    bot_user = _bot_username()
+    link = f"https://t.me/{bot_user}?start=gw_{code}"
+
+    header = (
+        "╔═══════════════════════╗\n"
+        "║   🎁  GIVEAWAY TIME  🎁   ║\n"
+        "╚═══════════════════════╝\n\n"
+    )
+    m = types.InlineKeyboardMarkup()
+
+    if gtype == "link":
+        text = (
+            f"{header}"
+            f"🎊 <b>FREE REWARD DROP!</b> 🎊\n\n"
+            f"💎 Prize: <b>{reward} points</b>\n"
+            f"👥 Winners: <b>First {slots}</b> to claim\n"
+            f"⏰ Ends in: <b>{tleft}</b>\n\n"
+            f"⚡ <i>Fastest fingers win — tap below!</i>"
+        )
+        m.add(types.InlineKeyboardButton("🎁 CLAIM NOW", url=link))
+
+    elif gtype == "draw":
+        entered = len(gw.get("entrants", []))
+        text = (
+            f"{header}"
+            f"🎲 <b>RANDOM WINNER DRAW</b> 🎲\n\n"
+            f"💎 Prize: <b>{reward} points</b> each\n"
+            f"🏆 Winners: <b>{slots} lucky members</b>\n"
+            f"⏰ Draw closes in: <b>{tleft}</b>\n"
+            f"👥 Entered so far: <b>{entered}</b>\n\n"
+            f"🍀 <i>Enter now — winners are picked randomly live!</i>"
+        )
+        m.add(types.InlineKeyboardButton("🎲 ENTER THE DRAW", url=link))
+
+    elif gtype == "react":
+        text = (
+            f"{header}"
+            f"❤️ <b>REACT &amp; WIN</b> ❤️\n\n"
+            f"💎 Prize: <b>{reward} points</b> each\n"
+            f"🏆 Winners: <b>{slots} members</b>\n"
+            f"⏰ Closes in: <b>{tleft}</b>\n\n"
+            f"📌 <b>How to enter:</b>\n"
+            f"1️⃣ React to this post with any emoji\n"
+            f"2️⃣ Tap the button below to confirm\n\n"
+            f"🔥 <i>More reactions = more reach for our channel!</i>"
+        )
+        m.add(types.InlineKeyboardButton("✅ I REACTED — ENTER", url=link))
+
+    elif gtype == "quiz":
+        entered = len(gw.get("entrants", []))
+        q = _esc(gw.get("quiz_question", "Trivia time!"))
+        text = (
+            f"{header}"
+            f"🧠 <b>QUIZ GIVEAWAY</b> 🧠\n\n"
+            f"❓ <b>{q}</b>\n\n"
+            f"💎 Prize: <b>{reward} points</b> each\n"
+            f"🏆 Winners: <b>{slots} correct members</b>\n"
+            f"⏰ Closes in: <b>{tleft}</b>\n"
+            f"✍️ Entered: <b>{entered}</b>\n\n"
+            f"🎯 <i>Answer correctly below to enter the draw!</i>"
+        )
+        m.add(types.InlineKeyboardButton("🧠 ANSWER & ENTER", url=link))
+
+    elif gtype == "milestone":
+        target = gw.get("milestone_target", 0)
+        text = (
+            f"{header}"
+            f"📈 <b>MILESTONE REACHED!</b> 🎉\n\n"
+            f"🎊 We hit <b>{target} subscribers</b>! 🎊\n\n"
+            f"💎 Reward: <b>{reward} points</b>\n"
+            f"👥 First <b>{slots}</b> to claim win\n\n"
+            f"🙏 <i>Thank you for being part of the family!</i>"
+        )
+        m.add(types.InlineKeyboardButton("🎁 CLAIM REWARD", url=link))
+
+    return text, m
+
+
+def publish_giveaway_to_channel(code):
+    """Publish (or re-publish) the giveaway post to the channel."""
+    gw = get_giveaway(code)
+    if not gw:
+        return None
+    text, keyboard = build_giveaway_post(code)
+    if not text:
+        return None
+    try:
+        sent = bot.send_message(CHANNEL_ID, text, reply_markup=keyboard, parse_mode="HTML")
+        gw["channel_msg_id"] = sent.message_id
+        gw["published"] = True
+        if gw.get("status") == "waiting":
+            gw["status"] = "active"
+        save_json(DB_CONFIG, bot_config)
+        return sent.message_id
+    except Exception:
+        return None
+
+
+def update_channel_post(code):
+    """Refresh the live counters on the channel post (best-effort edit)."""
+    gw = get_giveaway(code)
+    if not gw or not gw.get("channel_msg_id"):
+        return False
+    text, keyboard = build_giveaway_post(code)
+    try:
+        bot.edit_message_text(text, CHANNEL_ID, gw["channel_msg_id"],
+                              reply_markup=keyboard, parse_mode="HTML")
+        return True
+    except Exception:
+        return False
+
 
 def cancel_giveaway(code):
     gw = get_giveaway(code)
@@ -261,21 +516,125 @@ def cancel_giveaway(code):
     save_json(DB_CONFIG, bot_config)
     msg_id = gw.get("channel_msg_id")
     if msg_id:
-        try: bot.delete_message(CHANNEL_ID, msg_id)
-        except: pass
+        try:
+            bot.delete_message(CHANNEL_ID, msg_id)
+        except Exception:
+            pass
     return True
+
 
 def get_giveaways_stats():
     gws = get_all_giveaways()
+    by_type = {}
+    for g in gws.values():
+        k = g.get("type", "link")
+        by_type[k] = by_type.get(k, 0) + 1
     return {
         "total": len(gws),
         "active": sum(1 for g in gws.values() if g.get("status") == "active"),
+        "waiting": sum(1 for g in gws.values() if g.get("status") == "waiting"),
         "expired": sum(1 for g in gws.values() if g.get("status") == "expired"),
         "full": sum(1 for g in gws.values() if g.get("status") == "full"),
+        "completed": sum(1 for g in gws.values() if g.get("status") == "completed"),
         "cancelled": sum(1 for g in gws.values() if g.get("status") == "cancelled"),
         "total_claimed": sum(len(g.get("claimed_by", [])) for g in gws.values()),
-        "total_points_given": sum(g.get("reward", 0) * len(g.get("claimed_by", [])) for g in gws.values())
+        "total_entrants": sum(len(g.get("entrants", [])) for g in gws.values()),
+        "total_winners": sum(len(g.get("winners", [])) for g in gws.values()),
+        "total_points_given": sum(
+            g.get("reward", 0) * max(len(g.get("winners", [])), len(g.get("claimed_by", [])))
+            for g in gws.values()
+        ),
+        "by_type": by_type,
     }
+
+
+def get_channel_member_count():
+    try:
+        return bot.get_chat_member_count(CHANNEL_ID)
+    except Exception:
+        return 0
+
+
+# ----- Background worker: expiry, draw finishing, milestone watching -----
+
+def _announce_winners(code, winners):
+    gw = get_giveaway(code)
+    if not gw:
+        return
+    reward = gw.get("reward", 0)
+    for w in winners:
+        try:
+            bot.send_message(int(w),
+                "🏆 <b>YOU WON THE GIVEAWAY!</b> 🏆\n\n"
+                f"💎 Prize: <b>+{reward} points</b>\n"
+                f"🎁 Code: <code>{code}</code>\n\n"
+                f"✨ Points were added to your balance. Congrats!",
+                parse_mode="HTML")
+        except Exception:
+            pass
+    lines = []
+    for w in winners:
+        u = get_user(str(w)) or {}
+        lines.append(f"• @{_esc(u.get('username', 'N/A'))} (<code>{w}</code>)")
+    _notify_admins(
+        "🏆 <b>Giveaway Finished — Winners</b>\n"
+        f"├ Code: <code>{code}</code> ({gw.get('type', 'draw')})\n"
+        f"├ Reward: +{reward} pts each\n"
+        f"├ Entrants: {len(gw.get('entrants', []))}\n"
+        f"└ Winners ({len(winners)}):\n" + ("\n".join(lines) if lines else "• (no participants)")
+    )
+
+
+def _giveaway_maintenance_cycle():
+    gws = get_all_giveaways()
+    changed = False
+    for code, gw in list(gws.items()):
+        status = gw.get("status")
+        gtype = gw.get("type", "link")
+
+        # Milestone watching (not time based)
+        if status == "waiting" and gtype == "milestone":
+            target = gw.get("milestone_target", 0)
+            if target and get_channel_member_count() >= target:
+                publish_giveaway_to_channel(code)
+                if bot_config.get("gw_live_reports", True):
+                    _notify_admins(
+                        "📈 <b>Milestone Reached!</b>\n"
+                        f"├ Goal: {target} subscribers\n"
+                        f"└ Reward drop <code>{code}</code> published to the channel 🎉"
+                    )
+                changed = True
+            continue
+
+        if status != "active":
+            continue
+
+        if _is_expired(gw):
+            if gtype in ("draw", "react", "quiz"):
+                winners = pick_winners(code)
+                update_channel_post(code)
+                _announce_winners(code, winners)
+            else:
+                gw["status"] = "expired"
+                update_channel_post(code)
+            changed = True
+    if changed:
+        save_json(DB_CONFIG, bot_config)
+
+
+def _start_giveaway_worker():
+    def worker():
+        while True:
+            try:
+                _giveaway_maintenance_cycle()
+            except Exception as e:
+                print(f"⚠️ Giveaway worker: {e}")
+            time.sleep(30)
+    threading.Thread(target=worker, daemon=True).start()
+
+
+_start_giveaway_worker()
+
 
 # =====================================================
 # CHANNEL MESSAGES
@@ -1285,4 +1644,773 @@ print("👑 VIP System: Ready")
 print("⭐ Stars Payment: Ready")
 print("📦 Auto-Restock: Running")
 print("👤 User Management: Ready")
+
+# =====================================================
+# 🎁 GIVEAWAY ADMIN STUDIO (inserted)
+# =====================================================
+
+# =====================================================
+# 🎁 GIVEAWAY ADMIN STUDIO  —  Professional Panel v2.0
+# =====================================================
+# A complete English admin dashboard for running giveaways that grow the
+# channel. Self-contained inside bot2.py. Intercepted BEFORE bot.py's main
+# router because bot2 is imported first, so the classic "🎁 Giveaway" admin
+# button now opens this studio.
+# =====================================================
+
+gw2_setup = {}   # uid -> in-progress creation state
+
+
+def _gw2_is_admin(uid):
+    try:
+        if int(uid) in (ADMIN_PRIMARY, ADMIN_SECONDARY):
+            return True
+    except Exception:
+        pass
+    u = get_user(str(uid)) or {}
+    return u.get("is_admin", False)
+
+
+def _edit_or_send(chat_id, msg_id, text, kb=None):
+    if msg_id:
+        try:
+            bot.edit_message_text(text, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
+            return
+        except Exception:
+            pass
+    bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+
+
+def _back_kb():
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton("🏠 Dashboard", callback_data="gw2_home"))
+    return m
+
+
+# ---------- Dashboard ----------
+
+def _gw2_dashboard_text():
+    s = get_giveaways_stats()
+    live = "🟢 ON" if bot_config.get("gw_live_reports", True) else "🔴 OFF"
+    return (
+        "╔═══════════════════════╗\n"
+        "║  🎁 <b>GIVEAWAY STUDIO</b> 🎁  ║\n"
+        "╚═══════════════════════╝\n\n"
+        "<i>Your professional suite for running giveaways that grow the channel.</i>\n\n"
+        "📊 <b>Overall Performance</b>\n"
+        f"├ 🗂 Total campaigns: <b>{s['total']}</b>\n"
+        f"├ ⚡ Active now: <b>{s['active']}</b>\n"
+        f"├ ⏳ Pending milestone: <b>{s['waiting']}</b>\n"
+        f"├ 🏆 Winners crowned: <b>{s['total_winners']}</b>\n"
+        f"├ 👥 Members engaged: <b>{s['total_entrants'] + s['total_claimed']}</b>\n"
+        f"└ 💎 Points distributed: <b>{s['total_points_given']}</b>\n\n"
+        f"🔔 Live admin reports: <b>{live}</b>"
+    )
+
+
+def _gw2_dashboard_kb():
+    m = types.InlineKeyboardMarkup(row_width=2)
+    m.add(types.InlineKeyboardButton("➕ New Giveaway", callback_data="gw2_create"))
+    m.add(types.InlineKeyboardButton("📋 Manage Campaigns", callback_data="gw2_list"))
+    m.add(types.InlineKeyboardButton("📊 Detailed Stats", callback_data="gw2_stats"))
+    m.add(types.InlineKeyboardButton("💡 Growth Ideas", callback_data="gw2_ideas"))
+    rep = "🔔 Live Reports: ON" if bot_config.get("gw_live_reports", True) else "🔕 Live Reports: OFF"
+    m.add(types.InlineKeyboardButton(rep, callback_data="gw2_reports"))
+    m.add(types.InlineKeyboardButton("ℹ️ Help", callback_data="gw2_help"))
+    return m
+
+
+def gw2_open_dashboard(chat_id, msg_id=None):
+    _edit_or_send(chat_id, msg_id, _gw2_dashboard_text(), _gw2_dashboard_kb())
+
+
+# ---------- Entry: intercept the "🎁 Giveaway" admin button ----------
+
+@bot.message_handler(func=lambda m: m.text == "🎁 Giveaway")
+def gw2_entry_button(message):
+    uid = str(message.from_user.id)
+    if not _gw2_is_admin(uid):
+        return bot.send_message(message.chat.id, "🔒 <b>Admins only.</b>", parse_mode="HTML")
+    gw2_open_dashboard(message.chat.id)
+
+
+# ---------- Entry: deep-link for NEW giveaway types (draw/react/quiz) ----------
+
+def _gw2_start_param(message):
+    try:
+        parts = (message.text or "").split()
+        if len(parts) >= 2 and parts[1].startswith("gw_"):
+            return parts[1][3:]
+    except Exception:
+        pass
+    return None
+
+
+def _gw2_is_entry_type(message):
+    if not (message.text or "").startswith("/start"):
+        return False
+    code = _gw2_start_param(message)
+    if not code:
+        return False
+    gw = get_giveaway(code)
+    if not gw:
+        return False
+    return gw.get("type", "link") in ("draw", "react", "quiz") and gw.get("status") == "active"
+
+
+@bot.message_handler(func=lambda m: _gw2_is_entry_type(m))
+def gw2_entry_start(message):
+    code = _gw2_start_param(message)
+    uid = str(message.from_user.id)
+    gw = get_giveaway(code)
+    gtype = gw.get("type")
+    chat_id = message.chat.id
+
+    if not check_channel_join(uid):
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK))
+        return bot.send_message(chat_id,
+            "🔒 <b>You must join our channel to enter the giveaway!</b>\n\n"
+            "Join, then open the link again.",
+            reply_markup=kb, parse_mode="HTML")
+
+    if has_user_entered(code, uid):
+        return bot.send_message(chat_id, "✅ <b>You're already entered!</b> Good luck 🍀",
+                                parse_mode="HTML")
+
+    if gtype == "quiz":
+        return _gw2_send_quiz(chat_id, uid, code)
+
+    # draw / react -> enter directly (react assumes the member reacted on the post)
+    enter_giveaway(code, uid)
+    update_channel_post(code)
+    if bot_config.get("gw_live_reports", True):
+        u = get_user(uid) or {}
+        _notify_admins(
+            "🙋 <b>New Giveaway Entry</b>\n"
+            f"├ Code: <code>{code}</code> ({gtype})\n"
+            f"├ User: @{_esc(u.get('username', 'N/A'))} (<code>{uid}</code>)\n"
+            f"└ Entrants: {len(gw.get('entrants', []))}/{gw.get('max_users', 0)}"
+        )
+    bot.send_message(chat_id,
+        "🎉 <b>You're in the draw!</b>\n\n"
+        f"💎 Prize: <b>{gw.get('reward', 0)} pts</b> each\n"
+        f"🏆 Winners: <b>{gw.get('max_users', 0)}</b>\n"
+        f"⏰ Results in: <b>{_time_left_text(gw)}</b>\n\n"
+        f"🍀 Good luck! Winners get a DM and their points automatically.",
+        parse_mode="HTML")
+
+
+def _gw2_send_quiz(chat_id, uid, code):
+    gw = get_giveaway(code)
+    opts = gw.get("quiz_options", [])
+    m = types.InlineKeyboardMarkup(row_width=1)
+    for i, o in enumerate(opts):
+        m.add(types.InlineKeyboardButton(_esc(o), callback_data=f"gw2q_{code}_{i}"))
+    bot.send_message(chat_id,
+        f"🧠 <b>QUIZ GIVEAWAY</b>\n\n❓ {_esc(gw.get('quiz_question', ''))}\n\n"
+        f"💎 Prize: <b>{gw.get('reward', 0)} pts</b> each · 🏆 {gw.get('max_users', 0)} winners\n\n"
+        f"Pick the correct answer to enter:",
+        reply_markup=m, parse_mode="HTML")
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("gw2q_"))
+def gw2_quiz_answer(call):
+    uid = str(call.from_user.id)
+    try:
+        _, code, idx_s = call.data.split("_")
+        idx = int(idx_s)
+    except Exception:
+        return bot.answer_callback_query(call.id, "Invalid", show_alert=True)
+    gw = get_giveaway(code)
+    chat_id = call.message.chat.id
+    if not gw or gw.get("status") != "active":
+        return bot.answer_callback_query(call.id, "⏰ This giveaway has ended.", show_alert=True)
+    if has_user_entered(code, uid):
+        return bot.answer_callback_query(call.id, "✅ Already entered!", show_alert=True)
+    if idx == gw.get("quiz_answer", -1):
+        enter_giveaway(code, uid)
+        update_channel_post(code)
+        if bot_config.get("gw_live_reports", True):
+            u = get_user(uid) or {}
+            _notify_admins(
+                "🧠 <b>Quiz Entry (correct)</b>\n"
+                f"├ Code: <code>{code}</code>\n"
+                f"├ User: @{_esc(u.get('username', 'N/A'))} (<code>{uid}</code>)\n"
+                f"└ Entrants: {len(gw.get('entrants', []))}"
+            )
+        bot.answer_callback_query(call.id, "✅ Correct! You're in the draw 🍀", show_alert=True)
+        bot.send_message(chat_id,
+            "🎉 <b>Correct answer — you're in!</b>\n\n"
+            f"💎 Prize: <b>{gw.get('reward', 0)} pts</b> each · 🏆 {gw.get('max_users', 0)} winners\n"
+            f"⏰ Results in: <b>{_time_left_text(gw)}</b>\n\n🍀 Good luck!",
+            parse_mode="HTML")
+    else:
+        bot.answer_callback_query(call.id, "❌ Wrong answer — better luck next time!", show_alert=True)
+
+
+# ---------- Type chooser ----------
+
+def gw2_show_types(chat_id, msg_id=None):
+    text = (
+        "╔═══════════════════════╗\n"
+        "║  ➕ <b>NEW GIVEAWAY</b>  ║\n"
+        "╚═══════════════════════╝\n\n"
+        "Pick a campaign type — each one boosts a different part of your channel:\n"
+    )
+    for key, meta in GW_TYPES.items():
+        text += f"\n{meta['label']}\n<i>{meta['desc']}</i>\n"
+    m = types.InlineKeyboardMarkup(row_width=1)
+    for key, meta in GW_TYPES.items():
+        m.add(types.InlineKeyboardButton(meta['label'], callback_data=f"gw2_type_{key}"))
+    m.add(types.InlineKeyboardButton("🔙 Back", callback_data="gw2_home"))
+    _edit_or_send(chat_id, msg_id, text, m)
+
+
+def gw2_begin_type(call, gtype):
+    uid = str(call.from_user.id)
+    chat_id = call.message.chat.id
+    gw2_setup[uid] = {"type": gtype}
+    bot.answer_callback_query(call.id)
+    if gtype == "milestone":
+        msg = bot.send_message(chat_id,
+            "📈 <b>Step 1 — Subscriber Goal</b>\n\n"
+            "At how many channel subscribers should the reward drop be published?\n\n"
+            "<i>Send a number, e.g. 1000</i>", parse_mode="HTML")
+        bot.register_next_step_handler(msg, _gw2_recv_milestone_target)
+    elif gtype == "quiz":
+        msg = bot.send_message(chat_id,
+            "🧠 <b>Step 1 — Quiz Question</b>\n\n"
+            "Send the question you want members to answer.\n\n"
+            "<i>Example: What year did our store launch?</i>", parse_mode="HTML")
+        bot.register_next_step_handler(msg, _gw2_recv_quiz_question)
+    else:
+        _gw2_ask_reward(chat_id, uid)
+
+
+# ---------- Text input receivers ----------
+
+def _gw2_recv_milestone_target(message):
+    uid = str(message.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    try:
+        target = int((message.text or "").strip())
+        if target <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "❌ Please send a valid positive number:")
+        bot.register_next_step_handler(msg, _gw2_recv_milestone_target)
+        return
+    st["milestone_target"] = target
+    _gw2_ask_reward(message.chat.id, uid)
+
+
+def _gw2_recv_quiz_question(message):
+    uid = str(message.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    q = (message.text or "").strip()
+    if not q:
+        msg = bot.send_message(message.chat.id, "❌ Question can't be empty. Send it again:")
+        bot.register_next_step_handler(msg, _gw2_recv_quiz_question)
+        return
+    st["quiz_question"] = q
+    msg = bot.send_message(message.chat.id,
+        "🧠 <b>Step 2 — Answer Options</b>\n\n"
+        "Send 2–4 options separated by commas.\n\n"
+        "<i>Example: 2021, 2022, 2023, 2024</i>", parse_mode="HTML")
+    bot.register_next_step_handler(msg, _gw2_recv_quiz_options)
+
+
+def _gw2_recv_quiz_options(message):
+    uid = str(message.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    raw = (message.text or "").strip()
+    opts = [o.strip() for o in raw.split(",") if o.strip()]
+    if len(opts) < 2 or len(opts) > 4:
+        msg = bot.send_message(message.chat.id, "❌ Send between 2 and 4 options separated by commas:")
+        bot.register_next_step_handler(msg, _gw2_recv_quiz_options)
+        return
+    st["quiz_options"] = opts
+    m = types.InlineKeyboardMarkup(row_width=1)
+    for i, o in enumerate(opts):
+        m.add(types.InlineKeyboardButton(f"✅ {_esc(o)}", callback_data=f"gw2_quizans_{i}"))
+    bot.send_message(message.chat.id,
+        "🎯 <b>Step 3 — Correct Answer</b>\n\nTap the correct option:",
+        reply_markup=m, parse_mode="HTML")
+
+
+def gw2_set_quiz_answer(call, idx):
+    uid = str(call.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+    st["quiz_answer"] = idx
+    bot.answer_callback_query(call.id, f"Correct answer set: {st['quiz_options'][idx]}")
+    _gw2_ask_reward(call.message.chat.id, uid)
+
+
+# ---------- Numeric step menus ----------
+
+def _gw2_ask_reward(chat_id, uid):
+    m = types.InlineKeyboardMarkup(row_width=3)
+    for v in [25, 50, 100, 250, 500, 1000]:
+        m.add(types.InlineKeyboardButton(f"💎 {v}", callback_data=f"gw2_reward_{v}"))
+    m.add(types.InlineKeyboardButton("✏️ Custom", callback_data="gw2_reward_custom"),
+          types.InlineKeyboardButton("❌ Cancel", callback_data="gw2_abort"))
+    bot.send_message(chat_id,
+        "💎 <b>Step — Reward</b>\n\nPoints awarded to each winner:",
+        reply_markup=m, parse_mode="HTML")
+
+
+def gw2_set_reward(call, val):
+    uid = str(call.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+    if val == "custom":
+        msg = bot.send_message(call.message.chat.id, "💎 Send reward amount (number):")
+        bot.register_next_step_handler(msg, _gw2_recv_reward)
+        return
+    st["reward"] = int(val)
+    bot.answer_callback_query(call.id)
+    _gw2_ask_winners(call.message.chat.id, uid)
+
+
+def _gw2_recv_reward(message):
+    uid = str(message.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    try:
+        v = int((message.text or "").strip())
+        if v <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "❌ Send a valid positive number:")
+        bot.register_next_step_handler(msg, _gw2_recv_reward)
+        return
+    st["reward"] = v
+    _gw2_ask_winners(message.chat.id, uid)
+
+
+def _gw2_ask_winners(chat_id, uid):
+    m = types.InlineKeyboardMarkup(row_width=3)
+    for v in [1, 3, 5, 10, 20, 50]:
+        m.add(types.InlineKeyboardButton(f"👥 {v}", callback_data=f"gw2_winners_{v}"))
+    m.add(types.InlineKeyboardButton("✏️ Custom", callback_data="gw2_winners_custom"),
+          types.InlineKeyboardButton("❌ Cancel", callback_data="gw2_abort"))
+    bot.send_message(chat_id,
+        "👥 <b>Step — Winners</b>\n\nHow many winners / claim slots?",
+        reply_markup=m, parse_mode="HTML")
+
+
+def gw2_set_winners(call, val):
+    uid = str(call.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+    if val == "custom":
+        msg = bot.send_message(call.message.chat.id, "👥 Send number of winners:")
+        bot.register_next_step_handler(msg, _gw2_recv_winners)
+        return
+    st["max_users"] = int(val)
+    bot.answer_callback_query(call.id)
+    _gw2_ask_hours(call.message.chat.id, uid)
+
+
+def _gw2_recv_winners(message):
+    uid = str(message.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    try:
+        v = int((message.text or "").strip())
+        if v <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "❌ Send a valid positive number:")
+        bot.register_next_step_handler(msg, _gw2_recv_winners)
+        return
+    st["max_users"] = v
+    _gw2_ask_hours(message.chat.id, uid)
+
+
+def _gw2_ask_hours(chat_id, uid):
+    m = types.InlineKeyboardMarkup(row_width=3)
+    for v in [1, 3, 6, 12, 24, 48]:
+        m.add(types.InlineKeyboardButton(f"⏰ {v}h", callback_data=f"gw2_hours_{v}"))
+    m.add(types.InlineKeyboardButton("📅 72h", callback_data="gw2_hours_72"),
+          types.InlineKeyboardButton("🗓 168h", callback_data="gw2_hours_168"))
+    m.add(types.InlineKeyboardButton("✏️ Custom", callback_data="gw2_hours_custom"),
+          types.InlineKeyboardButton("❌ Cancel", callback_data="gw2_abort"))
+    bot.send_message(chat_id,
+        "⏰ <b>Step — Duration</b>\n\nHow long should the campaign run?",
+        reply_markup=m, parse_mode="HTML")
+
+
+def gw2_set_hours(call, val):
+    uid = str(call.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+    if val == "custom":
+        msg = bot.send_message(call.message.chat.id, "⏰ Send duration in hours (number):")
+        bot.register_next_step_handler(msg, _gw2_recv_hours)
+        return
+    st["hours"] = int(val)
+    bot.answer_callback_query(call.id)
+    _gw2_confirm(call.message.chat.id, uid)
+
+
+def _gw2_recv_hours(message):
+    uid = str(message.from_user.id)
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    try:
+        v = int((message.text or "").strip())
+        if v <= 0:
+            raise ValueError
+    except Exception:
+        msg = bot.send_message(message.chat.id, "❌ Send a valid positive number:")
+        bot.register_next_step_handler(msg, _gw2_recv_hours)
+        return
+    st["hours"] = v
+    _gw2_confirm(message.chat.id, uid)
+
+
+# ---------- Review & launch ----------
+
+def _gw2_confirm(chat_id, uid):
+    st = gw2_setup.get(uid)
+    if not st:
+        return
+    gtype = st["type"]
+    meta = GW_TYPES[gtype]
+    lines = [
+        "╔═══════════════════════╗",
+        "║  ✅ <b>REVIEW &amp; LAUNCH</b>  ║",
+        "╚═══════════════════════╝", "",
+        f"🎯 Type: <b>{meta['label']}</b>",
+        f"💎 Reward: <b>{st['reward']} pts</b> each",
+        f"👥 Winners: <b>{st['max_users']}</b>",
+        f"⏰ Duration: <b>{st['hours']}h</b>",
+    ]
+    if gtype == "quiz":
+        opts = st.get('quiz_options', ['?'])
+        ans = opts[st.get('quiz_answer', 0)] if st.get('quiz_answer', 0) < len(opts) else '?'
+        lines.append(f"🧠 Question: <b>{_esc(st.get('quiz_question', ''))}</b>")
+        lines.append(f"🎯 Correct: <b>{_esc(ans)}</b>")
+    if gtype == "milestone":
+        lines.append(f"📈 Publishes at: <b>{st.get('milestone_target', 0)} subscribers</b>")
+    lines += ["", "Launch this campaign now?"]
+    m = types.InlineKeyboardMarkup(row_width=2)
+    m.add(types.InlineKeyboardButton("🚀 Launch Now", callback_data="gw2_launch"),
+          types.InlineKeyboardButton("❌ Cancel", callback_data="gw2_abort"))
+    bot.send_message(chat_id, "\n".join(lines), reply_markup=m, parse_mode="HTML")
+
+
+def gw2_launch(call):
+    uid = str(call.from_user.id)
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+    st = gw2_setup.get(uid)
+    if not st:
+        return bot.answer_callback_query(call.id, "Session expired", show_alert=True)
+    gtype = st["type"]
+    extra = {}
+    if gtype == "quiz":
+        extra = {"quiz_question": st.get("quiz_question", ""),
+                 "quiz_options": st.get("quiz_options", []),
+                 "quiz_answer": st.get("quiz_answer", 0)}
+    if gtype == "milestone":
+        extra = {"milestone_target": st.get("milestone_target", 0)}
+    code = create_giveaway(st["reward"], st["max_users"], st["hours"],
+                           gw_type=gtype, created_by=uid, **extra)
+    gw2_setup.pop(uid, None)
+
+    published = None
+    if gtype != "milestone":
+        published = publish_giveaway_to_channel(code)
+
+    bot_user = _bot_username()
+    link = f"https://t.me/{bot_user}?start=gw_{code}"
+    summary = (
+        "╔═══════════════════════╗\n"
+        "║ 🎉 <b>CAMPAIGN LAUNCHED!</b> 🎉 ║\n"
+        "╚═══════════════════════╝\n\n"
+        f"🆔 Code: <code>{code}</code>\n"
+        f"🎯 Type: <b>{GW_TYPES[gtype]['label']}</b>\n"
+        f"💎 Reward: <b>{st['reward']} pts</b> × {st['max_users']}\n"
+        f"⏰ Duration: <b>{st['hours']}h</b>\n"
+    )
+    if gtype == "milestone":
+        summary += f"📈 <b>Waiting</b> for {st.get('milestone_target', 0)} subscribers — I'll auto-publish the drop!\n"
+    else:
+        summary += ("📢 <b>Published to channel!</b>\n" if published
+                    else "⚠️ Could not publish (check the bot is a channel admin).\n")
+        summary += f"🔗 Link: <code>{link}</code>\n"
+    summary += "\n💡 Track it anytime from <b>Manage Campaigns</b>."
+
+    m = types.InlineKeyboardMarkup(row_width=2)
+    m.add(types.InlineKeyboardButton("📋 Manage Campaigns", callback_data="gw2_list"),
+          types.InlineKeyboardButton("🏠 Dashboard", callback_data="gw2_home"))
+    _edit_or_send(chat_id, msg_id, summary, m)
+
+
+# ---------- Manage / list / detail ----------
+
+def gw2_show_list(chat_id, msg_id=None):
+    gws = get_all_giveaways()
+    if not gws:
+        m = types.InlineKeyboardMarkup()
+        m.add(types.InlineKeyboardButton("➕ Create your first", callback_data="gw2_create"),
+              types.InlineKeyboardButton("🏠 Dashboard", callback_data="gw2_home"))
+        _edit_or_send(chat_id, msg_id,
+                      "📭 <b>No campaigns yet.</b>\n\nLaunch your first giveaway to start growing!", m)
+        return
+    status_icon = {"active": "🟢", "waiting": "⏳", "expired": "⏰",
+                   "full": "✅", "completed": "🏆", "cancelled": "🗑"}
+    items = sorted(gws.values(), key=lambda g: g.get("created", ""), reverse=True)
+    text = (
+        "╔═══════════════════════╗\n"
+        "║  📋 <b>MANAGE CAMPAIGNS</b>  ║\n"
+        "╚═══════════════════════╝\n\n"
+        f"Total: <b>{len(items)}</b> — tap one for full details & controls.\n"
+    )
+    m = types.InlineKeyboardMarkup(row_width=1)
+    for g in items[:15]:
+        code = g["code"]
+        icon = status_icon.get(g.get("status", "active"), "•")
+        meta = GW_TYPES.get(g.get("type", "link"), {})
+        m.add(types.InlineKeyboardButton(
+            f"{icon} {code} · {meta.get('short', '?')} · {g.get('status', '?')}",
+            callback_data=f"gw2_view_{code}"))
+    m.add(types.InlineKeyboardButton("🏠 Dashboard", callback_data="gw2_home"))
+    _edit_or_send(chat_id, msg_id, text, m)
+
+
+def gw2_show_detail(chat_id, msg_id, code):
+    gw = get_giveaway(code)
+    if not gw:
+        _edit_or_send(chat_id, msg_id, "❌ Campaign not found.", _back_kb())
+        return
+    meta = GW_TYPES.get(gw.get("type", "link"), {})
+    s_icon = {"active": "🟢 Active", "waiting": "⏳ Waiting (milestone)", "expired": "⏰ Expired",
+              "full": "✅ Full", "completed": "🏆 Completed", "cancelled": "🗑 Cancelled"}
+    claimed = len(gw.get("claimed_by", []))
+    entrants = len(gw.get("entrants", []))
+    winners = gw.get("winners", [])
+    text = (
+        "╔═══════════════════════╗\n"
+        f"║  🎁 <b>CAMPAIGN {code}</b>  ║\n"
+        "╚═══════════════════════╝\n\n"
+        f"🎯 Type: <b>{meta.get('label', '?')}</b>\n"
+        f"📡 Status: <b>{s_icon.get(gw.get('status', 'active'), gw.get('status'))}</b>\n"
+        f"💎 Reward: <b>{gw.get('reward', 0)} pts</b> each\n"
+        f"👥 Slots: <b>{gw.get('max_users', 0)}</b>\n"
+        f"⏰ Duration: <b>{gw.get('hours', 0)}h</b>\n"
+        f"⌛ Time left: <b>{_time_left_text(gw)}</b>\n"
+        f"🗓 Created: <code>{str(gw.get('created', ''))[:16].replace('T', ' ')}</code>\n"
+    )
+    if gw.get("type") in ("draw", "react", "quiz"):
+        text += f"🙋 Entrants: <b>{entrants}</b>\n"
+    if gw.get("type") in ("link", "milestone"):
+        text += f"✅ Claimed: <b>{claimed}/{gw.get('max_users', 0)}</b>\n"
+    if gw.get("type") == "quiz":
+        text += f"🧠 Q: <i>{_esc(gw.get('quiz_question', ''))}</i>\n"
+    if gw.get("type") == "milestone":
+        cur = get_channel_member_count()
+        text += f"📈 Subscribers: <b>{cur}/{gw.get('milestone_target', 0)}</b>\n"
+    if winners:
+        wlines = []
+        for w in winners[:10]:
+            u = get_user(str(w)) or {}
+            wlines.append(f"@{_esc(u.get('username', 'N/A'))}")
+        text += f"\n🏆 <b>Winners:</b> {', '.join(wlines)}\n"
+    text += f"\n💎 Points committed: <b>{gw.get('reward', 0) * max(len(winners), claimed)}</b>"
+
+    m = types.InlineKeyboardMarkup(row_width=2)
+    status = gw.get("status")
+    if not gw.get("published") and status == "active" and gw.get("type") != "milestone":
+        m.add(types.InlineKeyboardButton("📢 Publish to Channel", callback_data=f"gw2_pub_{code}"))
+    if status == "active":
+        m.add(types.InlineKeyboardButton("🔁 Re-post", callback_data=f"gw2_repost_{code}"))
+        if gw.get("type") in ("draw", "react", "quiz"):
+            m.add(types.InlineKeyboardButton("🏁 End & Pick Winners", callback_data=f"gw2_end_{code}"))
+        m.add(types.InlineKeyboardButton("🗑 Cancel", callback_data=f"gw2_cancel_{code}"))
+    elif status == "waiting":
+        m.add(types.InlineKeyboardButton("🗑 Cancel", callback_data=f"gw2_cancel_{code}"))
+    m.add(types.InlineKeyboardButton("🔄 Refresh", callback_data=f"gw2_view_{code}"),
+          types.InlineKeyboardButton("🔙 List", callback_data="gw2_list"))
+    _edit_or_send(chat_id, msg_id, text, m)
+
+
+def gw2_finish_now(call, code):
+    gw = get_giveaway(code)
+    if not gw:
+        return bot.answer_callback_query(call.id, "Not found", show_alert=True)
+    winners = pick_winners(code)
+    update_channel_post(code)
+    _announce_winners(code, winners)
+    bot.answer_callback_query(call.id, f"🏆 Picked {len(winners)} winner(s)!", show_alert=True)
+    gw2_show_detail(call.message.chat.id, call.message.message_id, code)
+
+
+# ---------- Stats / ideas / help ----------
+
+def gw2_show_stats(chat_id, msg_id=None):
+    s = get_giveaways_stats()
+    bt = s["by_type"]
+    text = (
+        "╔═══════════════════════╗\n"
+        "║  📊 <b>DETAILED STATS</b>  ║\n"
+        "╚═══════════════════════╝\n\n"
+        "🗂 <b>Campaigns</b>\n"
+        f"├ Total: <b>{s['total']}</b>\n"
+        f"├ Active: <b>{s['active']}</b>\n"
+        f"├ Waiting (milestone): <b>{s['waiting']}</b>\n"
+        f"├ Completed: <b>{s['completed']}</b>\n"
+        f"├ Expired: <b>{s['expired']}</b>\n"
+        f"└ Cancelled: <b>{s['cancelled']}</b>\n\n"
+        "👥 <b>Engagement</b>\n"
+        f"├ Members engaged: <b>{s['total_entrants'] + s['total_claimed']}</b>\n"
+        f"├ Winners crowned: <b>{s['total_winners']}</b>\n"
+        f"└ Points distributed: <b>{s['total_points_given']}</b>\n\n"
+        "🎯 <b>By Type</b>\n"
+    )
+    if bt:
+        for k, v in bt.items():
+            text += f"├ {GW_TYPES.get(k, {}).get('short', k)}: <b>{v}</b>\n"
+    else:
+        text += "└ <i>No data yet</i>\n"
+    text += f"\n📣 Current channel subscribers: <b>{get_channel_member_count()}</b>"
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton("🔄 Refresh", callback_data="gw2_stats"),
+          types.InlineKeyboardButton("🏠 Dashboard", callback_data="gw2_home"))
+    _edit_or_send(chat_id, msg_id, text, m)
+
+
+def gw2_show_ideas(chat_id, msg_id=None):
+    text = (
+        "╔═══════════════════════╗\n"
+        "║  💡 <b>GROWTH IDEAS</b>  ║\n"
+        "╚═══════════════════════╝\n\n"
+        "Proven giveaway strategies to grow your channel:\n\n"
+        "🎲 <b>Random Winner Draw</b>\n"
+        "Builds anticipation — members stay subscribed waiting for the result. Great for re-engaging old members.\n\n"
+        "❤️ <b>React-to-Enter</b>\n"
+        "Every reaction boosts your post in Telegram's algorithm and shows visitors that the channel is active.\n\n"
+        "📈 <b>Subscriber Milestone</b>\n"
+        "Turns growth into an event. Members invite friends to unlock the reward — a viral loop!\n\n"
+        "🧠 <b>Quiz Giveaway</b>\n"
+        "Increases time spent on your channel and lets you highlight products/features inside the question.\n\n"
+        "🔗 <b>Classic Link Claim</b>\n"
+        "Urgency + speed. Perfect for flash bursts that drive instant traffic into the bot.\n\n"
+        "💎 <b>Pro tips:</b>\n"
+        "• Run draws on weekends (higher activity)\n"
+        "• Pin the giveaway post for visibility\n"
+        "• Announce winners publicly to build trust\n"
+        "• Combine milestone + draw for maximum growth"
+    )
+    m = types.InlineKeyboardMarkup()
+    m.add(types.InlineKeyboardButton("➕ New Giveaway", callback_data="gw2_create"),
+          types.InlineKeyboardButton("🏠 Dashboard", callback_data="gw2_home"))
+    _edit_or_send(chat_id, msg_id, text, m)
+
+
+def gw2_show_help(chat_id, msg_id=None):
+    text = (
+        "╔═══════════════════════╗\n"
+        "║  ℹ️ <b>HOW IT WORKS</b>  ║\n"
+        "╚═══════════════════════╝\n\n"
+        "1️⃣ Tap <b>New Giveaway</b> and pick a type.\n"
+        "2️⃣ Set the reward, winners and duration.\n"
+        "3️⃣ Launch — the post goes live in your channel.\n"
+        "4️⃣ Members join via the button (captcha-protected).\n"
+        "5️⃣ Draws auto-pick winners when time ends; you get a full report.\n\n"
+        "🔔 Keep <b>Live Reports</b> on to receive real-time claim & winner alerts.\n"
+        "🛡 Anti-bot: every claimant solves a captcha.\n"
+        "📢 Make sure the bot is an admin in the channel to publish & edit posts."
+    )
+    _edit_or_send(chat_id, msg_id, text, _back_kb())
+
+
+# ---------- Main callback router ----------
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("gw2_"))
+def gw2_router(call):
+    uid = str(call.from_user.id)
+    if not _gw2_is_admin(uid):
+        bot.answer_callback_query(call.id, "🔒 Admins only")
+        return
+    data = call.data
+    chat_id = call.message.chat.id
+    msg_id = call.message.message_id
+
+    if data == "gw2_home":
+        gw2_open_dashboard(chat_id, msg_id)
+    elif data == "gw2_create":
+        gw2_show_types(chat_id, msg_id)
+    elif data.startswith("gw2_type_"):
+        gw2_begin_type(call, data.split("gw2_type_", 1)[1])
+    elif data == "gw2_list":
+        gw2_show_list(chat_id, msg_id)
+    elif data.startswith("gw2_view_"):
+        gw2_show_detail(chat_id, msg_id, data.split("gw2_view_", 1)[1])
+    elif data.startswith("gw2_pub_"):
+        code = data.split("gw2_pub_", 1)[1]
+        mid = publish_giveaway_to_channel(code)
+        bot.answer_callback_query(call.id, "📢 Published to channel!" if mid else "❌ Publish failed", show_alert=True)
+        gw2_show_detail(chat_id, msg_id, code)
+    elif data.startswith("gw2_repost_"):
+        code = data.split("gw2_repost_", 1)[1]
+        mid = publish_giveaway_to_channel(code)
+        bot.answer_callback_query(call.id, "🔁 Re-published!" if mid else "❌ Failed", show_alert=True)
+        gw2_show_detail(chat_id, msg_id, code)
+    elif data.startswith("gw2_end_"):
+        gw2_finish_now(call, data.split("gw2_end_", 1)[1])
+    elif data.startswith("gw2_cancel_"):
+        code = data.split("gw2_cancel_", 1)[1]
+        cancel_giveaway(code)
+        bot.answer_callback_query(call.id, "🗑 Cancelled & post deleted", show_alert=True)
+        gw2_show_list(chat_id, msg_id)
+    elif data == "gw2_stats":
+        gw2_show_stats(chat_id, msg_id)
+    elif data == "gw2_ideas":
+        gw2_show_ideas(chat_id, msg_id)
+    elif data == "gw2_reports":
+        cur = bot_config.get("gw_live_reports", True)
+        bot_config["gw_live_reports"] = not cur
+        save_json(DB_CONFIG, bot_config)
+        bot.answer_callback_query(call.id, f"Live reports {'ON' if not cur else 'OFF'}")
+        gw2_open_dashboard(chat_id, msg_id)
+    elif data == "gw2_help":
+        gw2_show_help(chat_id, msg_id)
+    # creation step menus
+    elif data.startswith("gw2_reward_"):
+        gw2_set_reward(call, data.split("gw2_reward_", 1)[1])
+    elif data.startswith("gw2_winners_"):
+        gw2_set_winners(call, data.split("gw2_winners_", 1)[1])
+    elif data.startswith("gw2_hours_"):
+        gw2_set_hours(call, data.split("gw2_hours_", 1)[1])
+    elif data.startswith("gw2_quizans_"):
+        gw2_set_quiz_answer(call, int(data.split("gw2_quizans_", 1)[1]))
+    elif data == "gw2_launch":
+        gw2_launch(call)
+    elif data == "gw2_abort":
+        gw2_setup.pop(uid, None)
+        bot.answer_callback_query(call.id, "Cancelled")
+        gw2_open_dashboard(chat_id, msg_id)
+
+
+print("✅ Giveaway Studio v2.0 loaded (5 campaign types + admin dashboard)")
+
+
 print("=" * 50)
