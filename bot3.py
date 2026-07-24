@@ -14,6 +14,8 @@ from database import (bot_config, save_json, DB_CONFIG, DB_KEYS, get_user,
                       keys_store, prices_config)
 from utils import (get_active_flash_sale, publish_sale_to_channel,
                    check_channel_join)
+from shop_ui import (gt_shop, build_success_view, purchase_frames, animate_frames,
+                     compute_price, flash_discount_for, PLANS)
 
 # =====================================================
 # ANTI-ABUSE SYSTEM
@@ -94,12 +96,19 @@ def fixed_purchase_handler(call):
     msg_id = call.message.message_id
     data = call.data
     
-    # Parse product and plan
+    # Parse product and plan ("buy_plan|<product>|<plan>" — product may contain "|"?
+    # no: products are validated against prices_config, so a strict split is safe).
     try:
-        _, prod, plan = data.split("|")
-    except:
-        return bot.answer_callback_query(call.id, "Error", show_alert=True)
-    
+        _, prod, plan = data.split("|", 2)
+    except ValueError:
+        return bot.answer_callback_query(call.id, gt_shop(lang, "buy_error"), show_alert=True)
+
+    # The product/plan must still exist (admin may have removed it meanwhile).
+    if prod not in prices_config:
+        return bot.answer_callback_query(call.id, gt_shop(lang, "prod_missing"), show_alert=True)
+    if plan not in PLANS:
+        return bot.answer_callback_query(call.id, gt_shop(lang, "buy_error"), show_alert=True)
+
     # Check anti-abuse
     allowed, reason = check_purchase_abuse(uid)
     if not allowed:
@@ -117,20 +126,23 @@ def fixed_purchase_handler(call):
         return bot.answer_callback_query(call.id,
             "⚠️ Join the channel first!", show_alert=True)
     
-    # Calculate price
+    # Calculate price with the shared engine so the button label, the receipt
+    # and the amount actually charged can never drift apart.
     base_p = prices_config.get(prod, {}).get(plan, 0)
     disc = bot_config.get("discount", 0)
     u_disc = u.get("rank_discount", 0.0) or 0.0
-    
-    # Check flash sale
     fs = get_active_flash_sale()
-    fs_disc = 0
-    if fs and fs.get("product") == prod:
-        fs_disc = fs.get("discount", 0)
-    
-    total_disc = disc + fs_disc
-    final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
-    
+    fs_disc = flash_discount_for(fs, prod)
+    final_p = compute_price(base_p, disc, fs_disc, u_disc)
+
+    # A plan with no configured price must not be sold for 0.
+    try:
+        if int(base_p or 0) <= 0:
+            return bot.answer_callback_query(call.id,
+                gt_shop(lang, "price_error"), show_alert=True)
+    except (TypeError, ValueError):
+        return bot.answer_callback_query(call.id, gt_shop(lang, "price_error"), show_alert=True)
+
     # Check balance
     user_points = u.get("points", 0) or 0
     if user_points < final_p:
@@ -141,7 +153,9 @@ def fixed_purchase_handler(call):
     product_keys = keys_store.get(prod, {}).get(plan, [])
     if not product_keys:
         return bot.answer_callback_query(call.id,
-            "⚠️ Out of stock!", show_alert=True)
+            gt_shop(lang, "plan_out_alert"), show_alert=True)
+
+    bot.answer_callback_query(call.id)
     
     # ═══════════════════════════════════
     # STEP 1: DELIVER KEY FIRST (GUARANTEED)
@@ -197,52 +211,37 @@ def fixed_purchase_handler(call):
     # STEP 2: ANIMATION (SAFE - KEY ALREADY GIVEN)
     # ═══════════════════════════════════
     
+    # Localised, progress-bar driven animation. It runs *after* the key was
+    # reserved, so a failed edit can never cost the user their purchase.
     animation_steps = [
-        "⏳ <b>Processing payment...</b>",
-        "🔐 <b>Preparing your key...</b>",
-        "📦 <b>Packing your order...</b>",
-        "🚀 <b>Delivering...</b>"
+        t(lang, "buy_step_1"),
+        t(lang, "buy_step_2"),
+        t(lang, "buy_step_3"),
+        t(lang, "buy_step_4"),
     ]
-    
-    for step in animation_steps:
-        try:
-            bot.edit_message_text(step, chat_id, msg_id, parse_mode="HTML")
-            time.sleep(0.4)
-        except:
-            pass
-    
+    animate_frames(bot, chat_id, msg_id, purchase_frames(animation_steps), delay=0.35)
+
     # ═══════════════════════════════════
     # STEP 3: SHOW KEY TO USER (GUARANTEED)
     # ═══════════════════════════════════
-    
-    success_msg = (
-        f"╔═══════════════════════╗\n"
-        f"║ 🎉 <b>PURCHASE DONE!</b> 🎉 ║\n"
-        f"╚═══════════════════════╝\n\n"
-        f"┃ 📦 <b>Product:</b> {prod}\n"
-        f"┃ ⏱️ <b>Duration:</b> {plan}\n"
-        f"┃ 💰 <b>Paid:</b> {final_p} 💎\n"
-        f"╰━━━━━━━━━━━━━━━╯\n\n"
-        f"🔐 <b>Your Key:</b>\n"
-        f"<code>{key}</code>\n\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"✅ <b>Delivered successfully!</b>\n"
-        f"⚠️ <i>Save your key in a safe place!</i>\n"
-        f"🎁 <i>Enjoy your product!</i>"
-    )
-    
+
+    success_msg, success_markup = build_success_view(lang, prod, plan, final_p, key, base_p)
+    success_msg += f"\n\n{t(lang, 'buy_gift_msg')}"
+
     # Try edit first, then send new message if edit fails
     delivered = False
-    
+
     try:
-        bot.edit_message_text(success_msg, chat_id, msg_id, parse_mode="HTML")
+        bot.edit_message_text(success_msg, chat_id, msg_id,
+                              reply_markup=success_markup, parse_mode="HTML")
         delivered = True
     except:
         pass
     
     if not delivered:
         try:
-            bot.send_message(chat_id, success_msg, parse_mode="HTML")
+            bot.send_message(chat_id, success_msg,
+                             reply_markup=success_markup, parse_mode="HTML")
             delivered = True
         except:
             pass

@@ -2,6 +2,14 @@ import os
 import telebot
 
 API_TOKEN = os.getenv("API_TOKEN")
+if not API_TOKEN:
+    raise SystemExit(
+        "❌ API_TOKEN is missing.\n"
+        "   ➜ On Railway: open your service → Variables → add:\n"
+        "        API_TOKEN = <the token from @BotFather>\n"
+        "   ➜ Locally:  export API_TOKEN=123456:ABC..."
+    )
+
 bot = telebot.TeleBot(API_TOKEN)
 
 ADMIN_PRIMARY = 5145154527

@@ -17,6 +17,8 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    get_active_flash_sale, create_flash_sale, format_time_remaining,
                    send_typing_action, ikb, broadcast_channel_message,
                    broadcast_channel_voice, get_publish_channels)
+from shop_ui import (gt_shop, build_shop_view, build_product_view,
+                     loading_frames, animate_frames, resolve_product)
 from keyboards import *
 import bot3
 import bot4
@@ -941,48 +943,59 @@ def show_wheel(chat_id, msg_id, lang):
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
 
-def show_shop(message, uid, u, lang):
-    chat_id = message.chat.id if hasattr(message, 'chat') else message.message.chat.id
-    if not prices_config:
-        try: bot.send_message(chat_id, gt_shop(lang, "empty"), parse_mode="HTML")
-        except: pass
+def _shop_target(message):
+    """Return (chat_id, message_id) for both Message and CallbackQuery inputs."""
+    inner = getattr(message, "message", None)
+    if inner is not None and hasattr(inner, "chat"):
+        # CallbackQuery → edit the message the button lives on.
+        return inner.chat.id, inner.message_id
+    chat = getattr(message, "chat", None)
+    if chat is not None:
+        return chat.id, getattr(message, "message_id", None)
+    return None, None
+
+
+def show_shop(message, uid, u, lang, edit=None, animate=True):
+    """Render the shop catalogue.
+
+    ``edit`` forces in-place editing (used by every inline entry point) so the
+    chat is not flooded with a new shop message on each click. When the source
+    is a plain text-keyboard message a fresh message is sent instead.
+    """
+    chat_id, msg_id = _shop_target(message)
+    if chat_id is None:
         return
 
-    u_disc = u.get("rank_discount", 0.0) or 0.0
-    pts = u.get("points", 0)
-    rank = u.get("rank", "🔹")
-    disc = int(u_disc * 100)
-    
-    header = f"{gt_shop(lang, 'title')}\n{gt_shop(lang, 'subtitle')}\n\n"
-    header += f"┌────────────────────────────\n"
-    header += f"│ {gt_shop(lang, 'wallet')}: <b>{pts}</b> 💎\n"
-    header += f"│ {gt_shop(lang, 'rank_disc')}: {rank} (-{disc}%)\n"
-    
+    is_callback = getattr(message, "message", None) is not None and hasattr(
+        getattr(message, "message"), "chat")
+    if edit is None:
+        edit = is_callback
+
     fs = get_active_flash_sale()
+    remaining = None
     if fs:
-        header += f"├────────────────────────────\n"
-        header += f"│ {gt_shop(lang, 'flash')}\n"
-        header += f"│ 🔥 {fs['discount']}% {gt_shop(lang, 'off')} ➝ <b>{fs['product']}</b>\n"
-    header += f"└────────────────────────────\n\n"
-    header += f"{gt_shop(lang, 'select_prod')}"
-    
-    m = types.InlineKeyboardMarkup(row_width=1)
-    for prod in prices_config.keys():
-        stock = sum(len(keys_store.get(prod, {}).get(p, [])) for p in ["1 Day", "7 Days", "30 Days"])
-        status = gt_shop(lang, 'available') if stock > 0 else gt_shop(lang, 'out')
-        emoji = "🔥" if fs and fs["product"] == prod else ("✅" if stock > 0 else "⚠️")
-        
-        btn_text = f"{emoji} {prod} | {status}: {stock}"
-        m.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{prod}"))
-    
-    if hasattr(message, 'data'):
-        try: 
-            bot.edit_message_text(header, chat_id, message.message.message_id, reply_markup=m, parse_mode="HTML")
+        try:
+            remaining = format_time_remaining(fs.get("expires"))
+        except Exception:
+            remaining = None
+
+    # 🎬 Animation: only when we own an existing message we can edit.
+    if edit and msg_id and animate:
+        animate_frames(bot, chat_id, msg_id, loading_frames(lang, "opening", 3), delay=0.2)
+
+    text, markup = build_shop_view(lang, u, prices_config, keys_store, bot_config, fs, remaining)
+
+    if edit and msg_id:
+        try:
+            bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="HTML")
             return
-        except: pass
-    
-    try: bot.send_message(chat_id, header, reply_markup=m, parse_mode="HTML")
-    except: pass
+        except Exception:
+            pass
+
+    try:
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode="HTML")
+    except Exception:
+        pass
 
 # قوائم أخرى
 def show_new_ticket_categories(chat_id, msg_id, lang):
@@ -1314,7 +1327,8 @@ def handle_callbacks(call):
 
     if data == "main_shop":
         bot.answer_callback_query(call.id)
-        show_shop(call.message, uid, u, lang)
+        # Keep the main menu message intact and open the shop underneath it.
+        show_shop(call.message, uid, u, lang, edit=False)
         return
 
     if data == "main_rewards":
@@ -1605,134 +1619,53 @@ def handle_callbacks(call):
     # 🛍️ اختيار منتج
     # ═══════════════════════════════════
     if data.startswith("select_prod_"):
-        prod = data.split("_", 2)[2]
-        if prod not in prices_config: return
-        u_disc = u.get("rank_discount", 0.0) or 0.0
-        fs = get_active_flash_sale()
-        flash_active = fs and fs["product"] == prod
-        
-        info = f"{gt_shop(lang, 'prod_info')}\n\n"
-        info += f"│ {gt_shop(lang, 'prod_name')} <b>{prod}</b>\n"
-        info += f"│ {gt_shop(lang, 'rank_disc')}: <b>{int(u_disc*100)}%</b>\n"
-        info += f"│ {gt_shop(lang, 'balance')}: <b>{u.get('points', 0)}</b> 💎\n"
-        if flash_active:
-            info += f"│ {gt_shop(lang, 'flash')} 🔥 {fs['discount']}% {gt_shop(lang, 'off')}!\n"
-        info += f"└────────────────────────────\n\n"
-        info += f"{gt_shop(lang, 'prod_desc_text')}\n\n"
-        info += f"{gt_shop(lang, 'duration')}"
-        
-        m = types.InlineKeyboardMarkup(row_width=1)
-        durations_map = {"1 Day": "days_1", "7 Days": "days_7", "30 Days": "days_30"}
-        
-        for plan in ["1 Day", "7 Days", "30 Days"]:
-            base_p = prices_config[prod].get(plan, 0)
-            disc = bot_config.get("discount", 0)
-            fs_disc = fs["discount"] if flash_active else 0
-            total_disc = disc + fs_disc
-            final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
-            stock = len(keys_store.get(prod, {}).get(plan, []))
-            emoji = "✅" if stock > 0 else "❌"
-            
-            plan_name = gt_shop(lang, durations_map[plan])
-            btn_txt = f"{emoji} {plan_name} | {gt_shop(lang, 'price')} {final_p} 💎 | {gt_shop(lang, 'stock')} {stock}"
-            if flash_active: btn_txt = f"⚡ {btn_txt}"
-            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
-            
-        m.add(types.InlineKeyboardButton(gt_shop(lang, "btn_back"), callback_data="menu_shop_back"))
-        try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-        except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
-        return
-        u_disc = u.get("rank_discount", 0.0) or 0.0
-        fs = get_active_flash_sale()
-        flash_active = fs and fs["product"] == prod
-        info = f"📦 <b>━━ {prod} ━━</b>\n\n"
-        info += f"┃ 💎 Your Discount: <b>{int(u_disc*100)}%</b>\n"
-        info += f"┃ 💰 Balance: <b>{u.get('points', 0)}</b>\n"
-        if flash_active:
-            info += f"┃ ⚡ <b>FLASH SALE:</b> {fs['discount']}% OFF!\n"
-        info += "╰━━━━━━━━━━━━╯\n\n⏱️ <b>Choose duration:</b>"
-        m = types.InlineKeyboardMarkup()
-        for plan in ["1 Day", "7 Days", "30 Days"]:
-            base_p = prices_config[prod].get(plan, 0)
-            disc = bot_config.get("discount", 0)
-            fs_disc = fs["discount"] if flash_active else 0
-            total_disc = disc + fs_disc
-            final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
-            stock = len(keys_store.get(prod, {}).get(plan, []))
-            emoji = "✅" if stock > 0 else "❌"
-            btn_txt = f"{emoji} {plan} | {final_p} 💎 | 📊 {stock}"
-            if flash_active: btn_txt = f"⚡ {btn_txt}"
-            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
-        m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_shop_back"))
-        try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-        except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
-        return
+        token = data[len("select_prod_"):]
+        prod = resolve_product(token, prices_config.keys())
+        if not prod:
+            return bot.answer_callback_query(call.id, gt_shop(lang, "prod_missing"), show_alert=True)
 
-    if data == "menu_shop_back":
-        try: bot.delete_message(chat_id, msg_id)
-        except: pass
-        return show_shop(call.message, uid, u, lang)
+        bot.answer_callback_query(call.id)
 
-    # ═══════════════════════════════════
-    # 🛒 الشراء (مُصلح - يعطي المفتاح!)
-    # ═══════════════════════════════════
-    if data.startswith("buy_plan|"):
-        _, prod, plan = data.split("|")
-        base_p = prices_config.get(prod, {}).get(plan, 0)
-        disc = bot_config.get("discount", 0)
-        u_disc = u.get("rank_discount", 0.0) or 0.0
         fs = get_active_flash_sale()
-        fs_disc = fs["discount"] if fs and fs["product"] == prod else 0
-        total_disc = disc + fs_disc
-        final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
-        
-        if (u.get("points", 0) or 0) < final_p:
-            return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
-        if not keys_store.get(prod, {}).get(plan, []):
-            return bot.answer_callback_query(call.id, gt_shop(lang, "out_alert"), show_alert=True)
-        
-        # 🎬 أنيميشن مراحل الشراء
-        steps = [
-            t(lang, "buy_step_1"),
-            t(lang, "buy_step_2"),
-            t(lang, "buy_step_3"),
-            t(lang, "buy_step_4")
-        ]
-        for step in steps:
+        remaining = None
+        if fs:
             try:
-                bot.edit_message_text(step, chat_id, msg_id, parse_mode="HTML")
-                time.sleep(0.5)
-            except: pass
-        
-        # ✅ إعطاء المفتاح فعلياً بعد الأنيميشن
+                remaining = format_time_remaining(fs.get("expires"))
+            except Exception:
+                remaining = None
+
+        # 🎬 أنيميشن فتح المنتج
+        animate_frames(bot, chat_id, msg_id, loading_frames(lang, "loading_prod", 2), delay=0.2)
+
+        info, m = build_product_view(lang, u, prod, prices_config, keys_store,
+                                     bot_config, fs, remaining)
         try:
-            key = keys_store[prod][plan].pop(0)
-            update_user_data(uid, points=-final_p, total_spent=final_p, purchases_count=1)
-            bot_config["total_sales"] = bot_config.get("total_sales", 0) + 1
-            bot_config["total_earnings"] = bot_config.get("total_earnings", 0) + final_p
-            if "sales_log" not in bot_config: bot_config["sales_log"] = []
-            bot_config["sales_log"].append({
-                "uid": uid, "username": u.get("username", ""),
-                "product": prod, "plan": plan, "price": final_p,
-                "key": key, "date": datetime.now().isoformat()
-            })
-            save_json(DB_KEYS, keys_store)
-            save_json(DB_CONFIG, bot_config)
-            update_user_rank_and_quests(uid)
-            
-            # 🎁 رسالة الشراء النهائية الجميلة
-            msg = t(lang, "purchase_success", prod=prod, plan=plan, price=final_p, key=key)
-            msg += f"\n\n{t(lang, 'buy_gift_msg')}"
-            
-            try: bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-            except: bot.send_message(chat_id, msg, parse_mode="HTML")
-            
-            # نشر بالقناة
-            publish_sale_to_channel(prod, plan, final_p)
-        except Exception as e:
-            print(f"⚠️ Error in purchase: {e}")
-            bot.send_message(chat_id, gt_shop(lang, "buy_error"))
+            bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+        except Exception:
+            try:
+                bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
+            except Exception:
+                pass
         return
+
+    # 🔄 تحديث المتجر / العودة إليه (تعديل نفس الرسالة بدل إرسال رسالة جديدة)
+    if data in ("menu_shop_back", "shop_refresh"):
+        bot.answer_callback_query(call.id)
+        return show_shop(call, uid, u, lang, edit=True, animate=(data == "shop_refresh"))
+
+    if data == "shop_home":
+        bot.answer_callback_query(call.id)
+        try:
+            bot.delete_message(chat_id, msg_id)
+        except Exception:
+            pass
+        return show_main_menu(chat_id, uid, lang)
+
+    # ═══════════════════════════════════
+    # 🛒 الشراء
+    # ملاحظة: معالج الشراء الفعلي موجود في bot3.py ويُسجَّل قبل هذا المعالج
+    # الشامل، لذلك تمت إزالة النسخة المكررة هنا لمنع الخصم/التسليم المزدوج.
+    # ═══════════════════════════════════
 
     # ═══════════════════════════════════
     # 🎫 التذاكر (الأدمن)
@@ -2818,6 +2751,12 @@ def process_add_force_sub_channel(message):
 # 🚀 التشغيل
 # =====================================================
 if __name__ == "__main__":
+    if not os.getenv("API_TOKEN"):
+        raise SystemExit(
+            "❌ API_TOKEN is missing.\n"
+            "   ➜ On Railway: Variables → add API_TOKEN = <your @BotFather token>"
+        )
+
     print("=" * 50)
     print("🚀 EVE Store Bot v3.0 - Starting...")
     print("=" * 50)
@@ -2825,6 +2764,24 @@ if __name__ == "__main__":
     print("✅ bot2.py loaded (Giveaway + Channel)")
     print("💻 Developer: @fkLJh00302")
     print("=" * 50)
+
+    # A redeploy can briefly overlap with the previous container, and a webhook
+    # left over from an earlier setup silently blocks getUpdates. Clearing it
+    # (and dropping the backlog) makes restarts on Railway reliable.
+    try:
+        bot.remove_webhook()
+        time.sleep(1)
+    except Exception as e:
+        print(f"⚠️ remove_webhook: {e}")
+
     print("🤖 Bot is now RUNNING!")
     print("=" * 50)
-    bot.infinity_polling(none_stop=True, timeout=60)
+
+    # Never let a transient network/API blip kill the container: Railway would
+    # restart it, but reconnecting in-process is faster and keeps state warm.
+    while True:
+        try:
+            bot.infinity_polling(none_stop=True, timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print(f"⚠️ polling crashed: {e} — reconnecting in 5s...")
+            time.sleep(5)

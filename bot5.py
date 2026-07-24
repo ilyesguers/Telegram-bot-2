@@ -34,7 +34,10 @@ import atexit
 import hashlib
 
 import database
-from database import engine, text, DB_CONFIG, DB_KEYS, DB_PRICES, DB_REDEEM
+from database import engine, text, DB_CONFIG, DB_KEYS, DB_PRICES, DB_REDEEM, IS_SQLITE
+
+# CURRENT_TIMESTAMP is understood by both SQLite and PostgreSQL, unlike NOW().
+_NOW_SQL = "CURRENT_TIMESTAMP"
 
 # =====================================================================
 # 🗂️ القواميس المتتبعة: اسم -> (الموديول، اسم المتغير بداخله، اسم ملف الـ JSON)
@@ -57,7 +60,7 @@ def _ensure_table():
             CREATE TABLE IF NOT EXISTS {_TABLE} (
                 store_key VARCHAR(50) PRIMARY KEY,
                 data_json TEXT,
-                updated_at TIMESTAMP DEFAULT NOW()
+                updated_at TIMESTAMP DEFAULT {_NOW_SQL}
             )
         """))
         conn.commit()
@@ -86,9 +89,9 @@ def _save_backup(store_key, data):
         with engine.connect() as conn:
             conn.execute(text(f"""
                 INSERT INTO {_TABLE} (store_key, data_json, updated_at)
-                VALUES (:k, :d, NOW())
+                VALUES (:k, :d, {_NOW_SQL})
                 ON CONFLICT (store_key)
-                DO UPDATE SET data_json = :d, updated_at = NOW()
+                DO UPDATE SET data_json = :d, updated_at = {_NOW_SQL}
             """), {"k": store_key, "d": payload})
             conn.commit()
         _last_hash[store_key] = h
