@@ -13,7 +13,10 @@ from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID, CHANNEL_LINK
 from database import (bot_config, save_json, DB_CONFIG, DB_KEYS, get_user, 
                       update_user_data, update_user_rank_and_quests,
                       keys_store, prices_config)
-from utils import generate_captcha
+from utils import (
+    generate_captcha, broadcast_channel_message, get_publish_channels,
+    publish_vip_purchase_to_channels, publish_stars_conversion_to_channels,
+)
 
 # =====================================================
 # INITIALIZATION
@@ -474,38 +477,67 @@ def build_giveaway_post(code):
     return text, m
 
 
+def _as_channel_target(channel_id):
+    try:
+        return int(channel_id)
+    except (TypeError, ValueError):
+        return channel_id
+
+
 def publish_giveaway_to_channel(code):
-    """Publish (or re-publish) the giveaway post to the channel."""
+    """Publish (or re-publish) a giveaway post in every added channel."""
     gw = get_giveaway(code)
     if not gw:
         return None
     text, keyboard = build_giveaway_post(code)
     if not text:
         return None
-    try:
-        sent = bot.send_message(CHANNEL_ID, text, reply_markup=keyboard, parse_mode="HTML")
-        gw["channel_msg_id"] = sent.message_id
-        gw["published"] = True
-        if gw.get("status") == "waiting":
-            gw["status"] = "active"
-        save_json(DB_CONFIG, bot_config)
-        return sent.message_id
-    except Exception:
+
+    delivered = broadcast_channel_message(
+        text, reply_markup=keyboard, parse_mode="HTML"
+    )
+    if not delivered:
         return None
+
+    # Keep the legacy key for existing giveaway records/callers and retain the
+    # full map so counter updates and cancellation apply to every channel.
+    gw["channel_messages"] = delivered
+    gw["channel_msg_id"] = next(iter(delivered.values()))
+    gw["published"] = True
+    if gw.get("status") == "waiting":
+        gw["status"] = "active"
+    save_json(DB_CONFIG, bot_config)
+    return gw["channel_msg_id"]
+
+
+def _giveaway_channel_messages(gw):
+    """Return stored multi-channel IDs, including records from the old format."""
+    messages = gw.get("channel_messages") or {}
+    if messages:
+        return messages
+    if gw.get("channel_msg_id"):
+        return {str(CHANNEL_ID): gw["channel_msg_id"]}
+    return {}
 
 
 def update_channel_post(code):
-    """Refresh the live counters on the channel post (best-effort edit)."""
+    """Refresh live giveaway counters in every published channel post."""
     gw = get_giveaway(code)
-    if not gw or not gw.get("channel_msg_id"):
+    channel_messages = _giveaway_channel_messages(gw or {})
+    if not gw or not channel_messages:
         return False
     text, keyboard = build_giveaway_post(code)
-    try:
-        bot.edit_message_text(text, CHANNEL_ID, gw["channel_msg_id"],
-                              reply_markup=keyboard, parse_mode="HTML")
-        return True
-    except Exception:
-        return False
+    updated = False
+    for channel_id, message_id in channel_messages.items():
+        try:
+            bot.edit_message_text(
+                text, _as_channel_target(channel_id), message_id,
+                reply_markup=keyboard, parse_mode="HTML"
+            )
+            updated = True
+        except Exception:
+            pass
+    return updated
 
 
 def cancel_giveaway(code):
@@ -513,13 +545,12 @@ def cancel_giveaway(code):
     if not gw:
         return False
     gw["status"] = "cancelled"
-    save_json(DB_CONFIG, bot_config)
-    msg_id = gw.get("channel_msg_id")
-    if msg_id:
+    for channel_id, message_id in _giveaway_channel_messages(gw).items():
         try:
-            bot.delete_message(CHANNEL_ID, msg_id)
+            bot.delete_message(_as_channel_target(channel_id), message_id)
         except Exception:
             pass
+    save_json(DB_CONFIG, bot_config)
     return True
 
 
@@ -549,10 +580,14 @@ def get_giveaways_stats():
 
 
 def get_channel_member_count():
-    try:
-        return bot.get_chat_member_count(CHANNEL_ID)
-    except Exception:
-        return 0
+    """Use the largest added channel for the existing milestone feature."""
+    counts = []
+    for channel in get_publish_channels():
+        try:
+            counts.append(bot.get_chat_member_count(channel["id"]))
+        except Exception:
+            pass
+    return max(counts, default=0)
 
 
 # ----- Background worker: expiry, draw finishing, milestone watching -----
@@ -640,34 +675,43 @@ _start_giveaway_worker()
 # CHANNEL MESSAGES
 # =====================================================
 
+def _first_delivered_message_id(deliveries):
+    """Keep the old integer return contract for legacy callers."""
+    return next(iter(deliveries.values()), None)
+
+
 def send_custom_channel_message(text):
-    try:
-        formatted = (
-            f"╔═══════════════════════╗\n"
-            f"║  📢 NOTICE 📢   ║\n"
-            f"╚═══════════════════════╝\n\n"
-            f"{text}\n\n"
-            f"━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💎 Official Announcement"
-        )
-        sent = bot.send_message(CHANNEL_ID, formatted, parse_mode="HTML")
-        return sent.message_id
-    except:
-        return None
+    """Publish a styled channel message in every configured channel."""
+    formatted = (
+        f"╔═══════════════════════╗\n"
+        f"║  📢 NOTICE 📢   ║\n"
+        f"╚═══════════════════════╝\n\n"
+        f"{text}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💎 Official Announcement"
+    )
+    return _first_delivered_message_id(
+        broadcast_channel_message(formatted, parse_mode="HTML")
+    )
+
 
 def send_raw_channel_message(text):
-    try:
-        sent = bot.send_message(CHANNEL_ID, text, parse_mode="HTML")
-        return sent.message_id
-    except:
-        return None
+    """Publish a raw HTML channel message in every configured channel."""
+    return _first_delivered_message_id(
+        broadcast_channel_message(text, parse_mode="HTML")
+    )
+
 
 def delete_channel_message(msg_id):
-    try:
-        bot.delete_message(CHANNEL_ID, int(msg_id))
-        return True
-    except:
-        return False
+    """Delete the supplied message ID from all configured channels when present."""
+    deleted = False
+    for channel in get_publish_channels():
+        try:
+            bot.delete_message(channel["id"], int(msg_id))
+            deleted = True
+        except Exception:
+            pass
+    return deleted
 
 def format_giveaway_win_message(reward, lang="ar"):
     return f"🎊 <b>Congrats! +{reward} pts</b>"
@@ -687,62 +731,14 @@ def format_giveaway_error(reason, lang="ar"):
 # VIP CHANNEL MARKETING
 # =====================================================
 
-def publish_vip_purchase_to_channel():
-    try:
-        bot_user = bot.get_me().username
-    except:
-        bot_user = "bot"
-    hooks = [
-        "👑 <b>NEW VIP MEMBER!</b>",
-        "💎 <b>VIP UPGRADED!</b>",
-        "⭐ <b>EXCLUSIVE MEMBER!</b>",
-        "🎊 <b>ANOTHER HAPPY VIP!</b>"
-    ]
-    hook = random.choice(hooks)
-    msg = (
-        f"╔═══════════════════════╗\n"
-        f"║ {hook} \n"
-        f"╚═══════════════════════╝\n\n"
-        f"🎉 A user just joined VIP club!\n\n"
-        f"💎 Exclusive Benefits:\n"
-        f"├── 🎁 2x Daily bonus\n"
-        f"├── 💰 15% off everything\n"
-        f"├── 📊 Advanced stock info\n"
-        f"├── 🎫 Weekly free code\n"
-        f"├── ⚡ Priority support\n"
-        f"└── 👑 VIP badge\n\n"
-        f"🌟 <b>Join VIP now:</b>\n"
-        f"🤖 t.me/{bot_user}"
-    )
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-    except: pass
+def publish_vip_purchase_to_channel(stars_amount=0, charge_id=None):
+    """Compatibility wrapper for the all-channel VIP announcement."""
+    return publish_vip_purchase_to_channels(stars_amount, charge_id)
 
-def publish_stars_conversion_to_channel(stars_amount, points_amount):
-    try:
-        bot_user = bot.get_me().username
-    except:
-        bot_user = "bot"
-    hooks = [
-        "⭐ <b>NEW CONVERSION!</b>",
-        "💫 <b>STARS TO POINTS!</b>",
-        "🌟 <b>SMART TRADE!</b>"
-    ]
-    hook = random.choice(hooks)
-    msg = (
-        f"╔═══════════════════════╗\n"
-        f"║ {hook} \n"
-        f"╚═══════════════════════╝\n\n"
-        f"⚡ Instant conversion completed!\n\n"
-        f"⭐ Stars used: <b>{stars_amount}</b>\n"
-        f"💎 Points received: <b>{points_amount}</b>\n"
-        f"✅ Status: Delivered\n\n"
-        f"🌟 <b>Convert now:</b>\n"
-        f"🤖 t.me/{bot_user}"
-    )
-    try:
-        bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
-    except: pass
+
+def publish_stars_conversion_to_channel(stars_amount, points_amount, charge_id=None):
+    """Compatibility wrapper for the all-channel Stars conversion notice."""
+    return publish_stars_conversion_to_channels(stars_amount, points_amount, charge_id)
 
 # =====================================================
 # AUTO RESTOCK SYSTEM (NEW - USER CONTROLLED)
@@ -1186,6 +1182,7 @@ def payment_success_handler(message):
     payment = message.successful_payment
     payload = payment.invoice_payload
     total_amount = payment.total_amount
+    charge_id = getattr(payment, "telegram_payment_charge_id", None)
     
     if payload.startswith("vip_purchase_"):
         expires = activate_vip(uid, 30)
@@ -1198,7 +1195,8 @@ def payment_success_handler(message):
             f"💎 All benefits activated\n\n"
             f"✨ <i>Enjoy!</i>",
             parse_mode="HTML")
-        publish_vip_purchase_to_channel()
+        # Every paid VIP purchase is announced in all added channels.
+        publish_vip_purchase_to_channel(total_amount, charge_id)
         try:
             u = get_user(uid) or {}
             bot.send_message(ADMIN_PRIMARY,
@@ -1224,7 +1222,7 @@ def payment_success_handler(message):
             f"💎 Points: <b>+{points}</b>\n"
             f"💰 New balance: <b>{u_new.get('points', 0)}</b>",
             parse_mode="HTML")
-        publish_stars_conversion_to_channel(stars, points)
+        publish_stars_conversion_to_channel(stars, points, charge_id)
         try:
             u = get_user(uid) or {}
             bot.send_message(ADMIN_PRIMARY,
