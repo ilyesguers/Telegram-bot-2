@@ -277,9 +277,8 @@ def show_main_menu(chat_id, uid, lang):
             bot.send_message(chat_id, fs_msg, parse_mode="HTML")
         except: pass
     
-    bot.send_message(chat_id, "👇", reply_markup=get_main_keyboard(uid, lang))
-    # 🎨 القائمة الرئيسية الملونة (Inline Keyboard) — منظّمة وملوّنة مثل أزرار
-    # الاشتراك الإجباري، وتُرفق برسالة الترحيب أعلاه.
+    # 🎨 القائمة الرئيسية الملونة (Inline Keyboard) فقط — أجمل وأكثر احترافية
+    # (تم إزالة الكيبورد الردي المزدوج لتجنب التداخل)
     try:
         bot.edit_message_reply_markup(chat_id, msg.message_id,
                                       reply_markup=get_main_inline(uid, lang))
