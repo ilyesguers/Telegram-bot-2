@@ -886,23 +886,47 @@ def show_wheel(chat_id, msg_id, lang):
     except: pass
 
 def show_shop(message, uid, u, lang):
+    chat_id = message.chat.id if hasattr(message, 'chat') else message.message.chat.id
     if not prices_config:
-        return bot.send_message(message.chat.id, t(lang, "shop_empty"), parse_mode="HTML")
+        try: bot.send_message(chat_id, gt_shop(lang, "empty"), parse_mode="HTML")
+        except: pass
+        return
+
     u_disc = u.get("rank_discount", 0.0) or 0.0
-    header = t(lang, "shop_header",
-               points=u.get('points', 0), rank=u.get('rank', '🔹'), disc=int(u_disc*100))
+    pts = u.get("points", 0)
+    rank = u.get("rank", "🔹")
+    disc = int(u_disc * 100)
+    
+    header = f"{gt_shop(lang, 'title')}\n{gt_shop(lang, 'subtitle')}\n\n"
+    header += f"┌────────────────────────────\n"
+    header += f"│ {gt_shop(lang, 'wallet')}: <b>{pts}</b> 💎\n"
+    header += f"│ {gt_shop(lang, 'rank_disc')}: {rank} (-{disc}%)\n"
     
     fs = get_active_flash_sale()
     if fs:
-        header += f"\n\n⚡ <b>Flash Sale:</b> {fs['discount']}% OFF on {fs['product']}!"
+        header += f"├────────────────────────────\n"
+        header += f"│ {gt_shop(lang, 'flash')}\n"
+        header += f"│ 🔥 {fs['discount']}% {gt_shop(lang, 'off')} ➝ <b>{fs['product']}</b>\n"
+    header += f"└────────────────────────────\n\n"
+    header += f"{gt_shop(lang, 'select_prod')}"
     
     m = types.InlineKeyboardMarkup(row_width=1)
     for prod in prices_config.keys():
         stock = sum(len(keys_store.get(prod, {}).get(p, [])) for p in ["1 Day", "7 Days", "30 Days"])
+        status = gt_shop(lang, 'available') if stock > 0 else gt_shop(lang, 'out')
         emoji = "🔥" if fs and fs["product"] == prod else ("✅" if stock > 0 else "⚠️")
-        m.add(types.InlineKeyboardButton(f"{emoji} 📦 {prod}  |  📊 {stock}",
-                                         callback_data=f"select_prod_{prod}"))
-    bot.send_message(message.chat.id, header, reply_markup=m, parse_mode="HTML")
+        
+        btn_text = f"{emoji} {prod} | {status}: {stock}"
+        m.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{prod}"))
+    
+    if hasattr(message, 'data'):
+        try: 
+            bot.edit_message_text(header, chat_id, message.message.message_id, reply_markup=m, parse_mode="HTML")
+            return
+        except: pass
+    
+    try: bot.send_message(chat_id, header, reply_markup=m, parse_mode="HTML")
+    except: pass
 
 # قوائم أخرى
 def show_new_ticket_categories(chat_id, msg_id, lang):
@@ -1530,6 +1554,41 @@ def handle_callbacks(call):
         u_disc = u.get("rank_discount", 0.0) or 0.0
         fs = get_active_flash_sale()
         flash_active = fs and fs["product"] == prod
+        
+        info = f"{gt_shop(lang, 'prod_info')}\n\n"
+        info += f"│ {gt_shop(lang, 'prod_name')} <b>{prod}</b>\n"
+        info += f"│ {gt_shop(lang, 'rank_disc')}: <b>{int(u_disc*100)}%</b>\n"
+        info += f"│ {gt_shop(lang, 'balance')}: <b>{u.get('points', 0)}</b> 💎\n"
+        if flash_active:
+            info += f"│ {gt_shop(lang, 'flash')} 🔥 {fs['discount']}% {gt_shop(lang, 'off')}!\n"
+        info += f"└────────────────────────────\n\n"
+        info += f"{gt_shop(lang, 'prod_desc_text')}\n\n"
+        info += f"{gt_shop(lang, 'duration')}"
+        
+        m = types.InlineKeyboardMarkup(row_width=1)
+        durations_map = {"1 Day": "days_1", "7 Days": "days_7", "30 Days": "days_30"}
+        
+        for plan in ["1 Day", "7 Days", "30 Days"]:
+            base_p = prices_config[prod].get(plan, 0)
+            disc = bot_config.get("discount", 0)
+            fs_disc = fs["discount"] if flash_active else 0
+            total_disc = disc + fs_disc
+            final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
+            stock = len(keys_store.get(prod, {}).get(plan, []))
+            emoji = "✅" if stock > 0 else "❌"
+            
+            plan_name = gt_shop(lang, durations_map[plan])
+            btn_txt = f"{emoji} {plan_name} | {gt_shop(lang, 'price')} {final_p} 💎 | {gt_shop(lang, 'stock')} {stock}"
+            if flash_active: btn_txt = f"⚡ {btn_txt}"
+            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
+            
+        m.add(types.InlineKeyboardButton(gt_shop(lang, "btn_back"), callback_data="menu_shop_back"))
+        try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+        except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
+        return
+        u_disc = u.get("rank_discount", 0.0) or 0.0
+        fs = get_active_flash_sale()
+        flash_active = fs and fs["product"] == prod
         info = f"📦 <b>━━ {prod} ━━</b>\n\n"
         info += f"┃ 💎 Your Discount: <b>{int(u_disc*100)}%</b>\n"
         info += f"┃ 💰 Balance: <b>{u.get('points', 0)}</b>\n"
@@ -1574,7 +1633,7 @@ def handle_callbacks(call):
         if (u.get("points", 0) or 0) < final_p:
             return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
         if not keys_store.get(prod, {}).get(plan, []):
-            return bot.answer_callback_query(call.id, "⚠️ Out of stock!", show_alert=True)
+            return bot.answer_callback_query(call.id, gt_shop(lang, "out_alert"), show_alert=True)
         
         # 🎬 أنيميشن مراحل الشراء
         steps = [
@@ -1616,7 +1675,7 @@ def handle_callbacks(call):
             publish_sale_to_channel(prod, plan, final_p)
         except Exception as e:
             print(f"⚠️ Error in purchase: {e}")
-            bot.send_message(chat_id, f"❌ خطأ في الشراء - راجع الأدمن")
+            bot.send_message(chat_id, gt_shop(lang, "buy_error"))
         return
 
     # ═══════════════════════════════════
