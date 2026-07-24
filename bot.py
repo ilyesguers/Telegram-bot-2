@@ -700,16 +700,30 @@ def show_balance(chat_id, msg_id, uid, lang):
 
 def show_myid(chat_id, msg_id, uid, u, lang):
     join_date = u.get("join_date", "")[:10] if u.get("join_date") else "N/A"
-    msg = (f"🆔 <b>━━ My Info ━━</b>\n\n"
-           f"┃ 👤 <b>ID:</b> <code>{uid}</code>\n"
-           f"┃ 📝 <b>Username:</b> @{u.get('username', 'N/A')}\n"
-           f"┃ 📅 <b>Joined:</b> {join_date}\n"
-           f"┃ 🌐 <b>Language:</b> {u.get('lang', 'ar').upper()}\n"
-           f"╰━━━━━━━━━━━━╯")
+    uname = u.get('username', 'N/A')
+    lang_upper = u.get('lang', 'ar').upper()
+    
+    UI = {
+        "ar": {"t": "🆔 <b>━━ معلوماتي ━━</b>", "id": "الآيدي:", "un": "اليوزر:", "jd": "انضم:", "lg": "اللغة:"},
+        "en": {"t": "🆔 <b>━━ My Info ━━</b>", "id": "ID:", "un": "Username:", "jd": "Joined:", "lg": "Lang:"},
+        "fr": {"t": "🆔 <b>━━ Mes Infos ━━</b>", "id": "ID:", "un": "Utilisateur:", "jd": "Inscrit:", "lg": "Langue:"},
+        "es": {"t": "🆔 <b>━━ Mi Info ━━</b>", "id": "ID:", "un": "Usuario:", "jd": "Unido:", "lg": "Idioma:"},
+        "vi": {"t": "🆔 <b>━━ Thông tin ━━</b>", "id": "ID:", "un": "Tên:", "jd": "Tham gia:", "lg": "Ngôn ngữ:"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
+    msg = f"{tx['t']}\n\n"
+    msg += f"┌────────────────────────────\n"
+    msg += f"│ 👤 <b>{tx['id']}</b> <code>{uid}</code>\n"
+    msg += f"│ 📝 <b>{tx['un']}</b> @{uname}\n"
+    msg += f"│ 📅 <b>{tx['jd']}</b> {join_date}\n"
+    msg += f"│ 🌐 <b>{tx['lg']}</b> {lang_upper}\n"
+    msg += f"└────────────────────────────"
+    
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-    except: pass
+    except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def show_rank(chat_id, msg_id, uid, lang):
     update_user_rank_and_quests(uid)
@@ -749,19 +763,29 @@ def show_referral(chat_id, msg_id, uid, lang):
 
 def show_purchases(chat_id, msg_id, uid, lang):
     sales = [x for x in bot_config.get("sales_log", []) if str(x.get("uid")) == uid]
+    
+    UI = {
+        "ar": {"no": "📭 <b>لا توجد مشتريات</b>\n\n💡 <i>قم بزيارة المتجر للبدء!</i>", "t": "📜 <b>━━ مشترياتي ━━</b>", "tot": "الإجمالي:"},
+        "en": {"no": "📭 <b>No purchases yet</b>\n\n💡 <i>Visit the shop to start!</i>", "t": "📜 <b>━━ My Purchases ━━</b>", "tot": "Total:"},
+        "fr": {"no": "📭 <b>Aucun achat</b>\n\n💡 <i>Visitez la boutique!</i>", "t": "📜 <b>━━ Mes Achats ━━</b>", "tot": "Total:"},
+        "es": {"no": "📭 <b>Sin compras aún</b>\n\n💡 <i>¡Visita la tienda!</i>", "t": "📜 <b>━━ Mis Compras ━━</b>", "tot": "Total:"},
+        "vi": {"no": "📭 <b>Chưa mua gì</b>\n\n💡 <i>Vào cửa hàng ngay!</i>", "t": "📜 <b>━━ Lịch sử Mua ━━</b>", "tot": "Tổng cộng:"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
     if not sales:
-        msg = "📭 <b>No purchases yet</b>\n\n💡 <i>Visit the shop to start!</i>"
+        msg = tx["no"]
     else:
-        msg = f"📜 <b>━━ My Purchases ━━</b>\n\n📊 <b>Total:</b> {len(sales)}\n\n"
+        msg = f"{tx['t']}\n\n📊 <b>{tx['tot']}</b> {len(sales)}\n\n"
         for s in sales[-10:]:
-            msg += f"┃ 📦 <b>{s['product']}</b>\n"
-            msg += f"┃ ⏱️ {s['plan']} | 💰 {s['price']} 💎\n"
-            msg += f"┃ 📅 {s.get('date','')[:10]}\n"
-            msg += f"┃ ━━━━━━━━━\n"
+            msg += f"┌ 📦 <b>{s['product']}</b>\n"
+            msg += f"│ ⏱️ {s['plan']} | 💰 {s['price']} 💎\n"
+            msg += f"└ 📅 {s.get('date','')[:10]}\n\n"
+            
     m = types.InlineKeyboardMarkup()
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-    except: pass
+    except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def claim_daily(chat_id, msg_id, uid, lang):
     u = get_user(uid) or {}
@@ -840,17 +864,25 @@ def show_quests(chat_id, msg_id, uid, lang):
 
 def show_flash_sale(chat_id, msg_id, uid, lang):
     fs = get_active_flash_sale()
+    
+    UI_BUY = {
+        "ar": "🛒 شراء الآن (خصم {d}%)",
+        "en": "🛒 Buy Now ({d}% OFF)",
+        "fr": "🛒 Acheter ({d}% DE RÉD)",
+        "es": "🛒 Comprar ({d}% DTO)",
+        "vi": "🛒 Mua ngay (Giảm {d}%)"
+    }
+    
     if not fs:
         msg = t(lang, "no_flash_sale")
     else:
         remaining = format_time_remaining(fs["expires"])
-        msg = t(lang, "flash_sale_active",
-                discount=fs["discount"], product=fs["product"], remaining=remaining)
+        msg = t(lang, "flash_sale_active", discount=fs["discount"], product=fs["product"], remaining=remaining)
+        
     mk = types.InlineKeyboardMarkup()
     if fs:
-        mk.add(types.InlineKeyboardButton(
-            f"🛒 Buy Now ({fs['discount']}% OFF)",
-            callback_data=f"select_prod_{fs['product']}"))
+        btn_text = UI_BUY.get(lang, UI_BUY["en"]).replace("{d}", str(fs['discount']))
+        mk.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{fs['product']}"))
     mk.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_rewards"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=mk, parse_mode="HTML")
     except: pass
@@ -858,14 +890,26 @@ def show_flash_sale(chat_id, msg_id, uid, lang):
 def show_lootbox(chat_id, msg_id, lang):
     price = bot_config.get("lootbox_price", 50)
     chance = bot_config.get("lootbox_chance", 25)
-    msg = (f"🎰 <b>━━ Loot Box ━━</b>\n\n"
-           f"┃ 💸 <b>Price:</b> {price} 💎\n"
-           f"┃ 📊 <b>Win Chance:</b> {chance}%\n"
-           f"┃ 🏆 <b>Prize:</b> +100 to +500 💎\n"
-           f"╰━━━━━━━━━━━━╯\n\n"
-           f"🍀 <i>Feeling lucky?</i>")
+    
+    UI = {
+        "ar": {"t": "🎰 <b>━━ صندوق الحظ ━━</b>", "p": "السعر:", "c": "نسبة الفوز:", "w": "الجائزة:", "b": "العب صندوق الحظ", "luck": "🍀 <i>هل تشعر بالحظ؟</i>"},
+        "en": {"t": "🎰 <b>━━ Loot Box ━━</b>", "p": "Price:", "c": "Win Chance:", "w": "Prize:", "b": "Open Box", "luck": "🍀 <i>Feeling lucky?</i>"},
+        "fr": {"t": "🎰 <b>━━ Coffre Magique ━━</b>", "p": "Prix:", "c": "Chances:", "w": "Prix:", "b": "Ouvrir", "luck": "🍀 <i>Vous vous sentez chanceux?</i>"},
+        "es": {"t": "🎰 <b>━━ Caja Mágica ━━</b>", "p": "Precio:", "c": "Probabilidad:", "w": "Premio:", "b": "Abrir", "luck": "🍀 <i>¿Te sientes con suerte?</i>"},
+        "vi": {"t": "🎰 <b>━━ Hộp May Mắn ━━</b>", "p": "Giá:", "c": "Tỷ lệ:", "w": "Giải:", "b": "Mở Hộp", "luck": "🍀 <i>Bạn có may mắn không?</i>"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
+    msg = f"{tx['t']}\n\n"
+    msg += f"┌────────────────────────────\n"
+    msg += f"│ 💸 <b>{tx['p']}</b> {price} 💎\n"
+    msg += f"│ 📊 <b>{tx['c']}</b> {chance}%\n"
+    msg += f"│ 🏆 <b>{tx['w']}</b> +100 to +500 💎\n"
+    msg += f"└────────────────────────────\n\n"
+    msg += f"{tx['luck']}"
+    
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton(f"🎁 Open Box ({price} 💎)", callback_data="game_buy_lootbox"))
+    m.add(types.InlineKeyboardButton(f"🎁 {tx['b']} ({price} 💎)", callback_data="game_buy_lootbox"))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_entertainment"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
@@ -873,36 +917,72 @@ def show_lootbox(chat_id, msg_id, lang):
 def show_wheel(chat_id, msg_id, lang):
     price = bot_config.get("wheel_price", 40)
     chance = bot_config.get("wheel_chance", 5)
-    msg = (f"🎡 <b>━━ Lucky Wheel ━━</b>\n\n"
-           f"┃ 💸 <b>Spin:</b> {price} 💎\n"
-           f"┃ 📊 <b>Grand Prize:</b> {chance}%\n"
-           f"┃ 🏆 <b>Max Win:</b> +1000 💎\n"
-           f"╰━━━━━━━━━━━━╯\n\n"
-           f"🎯 <i>Spin to win big!</i>")
+    
+    UI = {
+        "ar": {"t": "🎡 <b>━━ عجلة الحظ ━━</b>", "p": "الدورة:", "c": "الجائزة الكبرى:", "w": "أقصى ربح:", "b": "دوّر العجلة", "luck": "🎯 <i>دوّر العجلة واربح!</i>"},
+        "en": {"t": "🎡 <b>━━ Lucky Wheel ━━</b>", "p": "Spin:", "c": "Grand Prize:", "w": "Max Win:", "b": "Spin", "luck": "🎯 <i>Spin to win big!</i>"},
+        "fr": {"t": "🎡 <b>━━ Roue de la Chance ━━</b>", "p": "Tour:", "c": "Gros Lot:", "w": "Gain Max:", "b": "Tourner", "luck": "🎯 <i>Tournez pour gagner!</i>"},
+        "es": {"t": "🎡 <b>━━ Ruleta de Suerte ━━</b>", "p": "Giro:", "c": "Premio Mayor:", "w": "Ganancia Máx:", "b": "Girar", "luck": "🎯 <i>¡Gira para ganar!</i>"},
+        "vi": {"t": "🎡 <b>━━ Vòng Quay ━━</b>", "p": "Quay:", "c": "Giải Đặc Biệt:", "w": "Thắng Max:", "b": "Quay", "luck": "🎯 <i>Quay để thắng lớn!</i>"}
+    }
+    tx = UI.get(lang, UI["en"])
+    
+    msg = f"{tx['t']}\n\n"
+    msg += f"┌────────────────────────────\n"
+    msg += f"│ 💸 <b>{tx['p']}</b> {price} 💎\n"
+    msg += f"│ 📊 <b>{tx['c']}</b> {chance}%\n"
+    msg += f"│ 🏆 <b>{tx['w']}</b> +1000 💎\n"
+    msg += f"└────────────────────────────\n\n"
+    msg += f"{tx['luck']}"
+    
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton(f"💫 Spin ({price} 💎)", callback_data="game_spin_wheel"))
+    m.add(types.InlineKeyboardButton(f"💫 {tx['b']} ({price} 💎)", callback_data="game_spin_wheel"))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_entertainment"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
 
 def show_shop(message, uid, u, lang):
+    chat_id = message.chat.id if hasattr(message, 'chat') else message.message.chat.id
     if not prices_config:
-        return bot.send_message(message.chat.id, t(lang, "shop_empty"), parse_mode="HTML")
+        try: bot.send_message(chat_id, gt_shop(lang, "empty"), parse_mode="HTML")
+        except: pass
+        return
+
     u_disc = u.get("rank_discount", 0.0) or 0.0
-    header = t(lang, "shop_header",
-               points=u.get('points', 0), rank=u.get('rank', '🔹'), disc=int(u_disc*100))
+    pts = u.get("points", 0)
+    rank = u.get("rank", "🔹")
+    disc = int(u_disc * 100)
+    
+    header = f"{gt_shop(lang, 'title')}\n{gt_shop(lang, 'subtitle')}\n\n"
+    header += f"┌────────────────────────────\n"
+    header += f"│ {gt_shop(lang, 'wallet')}: <b>{pts}</b> 💎\n"
+    header += f"│ {gt_shop(lang, 'rank_disc')}: {rank} (-{disc}%)\n"
     
     fs = get_active_flash_sale()
     if fs:
-        header += f"\n\n⚡ <b>Flash Sale:</b> {fs['discount']}% OFF on {fs['product']}!"
+        header += f"├────────────────────────────\n"
+        header += f"│ {gt_shop(lang, 'flash')}\n"
+        header += f"│ 🔥 {fs['discount']}% {gt_shop(lang, 'off')} ➝ <b>{fs['product']}</b>\n"
+    header += f"└────────────────────────────\n\n"
+    header += f"{gt_shop(lang, 'select_prod')}"
     
     m = types.InlineKeyboardMarkup(row_width=1)
     for prod in prices_config.keys():
         stock = sum(len(keys_store.get(prod, {}).get(p, [])) for p in ["1 Day", "7 Days", "30 Days"])
+        status = gt_shop(lang, 'available') if stock > 0 else gt_shop(lang, 'out')
         emoji = "🔥" if fs and fs["product"] == prod else ("✅" if stock > 0 else "⚠️")
-        m.add(types.InlineKeyboardButton(f"{emoji} 📦 {prod}  |  📊 {stock}",
-                                         callback_data=f"select_prod_{prod}"))
-    bot.send_message(message.chat.id, header, reply_markup=m, parse_mode="HTML")
+        
+        btn_text = f"{emoji} {prod} | {status}: {stock}"
+        m.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{prod}"))
+    
+    if hasattr(message, 'data'):
+        try: 
+            bot.edit_message_text(header, chat_id, message.message.message_id, reply_markup=m, parse_mode="HTML")
+            return
+        except: pass
+    
+    try: bot.send_message(chat_id, header, reply_markup=m, parse_mode="HTML")
+    except: pass
 
 # قوائم أخرى
 def show_new_ticket_categories(chat_id, msg_id, lang):
@@ -1297,6 +1377,7 @@ def handle_callbacks(call):
         bot.answer_callback_query(call.id, "✅")
         try:
             bot.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            bot.delete_message(chat_id, msg_id)
         except Exception:
             pass
         return
@@ -1529,6 +1610,41 @@ def handle_callbacks(call):
         u_disc = u.get("rank_discount", 0.0) or 0.0
         fs = get_active_flash_sale()
         flash_active = fs and fs["product"] == prod
+        
+        info = f"{gt_shop(lang, 'prod_info')}\n\n"
+        info += f"│ {gt_shop(lang, 'prod_name')} <b>{prod}</b>\n"
+        info += f"│ {gt_shop(lang, 'rank_disc')}: <b>{int(u_disc*100)}%</b>\n"
+        info += f"│ {gt_shop(lang, 'balance')}: <b>{u.get('points', 0)}</b> 💎\n"
+        if flash_active:
+            info += f"│ {gt_shop(lang, 'flash')} 🔥 {fs['discount']}% {gt_shop(lang, 'off')}!\n"
+        info += f"└────────────────────────────\n\n"
+        info += f"{gt_shop(lang, 'prod_desc_text')}\n\n"
+        info += f"{gt_shop(lang, 'duration')}"
+        
+        m = types.InlineKeyboardMarkup(row_width=1)
+        durations_map = {"1 Day": "days_1", "7 Days": "days_7", "30 Days": "days_30"}
+        
+        for plan in ["1 Day", "7 Days", "30 Days"]:
+            base_p = prices_config[prod].get(plan, 0)
+            disc = bot_config.get("discount", 0)
+            fs_disc = fs["discount"] if flash_active else 0
+            total_disc = disc + fs_disc
+            final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
+            stock = len(keys_store.get(prod, {}).get(plan, []))
+            emoji = "✅" if stock > 0 else "❌"
+            
+            plan_name = gt_shop(lang, durations_map[plan])
+            btn_txt = f"{emoji} {plan_name} | {gt_shop(lang, 'price')} {final_p} 💎 | {gt_shop(lang, 'stock')} {stock}"
+            if flash_active: btn_txt = f"⚡ {btn_txt}"
+            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
+            
+        m.add(types.InlineKeyboardButton(gt_shop(lang, "btn_back"), callback_data="menu_shop_back"))
+        try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
+        except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
+        return
+        u_disc = u.get("rank_discount", 0.0) or 0.0
+        fs = get_active_flash_sale()
+        flash_active = fs and fs["product"] == prod
         info = f"📦 <b>━━ {prod} ━━</b>\n\n"
         info += f"┃ 💎 Your Discount: <b>{int(u_disc*100)}%</b>\n"
         info += f"┃ 💰 Balance: <b>{u.get('points', 0)}</b>\n"
@@ -1573,7 +1689,7 @@ def handle_callbacks(call):
         if (u.get("points", 0) or 0) < final_p:
             return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
         if not keys_store.get(prod, {}).get(plan, []):
-            return bot.answer_callback_query(call.id, "⚠️ Out of stock!", show_alert=True)
+            return bot.answer_callback_query(call.id, gt_shop(lang, "out_alert"), show_alert=True)
         
         # 🎬 أنيميشن مراحل الشراء
         steps = [
@@ -1615,7 +1731,7 @@ def handle_callbacks(call):
             publish_sale_to_channel(prod, plan, final_p)
         except Exception as e:
             print(f"⚠️ Error in purchase: {e}")
-            bot.send_message(chat_id, f"❌ خطأ في الشراء - راجع الأدمن")
+            bot.send_message(chat_id, gt_shop(lang, "buy_error"))
         return
 
     # ═══════════════════════════════════
