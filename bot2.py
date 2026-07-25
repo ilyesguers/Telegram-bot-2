@@ -880,52 +880,49 @@ def handle_pre_checkout(pre_checkout_query):
 # =====================================================
 
 def show_vip_menu(chat_id, uid, msg_id=None):
+    lang = (get_user(str(uid)) or {}).get("lang", "ar")
     is_vip = is_vip_active(uid)
     price = bot_config.get("vip_price_stars", 100)
-    
+
+    benefit_keys = [
+        "vip_benefit_daily",
+        "vip_benefit_discount",
+        "vip_benefit_stock",
+        "vip_benefit_code",
+        "vip_benefit_support",
+        "vip_benefit_games",
+        "vip_benefit_badge",
+    ]
+    benefits = "\n".join(f"├── {t(lang, key)}" for key in benefit_keys[:-1])
+    benefits += f"\n└── {t(lang, benefit_keys[-1])}"
+
     if is_vip:
         days_left = get_vip_days_left(uid)
         msg = (
-            f"╔═══════════════════════╗\n"
-            f"║  👑 <b>VIP MEMBER</b> 👑  ║\n"
-            f"╚═══════════════════════╝\n\n"
-            f"🌟 <b>You are a VIP!</b>\n\n"
-            f"⏰ <b>Days remaining:</b> {days_left}\n\n"
-            f"✨ <b>Your Benefits:</b>\n"
-            f"├── 🎁 2x Daily bonus\n"
-            f"├── 💰 15% discount on ALL\n"
-            f"├── 📊 Advanced stock info\n"
-            f"├── 🎫 Weekly free code\n"
-            f"├── ⚡ Priority support\n"
-            f"├── 🎰 50% off games\n"
-            f"└── 👑 VIP badge"
+            f"{t(lang, 'vip_member_title')}\n\n"
+            f"{t(lang, 'vip_you_are_vip')}\n\n"
+            f"{t(lang, 'vip_days_remaining', days=days_left)}\n\n"
+            f"{t(lang, 'vip_benefits_title')}\n"
+            f"{benefits}"
         )
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton("📊 View Stock Details", callback_data="vip_stock"))
-        m.add(types.InlineKeyboardButton("🎫 Get Weekly Code", callback_data="vip_weekly_code"))
-        m.add(types.InlineKeyboardButton("⭐ Convert Stars", callback_data="vip_convert_stars"))
-        m.add(types.InlineKeyboardButton("🔄 Renew VIP", callback_data="vip_buy"))
+        m.add(types.InlineKeyboardButton(t(lang, "vip_view_stock"), callback_data="vip_stock"))
+        m.add(types.InlineKeyboardButton(t(lang, "vip_weekly_code"), callback_data="vip_weekly_code"))
+        m.add(types.InlineKeyboardButton(t(lang, "vip_convert_stars"), callback_data="vip_convert_stars"))
+        m.add(types.InlineKeyboardButton(t(lang, "vip_renew"), callback_data="vip_buy"))
     else:
         msg = (
-            f"╔═══════════════════════╗\n"
-            f"║ 👑 <b>VIP MEMBERSHIP</b> 👑 ║\n"
-            f"╚═══════════════════════╝\n\n"
-            f"🌟 <b>Become a VIP Member!</b>\n\n"
-            f"💎 <b>Exclusive Benefits:</b>\n"
-            f"├── 🎁 2x Daily bonus\n"
-            f"├── 💰 15% discount on ALL\n"
-            f"├── 📊 Advanced stock info\n"
-            f"├── 🎫 Weekly free code\n"
-            f"├── ⚡ Priority support\n"
-            f"├── 🎰 50% off games\n"
-            f"└── 👑 VIP badge\n\n"
-            f"💳 <b>Monthly:</b> {price} ⭐\n"
-            f"⏰ <b>Duration:</b> 30 days"
+            f"{t(lang, 'vip_membership_title')}\n\n"
+            f"{t(lang, 'vip_become')}\n\n"
+            f"{t(lang, 'vip_benefits_title')}\n"
+            f"{benefits}\n\n"
+            f"{t(lang, 'vip_monthly', price=price)}\n"
+            f"{t(lang, 'vip_duration')}"
         )
         m = types.InlineKeyboardMarkup()
-        m.add(types.InlineKeyboardButton(f"👑 Subscribe ({price} ⭐)", callback_data="vip_buy"))
-        m.add(types.InlineKeyboardButton("⭐ Convert Stars to Points", callback_data="vip_convert_stars"))
-    
+        m.add(types.InlineKeyboardButton(t(lang, "vip_subscribe", price=price), callback_data="vip_buy"))
+        m.add(types.InlineKeyboardButton(t(lang, "vip_convert_stars"), callback_data="vip_convert_stars"))
+
     if msg_id:
         try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
@@ -933,23 +930,22 @@ def show_vip_menu(chat_id, uid, msg_id=None):
         bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def show_stars_menu(chat_id, uid, msg_id=None):
+    lang = (get_user(str(uid)) or {}).get("lang", "ar")
     rate = bot_config.get("star_to_points_rate", 2)
     msg = (
-        f"╔═══════════════════════╗\n"
-        f"║ ⭐ <b>STARS TO POINTS</b> ⭐ ║\n"
-        f"╚═══════════════════════╝\n\n"
-        f"💫 <b>Convert Telegram Stars!</b>\n\n"
-        f"⭐ <b>Rate:</b> 1 ⭐ = {rate} 💎\n"
-        f"⚡ <b>Delivery:</b> Instant\n"
-        f"🔒 <b>Secure:</b> 100%\n\n"
-        f"👇 <b>Choose amount:</b>"
+        f"{t(lang, 'stars_title')}\n\n"
+        f"{t(lang, 'stars_intro')}\n\n"
+        f"{t(lang, 'stars_rate', rate=rate)}\n"
+        f"{t(lang, 'stars_delivery')}\n"
+        f"{t(lang, 'stars_secure')}\n\n"
+        f"{t(lang, 'stars_choose_amount')}"
     )
     m = types.InlineKeyboardMarkup(row_width=2)
     for stars in [1, 5, 10, 25, 50, 100]:
         m.add(types.InlineKeyboardButton(
             f"⭐ {stars} = {stars * rate} 💎",
             callback_data=f"star_buy_{stars}"))
-    
+
     if msg_id:
         try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
@@ -957,17 +953,14 @@ def show_stars_menu(chat_id, uid, msg_id=None):
         bot.send_message(chat_id, msg, reply_markup=m, parse_mode="HTML")
 
 def show_vip_stock_details(chat_id, uid, msg_id=None):
+    lang = (get_user(str(uid)) or {}).get("lang", "ar")
     if not is_vip_active(uid):
         return
     if not prices_config:
-        bot.send_message(chat_id, "📭 No products")
+        bot.send_message(chat_id, t(lang, "shop_empty"), parse_mode="HTML")
         return
     
-    msg = (
-        f"╔═══════════════════════╗\n"
-        f"║ 👑 <b>VIP STOCK INFO</b> 👑 ║\n"
-        f"╚═══════════════════════╝\n\n"
-    )
+    msg = f"{t(lang, 'vip_view_stock')}\n\n"
     for prod in prices_config.keys():
         total = sum(len(keys_store.get(prod, {}).get(p, [])) for p in ["1 Day", "7 Days", "30 Days"])
         msg += f"📦 <b>{prod}</b>\n"
@@ -993,8 +986,8 @@ def show_vip_stock_details(chat_id, uid, msg_id=None):
             except: pass
     
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton("🔄 Refresh", callback_data="vip_stock"))
-    m.add(types.InlineKeyboardButton("🔙 Back", callback_data="vip_back"))
+    m.add(types.InlineKeyboardButton(t(lang, "vip_refresh"), callback_data="vip_stock"))
+    m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="vip_back"))
     
     if msg_id:
         try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
@@ -1087,6 +1080,7 @@ def handle_vip_stars_buttons(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("vip_"))
 def handle_vip_callbacks(call):
     uid = str(call.from_user.id)
+    lang = (get_user(uid) or {}).get("lang", "ar")
     data = call.data
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
@@ -1100,14 +1094,14 @@ def handle_vip_callbacks(call):
         try:
             bot.send_invoice(
                 chat_id=chat_id,
-                title="👑 VIP Membership",
-                description=f"Get VIP for 30 days!\n\n✨ Benefits:\n• 2x Daily bonus\n• 15% discount\n• Weekly free code\n• Priority support",
+                title=t(lang, "payment_vip_title"),
+                description=t(lang, "payment_vip_desc"),
                 invoice_payload=f"vip_purchase_{uid}",
                 provider_token="",
                 currency="XTR",
-                prices=[types.LabeledPrice(label="VIP Monthly", amount=price)]
+                prices=[types.LabeledPrice(label=t(lang, "vip_invoice_label"), amount=price)]
             )
-            bot.answer_callback_query(call.id, "💳 Payment invoice sent!")
+            bot.answer_callback_query(call.id, t(lang, "payment_invoice_sent"))
         except Exception as e:
             bot.answer_callback_query(call.id, f"❌ {str(e)[:100]}", show_alert=True)
         return
@@ -1122,7 +1116,7 @@ def handle_vip_callbacks(call):
     
     if data == "vip_weekly_code":
         if not is_vip_active(uid):
-            bot.answer_callback_query(call.id, "❌ VIP Only!", show_alert=True)
+            bot.answer_callback_query(call.id, t(lang, "vip_only_alert"), show_alert=True)
             return
         last_claims = bot_config.get("vip_last_weekly_code", {})
         last_claim = last_claims.get(uid)
@@ -1131,7 +1125,7 @@ def handle_vip_callbacks(call):
                 last_time = datetime.fromisoformat(last_claim)
                 if (datetime.now() - last_time).days < 7:
                     days_left = 7 - (datetime.now() - last_time).days
-                    bot.answer_callback_query(call.id, f"⏰ Come back in {days_left} days!", show_alert=True)
+                    bot.answer_callback_query(call.id, t(lang, "vip_weekly_wait", days=days_left), show_alert=True)
                     return
             except: pass
         reward = 50
@@ -1141,12 +1135,13 @@ def handle_vip_callbacks(call):
             bot_config["vip_last_weekly_code"] = {}
         bot_config["vip_last_weekly_code"][uid] = datetime.now().isoformat()
         save_json(DB_CONFIG, bot_config)
-        bot.answer_callback_query(call.id, f"🎉 Weekly VIP bonus! +{reward} 💎", show_alert=True)
+        bot.answer_callback_query(call.id, t(lang, "vip_weekly_success", reward=reward), show_alert=True)
         return
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("star_buy_"))
 def handle_star_purchase(call):
     uid = str(call.from_user.id)
+    lang = (get_user(uid) or {}).get("lang", "ar")
     stars = int(call.data.split("_")[2])
     rate = bot_config.get("star_to_points_rate", 2)
     points = stars * rate
@@ -1154,14 +1149,14 @@ def handle_star_purchase(call):
     try:
         bot.send_invoice(
             chat_id=chat_id,
-            title=f"⭐ {stars} = {points} 💎",
-            description=f"Convert {stars} Stars to {points} points!\n\n⚡ Instant delivery",
+            title=t(lang, "payment_stars_title", stars=stars, points=points),
+            description=t(lang, "payment_stars_desc", stars=stars, points=points),
             invoice_payload=f"stars_convert_{uid}_{stars}_{points}",
             provider_token="",
             currency="XTR",
-            prices=[types.LabeledPrice(label=f"{stars} Stars", amount=stars)]
+            prices=[types.LabeledPrice(label=t(lang, "stars_invoice_label", stars=stars), amount=stars)]
         )
-        bot.answer_callback_query(call.id, "💳 Payment invoice sent!")
+        bot.answer_callback_query(call.id, t(lang, "payment_invoice_sent"))
     except Exception as e:
         bot.answer_callback_query(call.id, f"❌ {str(e)[:100]}", show_alert=True)
 
