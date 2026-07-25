@@ -58,7 +58,7 @@ def get_main_keyboard(uid, lang):
     styles for the beautiful colored look.
     """
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2,
-                                  input_field_placeholder="📋 القائمة")
+                                  input_field_placeholder=t(lang, "menu_placeholder"))
     # Row 1 — green (success)
     m.add(
         rkb(t(lang, "btn_shop"), style="success"),
@@ -71,12 +71,12 @@ def get_main_keyboard(uid, lang):
     )
     # Row 3 — green (success)
     m.add(
-        rkb("👑 VIP Premium", style="success"),
-        rkb("⭐ Stars Store", style="success"),
+        rkb(t(lang, "btn_vip"), style="success"),
+        rkb(t(lang, "btn_stars"), style="success"),
     )
     # Row 4 — blue (primary)
     m.add(
-        rkb("🎮 Mini Games", style="primary"),
+        rkb(t(lang, "btn_minigames"), style="primary"),
         rkb(t(lang, "btn_settings"), style="primary"),
     )
     # Row 5 — full-width blue (primary)
@@ -101,31 +101,31 @@ def get_main_inline(uid, lang):
     # ═══════════════════════════════════════════════════════════
     
     # Account & Shop — Primary actions (full width)
-    m.add(ikb(f"👤  {t(lang, 'btn_account')}", cb="main_account", style="primary"))
-    m.add(ikb(f"🛍️  {t(lang, 'btn_shop')}", cb="main_shop", style="primary"))
+    m.add(ikb(t(lang, 'btn_account'), cb="main_account", style="primary"))
+    m.add(ikb(t(lang, 'btn_shop'), cb="main_shop", style="primary"))
     
     # Rewards & Entertainment — Success actions (full width)
-    m.add(ikb(f"🎁  {t(lang, 'btn_rewards')}", cb="main_rewards", style="success"))
-    m.add(ikb(f"🎮  {t(lang, 'btn_entertainment')}", cb="main_entertainment", style="success"))
+    m.add(ikb(t(lang, 'btn_rewards'), cb="main_rewards", style="success"))
+    m.add(ikb(t(lang, 'btn_entertainment'), cb="main_entertainment", style="success"))
     
     # Premium features — Primary (full width)
-    m.add(ikb("👑  VIP Premium", cb="main_vip", style="primary"))
-    m.add(ikb("⭐  Stars Store", cb="main_stars", style="primary"))
+    m.add(ikb(t(lang, "btn_vip"), cb="main_vip", style="primary"))
+    m.add(ikb(t(lang, "btn_stars"), cb="main_stars", style="primary"))
     
     # Games & Support — Mixed (full width)
-    m.add(ikb("🎲  Mini Games Center", cb="main_minigames", style="success"))
-    m.add(ikb(f"💬  {t(lang, 'btn_support')}", cb="main_support"))
+    m.add(ikb(t(lang, "btn_minigames"), cb="main_minigames", style="success"))
+    m.add(ikb(t(lang, 'btn_support'), cb="main_support"))
     
     # Settings (full width)
-    m.add(ikb(f"⚙️  {t(lang, 'btn_settings')}", cb="main_settings"))
+    m.add(ikb(t(lang, 'btn_settings'), cb="main_settings"))
     
     # Admin only — Danger style (full width)
     u = get_user(str(uid)) or {}
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
-        m.add(ikb(f"👑  {t(lang, 'btn_admin')}", cb="main_admin", style="danger"))
+        m.add(ikb(t(lang, 'btn_admin'), cb="main_admin", style="danger"))
     
     # Close menu (full width)
-    m.add(ikb("❌  Close Menu", cb="main_close", style="danger"))
+    m.add(ikb(t(lang, "btn_close"), cb="main_close", style="danger"))
     
     return m
 
@@ -138,14 +138,14 @@ def get_account_menu(lang):
     """Account section menu"""
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
-        types.InlineKeyboardButton(f"💰 {t(lang, 'btn_balance')}", callback_data="menu_balance"),
-        types.InlineKeyboardButton(f"🆔 {t(lang, 'btn_my_id')}", callback_data="menu_myid")
+        types.InlineKeyboardButton(t(lang, 'btn_balance'), callback_data="menu_balance"),
+        types.InlineKeyboardButton(t(lang, 'btn_my_id'), callback_data="menu_myid")
     )
     m.add(
-        types.InlineKeyboardButton(f"🏆 {t(lang, 'btn_my_rank')}", callback_data="menu_rank"),
-        types.InlineKeyboardButton(f"🔗 {t(lang, 'btn_referral')}", callback_data="menu_referral")
+        types.InlineKeyboardButton(t(lang, 'btn_my_rank'), callback_data="menu_rank"),
+        types.InlineKeyboardButton(t(lang, 'btn_referral'), callback_data="menu_referral")
     )
-    m.add(types.InlineKeyboardButton(f"📜 {t(lang, 'btn_my_purchases')}", callback_data="menu_purchases"))
+    m.add(types.InlineKeyboardButton(t(lang, 'btn_my_purchases'), callback_data="menu_purchases"))
     return m
 
 
@@ -157,12 +157,12 @@ def get_rewards_menu(lang):
     """Rewards section menu"""
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
-        types.InlineKeyboardButton(f"✨ {t(lang, 'btn_daily_bonus')}", callback_data="menu_daily"),
-        types.InlineKeyboardButton(f"🎫 {t(lang, 'btn_redeem_code')}", callback_data="menu_redeem")
+        types.InlineKeyboardButton(t(lang, 'btn_daily_bonus'), callback_data="menu_daily"),
+        types.InlineKeyboardButton(t(lang, 'btn_redeem_code'), callback_data="menu_redeem")
     )
     m.add(
-        types.InlineKeyboardButton(f"🔥 {t(lang, 'btn_quests')}", callback_data="menu_quests"),
-        types.InlineKeyboardButton(f"⚡ {t(lang, 'btn_flash_sale')}", callback_data="menu_flash")
+        types.InlineKeyboardButton(t(lang, 'btn_quests'), callback_data="menu_quests"),
+        types.InlineKeyboardButton(t(lang, 'btn_flash_sale'), callback_data="menu_flash")
     )
     return m
 
@@ -175,8 +175,8 @@ def get_entertainment_menu(lang):
     """Entertainment section menu"""
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
-        types.InlineKeyboardButton(f"🎰 {t(lang, 'btn_lootbox')}", callback_data="menu_lootbox"),
-        types.InlineKeyboardButton(f"🎡 {t(lang, 'btn_wheel')}", callback_data="menu_wheel")
+        types.InlineKeyboardButton(t(lang, 'btn_lootbox'), callback_data="menu_lootbox"),
+        types.InlineKeyboardButton(t(lang, 'btn_wheel'), callback_data="menu_wheel")
     )
     return m
 
@@ -189,12 +189,12 @@ def get_support_menu(lang):
     """Support section menu"""
     m = types.InlineKeyboardMarkup(row_width=2)
     m.add(
-        types.InlineKeyboardButton(f"🎫 {t(lang, 'btn_new_ticket')}", callback_data="menu_new_ticket"),
-        types.InlineKeyboardButton(f"📋 {t(lang, 'btn_my_tickets')}", callback_data="menu_my_tickets")
+        types.InlineKeyboardButton(t(lang, 'btn_new_ticket'), callback_data="menu_new_ticket"),
+        types.InlineKeyboardButton(t(lang, 'btn_my_tickets'), callback_data="menu_my_tickets")
     )
     m.add(
-        types.InlineKeyboardButton(f"💡 {t(lang, 'btn_request_product')}", callback_data="menu_request_product"),
-        types.InlineKeyboardButton(f"❓ {t(lang, 'btn_faq')}", callback_data="menu_faq")
+        types.InlineKeyboardButton(t(lang, 'btn_request_product'), callback_data="menu_request_product"),
+        types.InlineKeyboardButton(t(lang, 'btn_faq'), callback_data="menu_faq")
     )
     return m
 
@@ -206,16 +206,16 @@ def get_support_menu(lang):
 def get_settings_menu(lang, u):
     """Settings section menu"""
     m = types.InlineKeyboardMarkup(row_width=2)
-    m.add(types.InlineKeyboardButton(f"🌐 {t(lang, 'btn_change_lang')}", callback_data="menu_lang"))
+    m.add(types.InlineKeyboardButton(t(lang, 'btn_change_lang'), callback_data="menu_lang"))
     notif_status = u.get("notifications_on", True)
-    notif_text = "🔔 ON" if notif_status else "🔕 OFF"
+    notif_text = t(lang, "ui_on") if notif_status else t(lang, "ui_off")
     m.add(
-        types.InlineKeyboardButton(f"🔔 Notif: {notif_text}", callback_data="menu_notif"),
-        types.InlineKeyboardButton(f"🎨 {t(lang, 'btn_theme')}", callback_data="menu_theme")
+        types.InlineKeyboardButton(f"{t(lang, 'btn_notifications')}: {notif_text}", callback_data="menu_notif"),
+        types.InlineKeyboardButton(t(lang, 'btn_theme'), callback_data="menu_theme")
     )
     m.add(
-        types.InlineKeyboardButton(f"🔒 {t(lang, 'btn_privacy')}", callback_data="menu_privacy"),
-        types.InlineKeyboardButton(f"ℹ️ {t(lang, 'btn_about')}", callback_data="menu_about")
+        types.InlineKeyboardButton(t(lang, 'btn_privacy'), callback_data="menu_privacy"),
+        types.InlineKeyboardButton(t(lang, 'btn_about'), callback_data="menu_about")
     )
     m.add(types.InlineKeyboardButton(f"💻 {t(lang, 'btn_bot_dev')}", url="https://t.me/fkLJh00302"))
     return m
@@ -233,7 +233,7 @@ def get_ticket_categories(lang):
         name = cat_names.get(lang, cat_names["en"])
         buttons.append(types.InlineKeyboardButton(name, callback_data=f"tcat_{cat_key}"))
     m.add(*buttons)
-    m.add(types.InlineKeyboardButton(f"🔙 {t(lang, 'btn_back')}", callback_data="back_support"))
+    m.add(types.InlineKeyboardButton(t(lang, 'btn_back'), callback_data="back_support"))
     return m
 
 
@@ -508,7 +508,7 @@ def get_mini_games_menu(lang):
 def back_button(callback_data="back_main", lang="en"):
     """Simple back button"""
     m = types.InlineKeyboardMarkup()
-    m.add(types.InlineKeyboardButton(f"🔙 {t(lang, 'btn_back')}", callback_data=callback_data))
+    m.add(types.InlineKeyboardButton(t(lang, 'btn_back'), callback_data=callback_data))
     return m
 
 
@@ -533,8 +533,8 @@ def confirm_dialog(confirm_data, cancel_data):
 def get_vip_menu(lang):
     """VIP features menu"""
     m = types.InlineKeyboardMarkup(row_width=1)
-    m.add(types.InlineKeyboardButton("👑 VIP Status", callback_data="vip_status"))
-    m.add(types.InlineKeyboardButton("💎 VIP Benefits", callback_data="vip_benefits"))
+    m.add(types.InlineKeyboardButton(t(lang, "btn_vip"), callback_data="vip_status"))
+    m.add(types.InlineKeyboardButton(t(lang, "btn_vip_benefits"), callback_data="vip_benefits"))
     return m
 
 

@@ -57,7 +57,7 @@ def _ensure_table():
             CREATE TABLE IF NOT EXISTS {_TABLE} (
                 store_key VARCHAR(50) PRIMARY KEY,
                 data_json TEXT,
-                updated_at TIMESTAMP DEFAULT NOW()
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
         conn.commit()
@@ -86,9 +86,9 @@ def _save_backup(store_key, data):
         with engine.connect() as conn:
             conn.execute(text(f"""
                 INSERT INTO {_TABLE} (store_key, data_json, updated_at)
-                VALUES (:k, :d, NOW())
+                VALUES (:k, :d, CURRENT_TIMESTAMP)
                 ON CONFLICT (store_key)
-                DO UPDATE SET data_json = :d, updated_at = NOW()
+                DO UPDATE SET data_json = :d, updated_at = CURRENT_TIMESTAMP
             """), {"k": store_key, "d": payload})
             conn.commit()
         _last_hash[store_key] = h

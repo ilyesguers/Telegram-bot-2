@@ -18,6 +18,7 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    send_typing_action, ikb, broadcast_channel_message,
                    broadcast_channel_voice, get_publish_channels)
 from keyboards import *
+from shop_ui import gt_shop
 import bot3
 import bot4
 import bot5
@@ -482,7 +483,7 @@ def main_router(message):
     
     if is_captcha_pending(uid):
         return bot.send_message(message.chat.id,
-            "🛡️ <b>Solve captcha first!</b>", parse_mode="HTML")
+            t(lang, "captcha_solve_first"), parse_mode="HTML")
     
     txt = message.text.strip() if message.text else ""
     admin_flag = is_admin(uid, u)
@@ -491,11 +492,7 @@ def main_router(message):
 
     if bot_config.get("maintenance", False) and not admin_flag:
         return bot.send_message(message.chat.id,
-            f"╔═══════════════════╗\n"
-            f"║ 🛠️ <b>MAINTENANCE</b> 🛠️ ║\n"
-            f"╚═══════════════════╝\n\n"
-            f"⚠️ Bot is temporarily offline\n"
-            f"⏳ <i>We'll be back soon!</i>", parse_mode="HTML")
+            t(lang, "maintenance_notice"), parse_mode="HTML")
 
     # 🟢 أزرار المستخدم
     if txt == t(lang, "btn_account"):
@@ -525,6 +522,15 @@ def main_router(message):
         return bot.send_message(message.chat.id,
             f"{t(lang, 'settings_title')}\n\n<i>{t(lang, 'settings_desc')}</i>",
             reply_markup=get_settings_menu(lang, u), parse_mode="HTML")
+
+    if txt in {t(lang, "btn_vip"), "👑 VIP", "👑 VIP Premium"}:
+        return show_vip_menu(message.chat.id, uid)
+
+    if txt in {t(lang, "btn_stars"), "⭐ Stars", "⭐ Stars Store", "⭐ Convert Stars to Points"}:
+        return show_stars_menu(message.chat.id, uid)
+
+    if txt in {t(lang, "btn_minigames"), "🎮 Mini Games"}:
+        return send_mini_games_menu(message.chat.id, uid)
     
     if txt == t(lang, "btn_admin") and admin_flag:
         return bot.send_message(message.chat.id,
@@ -670,34 +676,7 @@ def main_router(message):
     # 🔔 FALLBACK — الرد على أي رسالة غير معروفة
     # (هذا يمنع البوت من "التجمد" عند إرسال أي نص غير مطابق)
     # ═══════════════════════════════════════════════════════════
-    fallback_msgs = {
-        "ar": (
-            "🤔 <b>لم أفهم رسالتك!</b>\n\n"
-            "💡 استخدم أزرار القائمة أدناه للتنقل\n"
-            "🏠 أو أرسل /start لفتح القائمة الرئيسية"
-        ),
-        "en": (
-            "🤔 <b>I didn't understand that!</b>\n\n"
-            "💡 Use the menu buttons below to navigate\n"
-            "🏠 Or send /start to open the main menu"
-        ),
-        "fr": (
-            "🤔 <b>Je n'ai pas compris!</b>\n\n"
-            "💡 Utilisez les boutons du menu\n"
-            "🏠 Ou envoyez /start"
-        ),
-        "es": (
-            "🤔 <b>¡No entendí eso!</b>\n\n"
-            "💡 Usa los botones del menú\n"
-            "🏠 O envía /start"
-        ),
-        "vi": (
-            "🤔 <b>Tôi không hiểu!</b>\n\n"
-            "💡 Sử dụng các nút menu bên dưới\n"
-            "🏠 Hoặc gửi /start"
-        ),
-    }
-    fallback_text = fallback_msgs.get(lang, fallback_msgs["en"])
+    fallback_text = t(lang, "fallback_unknown")
     return bot.send_message(
         message.chat.id,
         fallback_text,
@@ -753,12 +732,12 @@ def show_myid(chat_id, msg_id, uid, u, lang):
 def show_rank(chat_id, msg_id, uid, lang):
     update_user_rank_and_quests(uid)
     u = get_user(uid) or {}
-    msg = f"🏆 <b>━━ My Rank ━━</b>\n\n"
-    msg += f"┃ 🎖️ <b>Current:</b> {u.get('rank', '🔹')}\n"
-    msg += f"┃ 🎯 <b>Discount:</b> {int((u.get('rank_discount', 0) or 0)*100)}%\n"
-    msg += f"┃ 📊 <b>Points:</b> <code>{u.get('accumulated_points', 0)}</code>\n"
+    msg = f"{t(lang, 'rank_title')}\n\n"
+    msg += f"┃ 🎖️ <b>{t(lang, 'rank_current')}</b> {u.get('rank', '🔹')}\n"
+    msg += f"┃ 🎯 <b>{t(lang, 'rank_discount')}</b> {int((u.get('rank_discount', 0) or 0)*100)}%\n"
+    msg += f"┃ 📊 <b>{t(lang, 'rank_points')}</b> <code>{u.get('accumulated_points', 0)}</code>\n"
     msg += f"╰━━━━━━━━━━━━╯\n\n"
-    msg += f"📋 <b>All Ranks:</b>\n"
+    msg += f"{t(lang, 'rank_all')}\n"
     for rk in ["silver", "gold", "diamond", "hero", "master", "legend"]:
         r = RANKS[rk]
         name = r.get(f"name_{lang}", r.get("name_en", ""))
@@ -781,7 +760,7 @@ def show_referral(chat_id, msg_id, uid, lang):
     msg = t(lang, "referral_msg", invites=invites, reward=reward, total=total, link=link)
     m = types.InlineKeyboardMarkup()
     share = f"https://t.me/share/url?url={link}&text=🔥%20Join%20the%20best%20store%20bot!"
-    m.add(types.InlineKeyboardButton("📤 Share Link", url=share))
+    m.add(types.InlineKeyboardButton(t(lang, "share_link"), url=share))
     m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_account"))
     try: bot.edit_message_text(msg, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
     except: pass
@@ -856,14 +835,14 @@ def show_quests(chat_id, msg_id, uid, lang):
     acc = u.get("accumulated_points", 0) or 0
     q = bot_config.get("quests")
     
-    msg = "🔥 <b>━━ Quests ━━</b>\n\n"
+    msg = f"{t(lang, 'quest_title')}\n\n"
     for i, (key, name, cur, tgt, rw) in enumerate([
-        ("quest_invite", "👥 Invite Friends", inv_cnt, q['invite']['target'], q['invite']['reward']),
-        ("quest_buy", "🛒 Make Purchases", buys, q['buy']['target'], q['buy']['reward']),
-        ("quest_points", "💎 Collect Points", acc, q['points']['target'], q['points']['reward'])
+        ("quest_invite", t(lang, "quest_invite"), inv_cnt, q['invite']['target'], q['invite']['reward']),
+        ("quest_buy", t(lang, "quest_buy"), buys, q['buy']['target'], q['buy']['reward']),
+        ("quest_points", t(lang, "quest_points"), acc, q['points']['target'], q['points']['reward'])
     ], 1):
         if key in completed:
-            prog, st = "🟩🟩🟩🟩🟩", "✅ <b>DONE</b>"
+            prog, st = "🟩🟩🟩🟩🟩", t(lang, "quest_done")
         else:
             p = min(100, (cur / tgt) * 100) if tgt > 0 else 0
             fl = int(p / 20)
@@ -959,7 +938,7 @@ def show_shop(message, uid, u, lang):
     chat_id = message.chat.id if hasattr(message, 'chat') else message.message.chat.id
     if not prices_config:
         try: bot.send_message(chat_id, gt_shop(lang, "empty"), parse_mode="HTML")
-        except: pass
+        except Exception as e: print(f"⚠️ Error showing empty shop: {e}")
         return
 
     u_disc = u.get("rank_discount", 0.0) or 0.0
@@ -996,7 +975,7 @@ def show_shop(message, uid, u, lang):
         except: pass
     
     try: bot.send_message(chat_id, header, reply_markup=m, parse_mode="HTML")
-    except: pass
+    except Exception as e: print(f"⚠️ Error showing shop: {e}")
 
 # قوائم أخرى
 def show_new_ticket_categories(chat_id, msg_id, lang):
@@ -1204,12 +1183,12 @@ def handle_callbacks(call):
         elif result == "banned":
             try:
                 bot.edit_message_text(
-                    "🚫 <b>Too many wrong attempts!</b>\n\n⏰ Banned for 1 hour",
+                    t(lang, "captcha_too_many"),
                     chat_id, msg_id, parse_mode="HTML")
             except: pass
         elif result == "expired":
             try:
-                bot.edit_message_text("⏰ <b>Captcha expired!</b>",
+                bot.edit_message_text(t(lang, "captcha_expired"),
                     chat_id, msg_id, parse_mode="HTML")
             except: pass
         return
@@ -1252,28 +1231,21 @@ def handle_callbacks(call):
     if data == "check_join":
         if not can_check_join(uid):
             bot.answer_callback_query(call.id,
-                "⏳ Please wait 3 seconds before checking again", show_alert=True)
+                t(lang, "join_wait_alert"), show_alert=True)
             return
         if check_channel_join(uid):
             try: bot.delete_message(chat_id, msg_id)
             except: pass
-            bot.answer_callback_query(call.id, "✅ Verified!", show_alert=False)
-            welcome_msg = (
-                f"╔═══════════════════╗\n"
-                f"║  🎉 <b>WELCOME!</b> 🎉  ║\n"
-                f"╚═══════════════════╝\n\n"
-                f"✅ You're now verified!\n"
-                f"🎁 <i>Enjoy all features</i>"
-            )
-            bot.send_message(chat_id, welcome_msg, parse_mode="HTML")
+            bot.answer_callback_query(call.id, t(lang, "join_verified_alert"), show_alert=False)
+            bot.send_message(chat_id, t(lang, "join_welcome"), parse_mode="HTML")
             show_main_menu(chat_id, uid, lang)
         else:
             bot.answer_callback_query(call.id,
-                "❌ You haven't joined yet!", show_alert=True)
+                t(lang, "join_not_joined"), show_alert=True)
         return
 
     if not check_channel_join(uid):
-        bot.answer_callback_query(call.id, "⚠️ Join the channel first!", show_alert=True)
+        bot.answer_callback_query(call.id, t(lang, "join_first_alert"), show_alert=True)
         return
 
     # ═══════════════════════════════════
@@ -1419,13 +1391,13 @@ def handle_callbacks(call):
 
     if data == "menu_redeem":
         m = bot.send_message(chat_id,
-            "🎁 <b>━━ Redeem Code ━━</b>\n\n✍️ Enter your code:", parse_mode="HTML")
+            t(lang, "redeem_prompt"), parse_mode="HTML")
         bot.register_next_step_handler(m, process_redeem)
         return
 
     if data == "menu_request_product":
         m = bot.send_message(chat_id,
-            "💡 <b>━━ Request Product ━━</b>\n\n✍️ Write product name & details:", parse_mode="HTML")
+            t(lang, "request_product_prompt"), parse_mode="HTML")
         bot.register_next_step_handler(m, process_product_request)
         return
 
@@ -1448,10 +1420,10 @@ def handle_callbacks(call):
         save_json(DB_CONFIG, bot_config)
         try:
             bot.edit_message_text(
-                f"🎫 <b>Category:</b> {cat_name}\n\n{t(lang, 'ticket_write')}",
+                t(lang, "ticket_category_selected", category=cat_name, write=t(lang, "ticket_write")),
                 chat_id, msg_id, parse_mode="HTML")
         except: pass
-        m = bot.send_message(chat_id, "💬 <i>Type your message...</i>", parse_mode="HTML")
+        m = bot.send_message(chat_id, t(lang, "ticket_type_message"), parse_mode="HTML")
         bot.register_next_step_handler(m, process_new_ticket)
         return
 
