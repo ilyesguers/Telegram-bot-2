@@ -2805,4 +2805,4 @@ if __name__ == "__main__":
     print("🤖 Bot is now RUNNING!")
     print("=" * 50)
     # 🚀 تشغيل متعدد الخيوط لمنع التجمد
-    bot.infinity_polling(none_stop=True, timeout=60, num_threads=4)
+    bot.infinity_polling(none_stop=True, timeout=60)
