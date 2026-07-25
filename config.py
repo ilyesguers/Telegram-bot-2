@@ -2,7 +2,7 @@ import os
 import telebot
 
 API_TOKEN = os.getenv("API_TOKEN")
-bot = telebot.TeleBot(API_TOKEN)
+bot = telebot.TeleBot(API_TOKEN, threaded=True)
 
 ADMIN_PRIMARY = 5145154527
 ADMIN_SECONDARY = 8878290572
