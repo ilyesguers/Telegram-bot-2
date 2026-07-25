@@ -51,26 +51,40 @@ def get_join_inline(lang):
 # =====================================================
 
 def get_main_keyboard(uid, lang):
-    """Main menu reply keyboard"""
-    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add(types.KeyboardButton(t(lang, "btn_account")))
+    """Main menu reply keyboard — Large & Colored (matches reference image).
+
+    Layout: alternating green (success) / blue (primary) rows, 2 columns,
+    with full-width accent buttons at the bottom. Uses Bot API 9.x button
+    styles for the beautiful colored look.
+    """
+    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2,
+                                  input_field_placeholder="📋 القائمة")
+    # Row 1 — green (success)
     m.add(
-        types.KeyboardButton(t(lang, "btn_shop")),
-        types.KeyboardButton(t(lang, "btn_rewards"))
+        rkb(t(lang, "btn_shop"), style="success"),
+        rkb(t(lang, "btn_account"), style="success"),
     )
+    # Row 2 — blue (primary)
     m.add(
-        types.KeyboardButton(t(lang, "btn_entertainment")),
-        types.KeyboardButton(t(lang, "btn_support"))
+        rkb(t(lang, "btn_rewards"), style="primary"),
+        rkb(t(lang, "btn_entertainment"), style="primary"),
     )
+    # Row 3 — green (success)
     m.add(
-        types.KeyboardButton("👑 VIP"),
-        types.KeyboardButton("⭐ Stars")
+        rkb("👑 VIP Premium", style="success"),
+        rkb("⭐ Stars Store", style="success"),
     )
-    m.add(types.KeyboardButton("🎮 Mini Games"))
-    m.add(types.KeyboardButton(t(lang, "btn_settings")))
+    # Row 4 — blue (primary)
+    m.add(
+        rkb("🎮 Mini Games", style="primary"),
+        rkb(t(lang, "btn_settings"), style="primary"),
+    )
+    # Row 5 — full-width blue (primary)
+    m.add(rkb(t(lang, "btn_support"), style="primary"))
+    # Admin only — full-width red (danger)
     u = get_user(str(uid)) or {}
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
-        m.add(types.KeyboardButton(t(lang, "btn_admin")))
+        m.add(rkb(t(lang, "btn_admin"), style="danger"))
     return m
 
 

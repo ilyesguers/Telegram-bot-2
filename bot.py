@@ -253,7 +253,7 @@ def show_main_menu(chat_id, uid, lang):
         bot.send_message(
             chat_id,
             t(lang, "main_menu_title", name=name),
-            reply_markup=get_main_inline(uid, lang),
+            reply_markup=get_main_keyboard(uid, lang),
             parse_mode="HTML"
         )
     except Exception as e:
@@ -701,7 +701,7 @@ def main_router(message):
     return bot.send_message(
         message.chat.id,
         fallback_text,
-        reply_markup=get_main_inline(uid, lang),
+        reply_markup=get_main_keyboard(uid, lang),
         parse_mode="HTML"
     )
 
