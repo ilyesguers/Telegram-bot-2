@@ -248,21 +248,16 @@ def show_main_menu(chat_id, uid, lang):
     u = get_user(uid) or {}
     name = u.get("username") or "User"
     
-    welcome_frames = [
-        f"⏳ <i>Loading...</i>",
-        f"✨ <i>Welcome back...</i>",
-        f"🎊 <b>Ready!</b>",
-        t(lang, "main_menu_title", name=name)
-    ]
-    
+    # 🚀 إرسال القائمة مباشرة بدون أنيميشن بطيء (يمنع التجمد)
     try:
-        msg = bot.send_message(chat_id, welcome_frames[0], parse_mode="HTML")
-        for frame in welcome_frames[1:]:
-            time.sleep(0.3)
-            try:
-                bot.edit_message_text(frame, chat_id, msg.message_id, parse_mode="HTML")
-            except: pass
-    except: pass
+        bot.send_message(
+            chat_id,
+            t(lang, "main_menu_title", name=name),
+            reply_markup=get_main_inline(uid, lang),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"⚠️ Error showing main menu: {e}")
     
     fs = get_active_flash_sale()
     if fs:
@@ -276,15 +271,6 @@ def show_main_menu(chat_id, uid, lang):
             )
             bot.send_message(chat_id, fs_msg, parse_mode="HTML")
         except: pass
-    
-    # 🎨 القائمة الرئيسية الملونة (Inline Keyboard) فقط — أجمل وأكثر احترافية
-    # (تم إزالة الكيبورد الردي المزدوج لتجنب التداخل)
-    try:
-        bot.edit_message_reply_markup(chat_id, msg.message_id,
-                                      reply_markup=get_main_inline(uid, lang))
-    except Exception:
-        bot.send_message(chat_id, t(lang, "main_menu_title", name=name),
-                         reply_markup=get_main_inline(uid, lang), parse_mode="HTML")
 
 def send_mini_games_menu(chat_id, uid):
     """Open the Mini Games centre from the inline main menu.
@@ -680,6 +666,45 @@ def main_router(message):
         if txt == "🔙 العودة":
             return show_main_menu(message.chat.id, uid, lang)
 
+    # ═══════════════════════════════════════════════════════════
+    # 🔔 FALLBACK — الرد على أي رسالة غير معروفة
+    # (هذا يمنع البوت من "التجمد" عند إرسال أي نص غير مطابق)
+    # ═══════════════════════════════════════════════════════════
+    fallback_msgs = {
+        "ar": (
+            "🤔 <b>لم أفهم رسالتك!</b>\n\n"
+            "💡 استخدم أزرار القائمة أدناه للتنقل\n"
+            "🏠 أو أرسل /start لفتح القائمة الرئيسية"
+        ),
+        "en": (
+            "🤔 <b>I didn't understand that!</b>\n\n"
+            "💡 Use the menu buttons below to navigate\n"
+            "🏠 Or send /start to open the main menu"
+        ),
+        "fr": (
+            "🤔 <b>Je n'ai pas compris!</b>\n\n"
+            "💡 Utilisez les boutons du menu\n"
+            "🏠 Ou envoyez /start"
+        ),
+        "es": (
+            "🤔 <b>¡No entendí eso!</b>\n\n"
+            "💡 Usa los botones del menú\n"
+            "🏠 O envía /start"
+        ),
+        "vi": (
+            "🤔 <b>Tôi không hiểu!</b>\n\n"
+            "💡 Sử dụng các nút menu bên dưới\n"
+            "🏠 Hoặc gửi /start"
+        ),
+    }
+    fallback_text = fallback_msgs.get(lang, fallback_msgs["en"])
+    return bot.send_message(
+        message.chat.id,
+        fallback_text,
+        reply_markup=get_main_inline(uid, lang),
+        parse_mode="HTML"
+    )
+
 # =====================================================
 # 🎨 دوال العرض
 # =====================================================
@@ -815,18 +840,7 @@ def claim_daily(chat_id, msg_id, uid, lang):
     update_user_rank_and_quests(uid)
     u_new = get_user(uid) or {}
     
-    frames = [
-        "🎁 <b>Opening...</b>",
-        "✨ <b>Opening...</b> ✨",
-        "💫 <b>Almost there...</b> 💫",
-        "🎉 <b>Success!</b> 🎊"
-    ]
-    for f in frames:
-        try:
-            bot.edit_message_text(f, chat_id, msg_id, parse_mode="HTML")
-            time.sleep(0.3)
-        except: pass
-    
+    # 🚀 إرسال النتيجة مباشرة بدون أنيميشن بطيء
     msg = t(lang, "daily_success", gift=gift, balance=u_new.get('points', 0), streak=streak)
     mk = types.InlineKeyboardMarkup()
     mk.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="back_rewards"))
@@ -1512,18 +1526,7 @@ def handle_callbacks(call):
             return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
         update_user_data(uid, points=-price)
         
-        frames = [
-            "🎁 <b>Opening the box...</b>",
-            "✨ <b>Almost there...</b> ✨",
-            "💫 <b>Revealing...</b> 💫",
-            "🎊 <b>Result!</b>"
-        ]
-        for f in frames:
-            try:
-                bot.edit_message_text(f, chat_id, msg_id, parse_mode="HTML")
-                time.sleep(0.35)
-            except: pass
-        
+        # 🚀 حساب النتيجة مباشرة بدون أنيميشن بطيء
         if random.randint(1, 100) <= bot_config.get("lootbox_chance", 25):
             win = random.randint(100, 500)
             update_user_data(uid, points=win, accumulated_points=win)
@@ -1556,20 +1559,7 @@ def handle_callbacks(call):
             return bot.answer_callback_query(call.id, t(lang, "insufficient_balance"), show_alert=True)
         update_user_data(uid, points=-price)
         
-        frames = [
-            "🎡 <b>[ 🔴 ]</b>\n<i>Spinning...</i>",
-            "🎡 <b>[ 🟡 ]</b>\n<i>Spinning...</i>",
-            "🎡 <b>[ 🟢 ]</b>\n<i>Fast!</i>",
-            "🎡 <b>[ 🔵 ]</b>\n<i>Slowing...</i>",
-            "🎡 <b>[ 🟣 ]</b>\n<i>Almost...</i>",
-            "🎡 <b>[ ⚪ ]</b>\n<i>Stopping...</i>"
-        ]
-        for f in frames:
-            try:
-                bot.edit_message_text(f, chat_id, msg_id, parse_mode="HTML")
-                time.sleep(0.35)
-            except: pass
-        
+        # 🚀 حساب النتيجة مباشرة بدون أنيميشن بطيء
         if random.randint(1, 100) <= bot_config.get("wheel_chance", 5):
             win = 1000
             update_user_data(uid, points=win, accumulated_points=win)
@@ -1691,20 +1681,7 @@ def handle_callbacks(call):
         if not keys_store.get(prod, {}).get(plan, []):
             return bot.answer_callback_query(call.id, gt_shop(lang, "out_alert"), show_alert=True)
         
-        # 🎬 أنيميشن مراحل الشراء
-        steps = [
-            t(lang, "buy_step_1"),
-            t(lang, "buy_step_2"),
-            t(lang, "buy_step_3"),
-            t(lang, "buy_step_4")
-        ]
-        for step in steps:
-            try:
-                bot.edit_message_text(step, chat_id, msg_id, parse_mode="HTML")
-                time.sleep(0.5)
-            except: pass
-        
-        # ✅ إعطاء المفتاح فعلياً بعد الأنيميشن
+        # 🚀 تسليم المفتاح مباشرة بدون أنيميشن بطيء (يمنع التجمد)
         try:
             key = keys_store[prod][plan].pop(0)
             update_user_data(uid, points=-final_p, total_spent=final_p, purchases_count=1)
@@ -2827,4 +2804,5 @@ if __name__ == "__main__":
     print("=" * 50)
     print("🤖 Bot is now RUNNING!")
     print("=" * 50)
-    bot.infinity_polling(none_stop=True, timeout=60)
+    # 🚀 تشغيل متعدد الخيوط لمنع التجمد
+    bot.infinity_polling(none_stop=True, timeout=60, num_threads=4)
