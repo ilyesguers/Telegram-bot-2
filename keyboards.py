@@ -51,65 +51,82 @@ def get_join_inline(lang):
 # =====================================================
 
 def get_main_keyboard(uid, lang):
-    """Main menu reply keyboard"""
-    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    m.add(types.KeyboardButton(t(lang, "btn_account")))
+    """Main menu reply keyboard — Large & Colored (matches reference image).
+
+    Layout: alternating green (success) / blue (primary) rows, 2 columns,
+    with full-width accent buttons at the bottom. Uses Bot API 9.x button
+    styles for the beautiful colored look.
+    """
+    m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2,
+                                  input_field_placeholder="📋 القائمة")
+    # Row 1 — green (success)
     m.add(
-        types.KeyboardButton(t(lang, "btn_shop")),
-        types.KeyboardButton(t(lang, "btn_rewards"))
+        rkb(t(lang, "btn_shop"), style="success"),
+        rkb(t(lang, "btn_account"), style="success"),
     )
+    # Row 2 — blue (primary)
     m.add(
-        types.KeyboardButton(t(lang, "btn_entertainment")),
-        types.KeyboardButton(t(lang, "btn_support"))
+        rkb(t(lang, "btn_rewards"), style="primary"),
+        rkb(t(lang, "btn_entertainment"), style="primary"),
     )
+    # Row 3 — green (success)
     m.add(
-        types.KeyboardButton("👑 VIP"),
-        types.KeyboardButton("⭐ Stars")
+        rkb("👑 VIP Premium", style="success"),
+        rkb("⭐ Stars Store", style="success"),
     )
-    m.add(types.KeyboardButton("🎮 Mini Games"))
-    m.add(types.KeyboardButton(t(lang, "btn_settings")))
+    # Row 4 — blue (primary)
+    m.add(
+        rkb("🎮 Mini Games", style="primary"),
+        rkb(t(lang, "btn_settings"), style="primary"),
+    )
+    # Row 5 — full-width blue (primary)
+    m.add(rkb(t(lang, "btn_support"), style="primary"))
+    # Admin only — full-width red (danger)
     u = get_user(str(uid)) or {}
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
-        m.add(types.KeyboardButton(t(lang, "btn_admin")))
+        m.add(rkb(t(lang, "btn_admin"), style="danger"))
     return m
 
 
 def get_main_inline(uid, lang):
-    """Coloured & organised INLINE main menu.
+    """Coloured & organised INLINE main menu — Large & Beautiful.
 
-    Styled exactly like the forced-subscription buttons (Bot API 9.x button
-    styles) so the whole bot shares one clean, coloured look. Every entry maps
-    to the same feature as the classic reply keyboard below.
+    Redesigned with larger, more prominent buttons organized in clear
+    sections for better user experience.
     """
-    m = types.InlineKeyboardMarkup(row_width=2)
-    # Core sections — blue (primary)
-    m.add(
-        ikb(t(lang, "btn_account"), cb="main_account", style="primary"),
-        ikb(t(lang, "btn_shop"), cb="main_shop", style="primary"),
-    )
-    # Rewards & fun — green (success)
-    m.add(
-        ikb(t(lang, "btn_rewards"), cb="main_rewards", style="success"),
-        ikb(t(lang, "btn_entertainment"), cb="main_entertainment", style="success"),
-    )
-    # Premium — blue (primary)
-    m.add(
-        ikb("👑 VIP", cb="main_vip", style="primary"),
-        ikb("⭐ Stars", cb="main_stars", style="primary"),
-    )
-    # Games (green) + Support (neutral)
-    m.add(
-        ikb("🎮 Mini Games", cb="main_minigames", style="success"),
-        ikb(t(lang, "btn_support"), cb="main_support"),
-    )
-    # Settings (neutral)
-    m.add(ikb(t(lang, "btn_settings"), cb="main_settings"))
-    # Admin only — red (danger)
+    m = types.InlineKeyboardMarkup(row_width=1)
+    
+    # ═══════════════════════════════════════════════════════════
+    # 🎯 MAIN SECTIONS — Full-width prominent buttons
+    # ═══════════════════════════════════════════════════════════
+    
+    # Account & Shop — Primary actions (full width)
+    m.add(ikb(f"👤  {t(lang, 'btn_account')}", cb="main_account", style="primary"))
+    m.add(ikb(f"🛍️  {t(lang, 'btn_shop')}", cb="main_shop", style="primary"))
+    
+    # Rewards & Entertainment — Success actions (full width)
+    m.add(ikb(f"🎁  {t(lang, 'btn_rewards')}", cb="main_rewards", style="success"))
+    m.add(ikb(f"🎮  {t(lang, 'btn_entertainment')}", cb="main_entertainment", style="success"))
+    
+    # Premium features — Primary (full width)
+    m.add(ikb("👑  VIP Premium", cb="main_vip", style="primary"))
+    m.add(ikb("⭐  Stars Store", cb="main_stars", style="primary"))
+    
+    # Games & Support — Mixed (full width)
+    m.add(ikb("🎲  Mini Games Center", cb="main_minigames", style="success"))
+    m.add(ikb(f"💬  {t(lang, 'btn_support')}", cb="main_support"))
+    
+    # Settings (full width)
+    m.add(ikb(f"⚙️  {t(lang, 'btn_settings')}", cb="main_settings"))
+    
+    # Admin only — Danger style (full width)
     u = get_user(str(uid)) or {}
     if int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False):
-        m.add(ikb(t(lang, "btn_admin"), cb="main_admin", style="danger"))
-    # Collapse the inline menu
-    m.add(ikb("❌ إغلاق القائمة", cb="main_close", style="danger"))
+        m.add(ikb(f"👑  {t(lang, 'btn_admin')}", cb="main_admin", style="danger"))
+    
+    # Close menu (full width)
+    m.add(ikb("❌  Close Menu", cb="main_close", style="danger"))
+    
     return m
 
 
