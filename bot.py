@@ -28,6 +28,7 @@ import bot7
 import bot8
 import bot9
 import bot10  # ✨ الطبقة الجمالية (المحفظة/الرتبة/الإحالة/اليومية/المهام/FAQ + /pp)
+import bot12  # 🧾 بطاقة العضوية + 🎖️ الشارات + 🏆 المتصدرون + 🛒 تأكيد الشراء + 🔔 تنبيه المخزون
 # 🎁 استيراد bot2 (نظام Giveaway ورسائل القناة)
 from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
                   claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
@@ -1602,7 +1603,15 @@ def handle_callbacks(call):
             plan_name = gt_shop(lang, durations_map[plan])
             btn_txt = f"{emoji} {plan_name} | {gt_shop(lang, 'price')} {final_p} 💎 | {gt_shop(lang, 'stock')} {stock}"
             if flash_active: btn_txt = f"⚡ {btn_txt}"
-            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
+            if stock > 0:
+                # 🛒 صار الشراء يمرّ بشاشة تأكيد أولاً (bot12) قبل خصم النقاط
+                m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"cbuy|{prod}|{plan}"))
+            else:
+                # 🔔 نفد المخزون → نعرض زر التنبيه عند عودة المنتج
+                m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"cbuy|{prod}|{plan}"))
+                m.add(types.InlineKeyboardButton(
+                    f"🔔 {bot12.ux(lang, 'notify_btn')} — {plan_name}",
+                    callback_data=f"notifyme|{prod}|{plan}"))
             
         m.add(types.InlineKeyboardButton(gt_shop(lang, "btn_back"), callback_data="menu_shop_back"))
         try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
@@ -2574,7 +2583,15 @@ def admin_save_keys(message, prod, plan):
             keys_store[prod][plan].append(k.strip())
             added += 1
     save_json(DB_KEYS, keys_store)
-    bot.send_message(message.chat.id, f"✅ +<b>{added}</b> مفتاح", parse_mode="HTML")
+    # 🔔 إبلاغ كل من طلب التنبيه عند عودة هذا المنتج للمخزون
+    notified = 0
+    if added:
+        try:
+            notified = bot12.notify_restock(prod, plan)
+        except Exception as e:
+            print(f"⚠️ restock notify error: {e}")
+    extra = f"\n🔔 تم تنبيه <b>{notified}</b> عضو ينتظر المنتج" if notified else ""
+    bot.send_message(message.chat.id, f"✅ +<b>{added}</b> مفتاح{extra}", parse_mode="HTML")
 
 def admin_del_key(message, prod, plan):
     val = message.text.strip()

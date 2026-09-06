@@ -851,6 +851,15 @@ def check_and_execute_restocks():
                         f"🆔 ID: {restock_id}",
                         parse_mode="HTML")
                 except: pass
+
+                # 🔔 إبلاغ كل عضو طلب التنبيه عند عودة هذا المنتج
+                try:
+                    import bot12
+                    waiting = bot12.notify_restock(product, plan)
+                    if waiting:
+                        print(f"🔔 Restock alert sent to {waiting} waiting users")
+                except Exception as e:
+                    print(f"⚠️ Restock notify error: {e}")
                 
                 print(f"✅ Executed restock {restock_id}: {product}/{plan} = {added} keys")
         except Exception as e:

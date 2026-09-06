@@ -181,6 +181,85 @@ class UserFlowTests(unittest.TestCase):
         self.assertTrue(self.rec.sent, "‏/cancel لم يُرجع أي رسالة")
 
 
+class ExperiencePackTests(unittest.TestCase):
+    """المرحلة 1: بطاقة العضوية، الشارات، المتصدرون، تأكيد الشراء، تنبيه المخزون."""
+
+    USER = 777002
+
+    @classmethod
+    def setUpClass(cls):
+        database.init_db()
+        cls.rec = Recorder()
+        cls.rec.install()
+
+    def setUp(self):
+        self.rec.reset()
+        database.register_user(SimpleNamespace(id=self.USER, username="uxtester", first_name="UX"))
+        database.update_user_data(str(self.USER), verified=True, lang_selected=True, lang="ar")
+
+    def test_profile_card_shows_rank_progress(self):
+        import bot12
+        bot12.show_profile(make_call(self.USER, "menu_profile"))
+        self.assertTrue(self.rec.texts)
+        body = self.rec.texts[-1]
+        self.assertIn("بطاقة العضوية", body)
+        self.assertTrue("█" in body or "░" in body, "شريط التقدّم غير ظاهر")
+        markup = self.rec.last_markup()
+        buttons = [b.callback_data for row in markup.keyboard for b in row]
+        self.assertIn("menu_badges", buttons)
+        self.assertIn("menu_leaderboard", buttons)
+
+    def test_badges_screen_lists_all_badges(self):
+        import bot12
+        bot12.show_badges(make_call(self.USER, "menu_badges"))
+        body = self.rec.texts[-1]
+        self.assertIn("الإنجازات", body)
+        self.assertEqual(body.count("✅") + body.count("🔒"), len(bot12.BADGES))
+
+    def test_leaderboard_has_both_modes(self):
+        import bot12
+        bot12.show_leaderboard(make_call(self.USER, "menu_leaderboard"))
+        markup = self.rec.last_markup()
+        buttons = [b.callback_data for row in markup.keyboard for b in row]
+        self.assertIn("lb_points", buttons)
+        self.assertIn("lb_invites", buttons)
+
+    def test_purchase_confirmation_before_charging(self):
+        import bot12
+        database.prices_config["TestProd"] = {"1 Day": 50, "7 Days": 200, "30 Days": 500}
+        database.keys_store["TestProd"] = {"1 Day": ["KEY-1"], "7 Days": [], "30 Days": []}
+        database.update_user_data(str(self.USER), points=1000, accumulated_points=1000)
+
+        before = (database.get_user(str(self.USER)) or {}).get("points", 0)
+        bot12.confirm_purchase(make_call(self.USER, "cbuy|TestProd|1 Day"))
+        after = (database.get_user(str(self.USER)) or {}).get("points", 0)
+
+        self.assertEqual(before, after, "شاشة التأكيد يجب ألا تخصم أي نقاط")
+        body = self.rec.texts[-1]
+        self.assertIn("تأكيد الشراء", body)
+        buttons = [b.callback_data for row in self.rec.last_markup().keyboard for b in row]
+        self.assertIn("buy_plan|TestProd|1 Day", buttons, "زر التأكيد النهائي مفقود")
+
+    def test_restock_watcher_gets_notified(self):
+        import bot12
+        database.bot_config["stock_watchers"] = {}
+        bot12.subscribe_restock(make_call(self.USER, "notifyme|TestProd|7 Days"))
+        self.assertIn(str(self.USER), database.bot_config["stock_watchers"]["TestProd||7 Days"])
+
+        self.rec.reset()
+        sent = bot12.notify_restock("TestProd", "7 Days")
+        self.assertEqual(sent, 1)
+        self.assertTrue(any("عاد للمخزون" in text for text in self.rec.texts))
+        self.assertEqual(database.bot_config["stock_watchers"]["TestProd||7 Days"], [],
+                         "قائمة الانتظار يجب أن تُفرَغ بعد الإرسال")
+
+    def test_back_main_button_works(self):
+        import bot12
+        bot12.back_to_main(make_call(self.USER, "back_main"))
+        self.assertTrue(self.rec.texts, "زر الرجوع للرئيسية لا يستجيب")
+        self.assertIsNotNone(self.rec.last_markup())
+
+
 class AdminFlowTests(unittest.TestCase):
     ADMIN = config.ADMIN_PRIMARY
 
