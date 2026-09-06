@@ -19,6 +19,8 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    broadcast_channel_voice, get_publish_channels)
 from keyboards import *
 from shop_ui import gt_shop
+import botlog   # 📝 سجلات مركزية + مُعالج استثناءات عام (يُحمّل أولاً)
+import bot11   # 🚪 /cancel العام + لوحة تنقّل موحّدة (يُحمّل أولاً)
 import bot3
 import bot4
 import bot5
@@ -26,6 +28,9 @@ import bot6
 import bot7
 import bot8
 import bot9
+import bot10  # ✨ الطبقة الجمالية (المحفظة/الرتبة/الإحالة/اليومية/المهام/FAQ + /pp)
+import bot12  # 🧾 بطاقة العضوية + 🎖️ الشارات + 🏆 المتصدرون + 🛒 تأكيد الشراء + 🔔 تنبيه المخزون
+import bot13  # 👑 مركز قيادة الأدمن: /dash + بحث شامل + سجل تدقيق + إذاعة مستهدفة + CSV
 # 🎁 استيراد bot2 (نظام Giveaway ورسائل القناة)
 from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
                   claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
@@ -53,6 +58,14 @@ def is_admin(uid, u=None):
     if u is None:
         u = get_user(uid) or {}
     return int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)
+
+
+def audit(admin_uid, action, details=""):
+    """تسجيل أي إجراء إداري في سجل التدقيق (bot13) بأمان."""
+    try:
+        bot13.log_action(admin_uid, action, details)
+    except Exception as e:
+        print(f"⚠️ audit error: {e}")
 
 def get_all_user_ids():
     with engine.connect() as conn:
@@ -152,6 +165,8 @@ def handle_commands(message):
             f"🔹 /start - Main menu\n"
             f"🔹 /id - Your Telegram ID\n"
             f"🔹 /close - End ticket chat\n"
+            f"🔹 /cancel - Cancel any pending step\n"
+            f"🔹 /pp - Commands guide\n"
             f"🔹 /help - This menu\n\n"
             f"💻 <b>Developer:</b> @fkLJh00302"
         )
@@ -655,6 +670,7 @@ def main_router(message):
             new_state = not current
             bot_config["maintenance"] = new_state
             save_json(DB_CONFIG, bot_config)
+            audit(uid, "وضع الصيانة", "تشغيل" if new_state else "إيقاف")
             if new_state:
                 msg = (f"╔═══════════════════╗\n"
                        f"║ 🛠️ <b>MAINTENANCE ON</b> ║\n"
@@ -960,12 +976,22 @@ def show_shop(message, uid, u, lang):
     header += f"{gt_shop(lang, 'select_prod')}"
     
     m = types.InlineKeyboardMarkup(row_width=1)
-    for prod in prices_config.keys():
+    # 🔥 ترتيب المتجر: الأكثر مبيعاً أولاً + شارة "الأكثر مبيعاً"
+    best_sellers = bot12.top_selling_products(days=30)
+    top_product = best_sellers[0][0] if best_sellers else None
+    sold_map = dict(best_sellers)
+
+    ordered = sorted(prices_config.keys(),
+                     key=lambda name: (-sold_map.get(name, 0), name.lower()))
+
+    for prod in ordered:
         stock = sum(len(keys_store.get(prod, {}).get(p, [])) for p in ["1 Day", "7 Days", "30 Days"])
         status = gt_shop(lang, 'available') if stock > 0 else gt_shop(lang, 'out')
         emoji = "🔥" if fs and fs["product"] == prod else ("✅" if stock > 0 else "⚠️")
-        
+
         btn_text = f"{emoji} {prod} | {status}: {stock}"
+        if prod == top_product and sold_map.get(prod, 0) > 0:
+            btn_text = f"🏆 {btn_text}"
         m.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{prod}"))
     
     if hasattr(message, 'data'):
@@ -1580,6 +1606,13 @@ def handle_callbacks(call):
         if flash_active:
             info += f"│ {gt_shop(lang, 'flash')} 🔥 {fs['discount']}% {gt_shop(lang, 'off')}!\n"
         info += f"└────────────────────────────\n\n"
+        # 🏆 دليل اجتماعي: كم مرة اشتُري هذا المنتج مؤخراً
+        try:
+            sold = bot12.product_sales_count(prod, days=30)
+            if sold > 0:
+                info += f"🏆 <b>{bot12.ux(lang, 'best_seller')}</b> — {sold} 🛒 (30d)\n\n"
+        except Exception:
+            pass
         info += f"{gt_shop(lang, 'prod_desc_text')}\n\n"
         info += f"{gt_shop(lang, 'duration')}"
         
@@ -1598,34 +1631,17 @@ def handle_callbacks(call):
             plan_name = gt_shop(lang, durations_map[plan])
             btn_txt = f"{emoji} {plan_name} | {gt_shop(lang, 'price')} {final_p} 💎 | {gt_shop(lang, 'stock')} {stock}"
             if flash_active: btn_txt = f"⚡ {btn_txt}"
-            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
+            if stock > 0:
+                # 🛒 صار الشراء يمرّ بشاشة تأكيد أولاً (bot12) قبل خصم النقاط
+                m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"cbuy|{prod}|{plan}"))
+            else:
+                # 🔔 نفد المخزون → نعرض زر التنبيه عند عودة المنتج
+                m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"cbuy|{prod}|{plan}"))
+                m.add(types.InlineKeyboardButton(
+                    f"🔔 {bot12.ux(lang, 'notify_btn')} — {plan_name}",
+                    callback_data=f"notifyme|{prod}|{plan}"))
             
         m.add(types.InlineKeyboardButton(gt_shop(lang, "btn_back"), callback_data="menu_shop_back"))
-        try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-        except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
-        return
-        u_disc = u.get("rank_discount", 0.0) or 0.0
-        fs = get_active_flash_sale()
-        flash_active = fs and fs["product"] == prod
-        info = f"📦 <b>━━ {prod} ━━</b>\n\n"
-        info += f"┃ 💎 Your Discount: <b>{int(u_disc*100)}%</b>\n"
-        info += f"┃ 💰 Balance: <b>{u.get('points', 0)}</b>\n"
-        if flash_active:
-            info += f"┃ ⚡ <b>FLASH SALE:</b> {fs['discount']}% OFF!\n"
-        info += "╰━━━━━━━━━━━━╯\n\n⏱️ <b>Choose duration:</b>"
-        m = types.InlineKeyboardMarkup()
-        for plan in ["1 Day", "7 Days", "30 Days"]:
-            base_p = prices_config[prod].get(plan, 0)
-            disc = bot_config.get("discount", 0)
-            fs_disc = fs["discount"] if flash_active else 0
-            total_disc = disc + fs_disc
-            final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
-            stock = len(keys_store.get(prod, {}).get(plan, []))
-            emoji = "✅" if stock > 0 else "❌"
-            btn_txt = f"{emoji} {plan} | {final_p} 💎 | 📊 {stock}"
-            if flash_active: btn_txt = f"⚡ {btn_txt}"
-            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
-        m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_shop_back"))
         try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
         return
@@ -2542,6 +2558,7 @@ def admin_add_product(message):
     keys_store[prod] = {"1 Day": [], "7 Days": [], "30 Days": []}
     save_json(DB_PRICES, prices_config)
     save_json(DB_KEYS, keys_store)
+    audit(message.from_user.id, "إضافة منتج", prod)
     bot.send_message(message.chat.id, f"➕ أُضيف: <b>{prod}</b>", parse_mode="HTML")
 
 def admin_del_product(message):
@@ -2551,6 +2568,7 @@ def admin_del_product(message):
     keys_store.pop(prod, None)
     save_json(DB_PRICES, prices_config)
     save_json(DB_KEYS, keys_store)
+    audit(message.from_user.id, "حذف منتج", prod)
     bot.send_message(message.chat.id, f"✅ حُذف: <b>{prod}</b>", parse_mode="HTML")
 
 def admin_save_price(message, prod, plan):
@@ -2558,6 +2576,7 @@ def admin_save_price(message, prod, plan):
         p = int(message.text.strip())
         prices_config[prod][plan] = p
         save_json(DB_PRICES, prices_config)
+        audit(message.from_user.id, "تعديل سعر", f"{prod}/{plan} = {p}")
         bot.send_message(message.chat.id, f"✅ {prod}/{plan} = <b>{p}</b>", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌ أرقام فقط")
 
@@ -2570,7 +2589,16 @@ def admin_save_keys(message, prod, plan):
             keys_store[prod][plan].append(k.strip())
             added += 1
     save_json(DB_KEYS, keys_store)
-    bot.send_message(message.chat.id, f"✅ +<b>{added}</b> مفتاح", parse_mode="HTML")
+    # 🔔 إبلاغ كل من طلب التنبيه عند عودة هذا المنتج للمخزون
+    notified = 0
+    if added:
+        try:
+            notified = bot12.notify_restock(prod, plan)
+        except Exception as e:
+            print(f"⚠️ restock notify error: {e}")
+    audit(message.from_user.id, "إضافة مفاتيح", f"{prod}/{plan} +{added}")
+    extra = f"\n🔔 تم تنبيه <b>{notified}</b> عضو ينتظر المنتج" if notified else ""
+    bot.send_message(message.chat.id, f"✅ +<b>{added}</b> مفتاح{extra}", parse_mode="HTML")
 
 def admin_del_key(message, prod, plan):
     val = message.text.strip()
@@ -2610,6 +2638,7 @@ def admin_charge_member(message):
         if get_user(t_id):
             update_user_data(t_id, points=pts, accumulated_points=pts)
             update_user_rank_and_quests(t_id)
+            audit(message.from_user.id, "شحن رصيد عضو", f"{t_id} +{pts}")
             bot.send_message(message.chat.id, f"💰 +<b>{pts}</b> إلى {t_id}", parse_mode="HTML")
             try:
                 bot.send_message(int(t_id), f"🎉 <b>+{pts} 💎</b> من الإدارة!", parse_mode="HTML")
@@ -2623,6 +2652,7 @@ def admin_create_code(message):
         code, pts = p[0], int(p[1])
         redeem_codes[code] = pts
         save_json(DB_REDEEM, redeem_codes)
+        audit(message.from_user.id, "إنشاء كود", f"{code} = {pts}")
         bot.send_message(message.chat.id, f"🎫 <code>{code}</code> = <b>{pts}</b> 💎", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌")
 
@@ -2632,6 +2662,7 @@ def admin_set_discount(message):
         if 0 <= d < 100:
             bot_config["discount"] = d
             save_json(DB_CONFIG, bot_config)
+            audit(message.from_user.id, "خصم عام", f"{d}%")
             bot.send_message(message.chat.id, f"🔥 خصم عام: <b>{d}%</b>", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌")
 
@@ -2648,6 +2679,7 @@ def admin_broadcast(message):
 
     # "إذاعة للمستخدمين" remains a user broadcast and is also mirrored in
     # every added channel, matching the all-channel marketing requirement.
+    audit(message.from_user.id, "إذاعة عامة", f"وصلت لـ {s} عضو")
     channel_deliveries = broadcast_channel_message(message.text)
     bot.send_message(
         message.chat.id,
@@ -2764,17 +2796,30 @@ def process_add_force_sub_channel(message):
             parse_mode="HTML")
 
 # =====================================================
+# 🧱 تأمين كل المعالجات (بعد تحميل كل الموديولات)
+# =====================================================
+# أي خطأ داخل أي زر أو أمر يُسجَّل ويصل تنبيه للأدمن، ويحصل المستخدم على
+# رسالة واضحة بدل أن "يتجمّد" البوت أمامه.
+botlog.install_handler_guards(bot)
+
+# =====================================================
 # 🚀 التشغيل
 # =====================================================
 if __name__ == "__main__":
-    print("=" * 50)
-    print("🚀 EVE Store Bot v3.0 - Starting...")
-    print("=" * 50)
-    print("✅ Database initialized")
-    print("✅ bot2.py loaded (Giveaway + Channel)")
-    print("💻 Developer: @fkLJh00302")
-    print("=" * 50)
-    print("🤖 Bot is now RUNNING!")
-    print("=" * 50)
+    _boot_log = botlog.get_logger("startup")
+    _boot_log.info("=" * 50)
+    _boot_log.info("🚀 EVE Store Bot v3.0 - Starting...")
+    _boot_log.info("✅ Database initialized")
+    _boot_log.info("✅ الموديولات المحمّلة: bot2..bot13 + botlog")
+    _boot_log.info("💻 Developer: @fkLJh00302")
+    # 📋 قائمة الأوامر داخل تيليجرام (زر Menu) — تحتاج اتصالاً، لذلك عند التشغيل فقط
+    try:
+        _boot_log.info("📋 أوامر تيليجرام: %s قائمة مسجّلة", bot12.setup_bot_commands())
+    except Exception as _cmd_err:
+        _boot_log.warning("تعذّر تسجيل قائمة الأوامر: %s", _cmd_err)
+    _boot_log.info("🤖 Bot is now RUNNING!")
+    _boot_log.info("=" * 50)
     # 🚀 تشغيل متعدد الخيوط لمنع التجمد
-    bot.infinity_polling(none_stop=True, timeout=60)
+    # 📡 نمرّر ALLOWED_UPDATES صراحةً (مصدر واحد في config.py) بدل الاعتماد
+    #    على ترقيع bot6/bot9 الذي كانت نتيجته تتغيّر بترتيب الاستيراد.
+    bot.infinity_polling(none_stop=True, timeout=60, allowed_updates=ALLOWED_UPDATES)

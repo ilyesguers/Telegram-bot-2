@@ -14,6 +14,16 @@ from database import get_user
 from utils import ikb, rkb
 
 
+def _ux(lang, key):
+    """نص من حزمة تجربة المستخدم (bot12) مع بديل آمن إن لم يُحمَّل بعد."""
+    try:
+        from bot12 import ux
+        return ux(lang, key)
+    except Exception:
+        return {"profile": "🧾 My Card", "badges": "🎖️ Achievements",
+                "leaderboard": "🏆 Leaderboard"}.get(key, key)
+
+
 # =====================================================
 # 🌐 LANGUAGE SELECTOR
 # =====================================================
@@ -137,6 +147,8 @@ def get_main_inline(uid, lang):
 def get_account_menu(lang):
     """Account section menu"""
     m = types.InlineKeyboardMarkup(row_width=2)
+    # 🧾 بطاقة العضوية الجديدة (bot12) — ملخص كامل في شاشة واحدة
+    m.add(types.InlineKeyboardButton(_ux(lang, "profile"), callback_data="menu_profile"))
     m.add(
         types.InlineKeyboardButton(t(lang, 'btn_balance'), callback_data="menu_balance"),
         types.InlineKeyboardButton(t(lang, 'btn_my_id'), callback_data="menu_myid")
@@ -144,6 +156,10 @@ def get_account_menu(lang):
     m.add(
         types.InlineKeyboardButton(t(lang, 'btn_my_rank'), callback_data="menu_rank"),
         types.InlineKeyboardButton(t(lang, 'btn_referral'), callback_data="menu_referral")
+    )
+    m.add(
+        types.InlineKeyboardButton(_ux(lang, "badges"), callback_data="menu_badges"),
+        types.InlineKeyboardButton(_ux(lang, "leaderboard"), callback_data="menu_leaderboard")
     )
     m.add(types.InlineKeyboardButton(t(lang, 'btn_my_purchases'), callback_data="menu_purchases"))
     return m
@@ -244,6 +260,11 @@ def get_ticket_categories(lang):
 def get_admin_keyboard():
     """Admin panel reply keyboard"""
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    # 🏠 لوحة القيادة الجديدة (bot13) — كل الأرقام المهمة في مكان واحد
+    m.add(
+        types.KeyboardButton("🏠 لوحة القيادة"),
+        types.KeyboardButton("🔎 بحث شامل")
+    )
     m.add(
         types.KeyboardButton("📦 المنتجات"),
         types.KeyboardButton("🔑 المفاتيح")
@@ -274,18 +295,21 @@ def get_admin_keyboard():
     )
     m.add(
         types.KeyboardButton("🛡️ مكافحة الرشق"),
-        types.KeyboardButton("🔧 استعادة المشتريات")
+        types.KeyboardButton("🧠 الحماية الذكية")
     )
     m.add(
-        types.KeyboardButton("⚙️ النظام"),
-        types.KeyboardButton("📊 الإحصائيات")
+        types.KeyboardButton("🔧 استعادة المشتريات"),
+        types.KeyboardButton("⚙️ النظام")
     )
     m.add(
-        types.KeyboardButton("💡 الطلبات"),
-        types.KeyboardButton("🛠️ وضع الصيانة")
+        types.KeyboardButton("📊 الإحصائيات"),
+        types.KeyboardButton("💡 الطلبات")
     )
     m.add(
-        types.KeyboardButton("🎮 ألعاب القناة التفاعلية"),
+        types.KeyboardButton("🛠️ وضع الصيانة"),
+        types.KeyboardButton("🎮 ألعاب القناة التفاعلية")
+    )
+    m.add(
         types.KeyboardButton("🧑‍💻 التحكم الشامل بالأعضاء")
     )
     m.add(types.KeyboardButton("🔙 العودة"))
