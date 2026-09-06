@@ -22,6 +22,22 @@ ADMIN_SECONDARY = _env_int("ADMIN_SECONDARY", 8878290572)
 CHANNEL_ID = _env_int("CHANNEL_ID", -1003763276411)
 CHANNEL_LINK = os.getenv("CHANNEL_LINK") or "https://t.me/evee7x"
 
+# 📡 أنواع التحديثات التي يستقبلها البوت — مصدر واحد للحقيقة.
+# كانت مُرقَّعة في bot6 و bot9 معاً (كل واحد يلفّ infinity_polling)، والنتيجة
+# تعتمد على ترتيب الاستيراد. الآن تُمرَّر صراحةً من bot.py عند التشغيل.
+ALLOWED_UPDATES = [
+    "message",
+    "edited_message",
+    "callback_query",
+    "pre_checkout_query",
+    "shipping_query",
+    "message_reaction",
+    "message_reaction_count",
+    "chat_member",
+    "my_chat_member",
+    "chat_join_request",
+]
+
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"
 DB_REDEEM = "redeem_codes.json"

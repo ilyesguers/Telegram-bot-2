@@ -71,11 +71,11 @@ python bot.py
 ## 🧪 الاختبارات
 
 ```bash
-python tests/run_all.py                     # كل الاختبارات (40)
+python tests/run_all.py                     # كل الاختبارات (46)
 
 # أو مجموعة بمفردها
 python tests/test_channel_broadcasting.py   # 3  — النشر بالقنوات
-python tests/test_smoke_flows.py            # 25 — مسارات المستخدم والأدمن
+python tests/test_smoke_flows.py            # 31 — مسارات المستخدم والأدمن
 python tests/test_resilience.py             # 12 — المتانة والحفظ الذرّي
 ```
 

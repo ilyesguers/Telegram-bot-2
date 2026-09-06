@@ -1385,7 +1385,7 @@ def handle_lootbox_no(call):
 # =====================================================
 # ✅ PRE-CHECKOUT HANDLER
 # =====================================================
-@bot.pre_checkout_query_handler(func=lambda query: True)
+# ⚠️ أُلغي التسجيل المكرّر: المعالج الموحّد صار في bot11.py
 def bot9_handle_pre_checkout(pre_checkout_query):
     try:
         uid = str(pre_checkout_query.from_user.id)

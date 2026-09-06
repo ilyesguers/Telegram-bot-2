@@ -259,8 +259,86 @@ class ExperiencePackTests(unittest.TestCase):
         self.assertIsNotNone(self.rec.last_markup())
 
 
+class PaymentAndShopTests(unittest.TestCase):
+    """توحيد معالج الدفع + ترتيب المتجر حسب الأكثر مبيعاً."""
+
+    USER = 777003
+
+    @classmethod
+    def setUpClass(cls):
+        database.init_db()
+        cls.rec = Recorder()
+        cls.rec.install()
+
+    def setUp(self):
+        self.rec.reset()
+        database.register_user(SimpleNamespace(id=self.USER, username="payer", first_name="Payer"))
+        database.update_user_data(str(self.USER), verified=True, lang_selected=True, lang="ar")
+
+    def test_only_one_pre_checkout_handler_registered(self):
+        handlers = getattr(BOT, "pre_checkout_query_handlers", [])
+        self.assertEqual(len(handlers), 1,
+                         f"يجب أن يكون هناك معالج دفع واحد فقط، وُجد {len(handlers)}")
+
+    def test_pre_checkout_approves_known_invoices(self):
+        import bot11
+        answers = []
+        BOT.answer_pre_checkout_query = lambda qid, ok=True, **kw: answers.append((qid, ok, kw))
+
+        bot11.unified_pre_checkout(SimpleNamespace(id="q1", invoice_payload=f"vip_purchase_{self.USER}"))
+        bot11.unified_pre_checkout(SimpleNamespace(id="q2", invoice_payload="stars_convert_1_2_3"))
+        self.assertEqual([ok for _q, ok, _k in answers], [True, True])
+
+    def test_pre_checkout_rejects_unknown_invoice(self):
+        import bot11
+        answers = []
+        BOT.answer_pre_checkout_query = lambda qid, ok=True, **kw: answers.append((qid, ok, kw))
+        bot11.unified_pre_checkout(SimpleNamespace(id="q3", invoice_payload="hacker_payload"))
+        self.assertEqual(answers[-1][1], False, "فاتورة مجهولة تمت الموافقة عليها!")
+
+    def test_allowed_updates_are_centralised(self):
+        self.assertIn("pre_checkout_query", config.ALLOWED_UPDATES)
+        self.assertIn("message_reaction", config.ALLOWED_UPDATES)
+        self.assertIn("callback_query", config.ALLOWED_UPDATES)
+
+    def test_best_sellers_ranking(self):
+        import bot12
+        from datetime import datetime as _dt
+        now = _dt.now().isoformat()
+        database.bot_config["sales_log"] = (
+            [{"product": "Popular", "plan": "1 Day", "price": 10, "date": now}] * 5 +
+            [{"product": "Rare", "plan": "1 Day", "price": 10, "date": now}]
+        )
+        ranked = bot12.top_selling_products(days=30)
+        self.assertEqual(ranked[0][0], "Popular")
+        self.assertEqual(bot12.product_sales_count("Rare"), 1)
+        self.assertEqual(bot12.product_sales_count("Ghost"), 0)
+
+    def test_shop_lists_best_seller_first(self):
+        import bot12
+        from datetime import datetime as _dt
+        now = _dt.now().isoformat()
+        database.prices_config.clear()
+        database.prices_config.update({
+            "AAA_Slow": {"1 Day": 10, "7 Days": 20, "30 Days": 30},
+            "ZZZ_Hot": {"1 Day": 10, "7 Days": 20, "30 Days": 30},
+        })
+        database.keys_store["AAA_Slow"] = {"1 Day": ["k"], "7 Days": [], "30 Days": []}
+        database.keys_store["ZZZ_Hot"] = {"1 Day": ["k"], "7 Days": [], "30 Days": []}
+        database.bot_config["sales_log"] = [
+            {"product": "ZZZ_Hot", "plan": "1 Day", "price": 10, "date": now}
+        ] * 3
+
+        self.rec.reset()
+        user = database.get_user(str(self.USER))
+        mainbot.show_shop(make_message(self.USER, "shop"), str(self.USER), user, "ar")
+        markup = self.rec.last_markup()
+        labels = [b.text for row in markup.keyboard for b in row]
+        self.assertIn("🏆", labels[0], f"الأكثر مبيعاً ليس أول عنصر: {labels}")
+        self.assertIn("ZZZ_Hot", labels[0])
+
+
 class ResilienceIntegrationTests(unittest.TestCase):
-    """المرحلة 3: التأكد أن درع المعالجات مركّب فعلاً على البوت الحقيقي."""
 
     def test_every_registered_handler_is_guarded(self):
         unguarded = []

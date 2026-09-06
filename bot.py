@@ -976,12 +976,22 @@ def show_shop(message, uid, u, lang):
     header += f"{gt_shop(lang, 'select_prod')}"
     
     m = types.InlineKeyboardMarkup(row_width=1)
-    for prod in prices_config.keys():
+    # 🔥 ترتيب المتجر: الأكثر مبيعاً أولاً + شارة "الأكثر مبيعاً"
+    best_sellers = bot12.top_selling_products(days=30)
+    top_product = best_sellers[0][0] if best_sellers else None
+    sold_map = dict(best_sellers)
+
+    ordered = sorted(prices_config.keys(),
+                     key=lambda name: (-sold_map.get(name, 0), name.lower()))
+
+    for prod in ordered:
         stock = sum(len(keys_store.get(prod, {}).get(p, [])) for p in ["1 Day", "7 Days", "30 Days"])
         status = gt_shop(lang, 'available') if stock > 0 else gt_shop(lang, 'out')
         emoji = "🔥" if fs and fs["product"] == prod else ("✅" if stock > 0 else "⚠️")
-        
+
         btn_text = f"{emoji} {prod} | {status}: {stock}"
+        if prod == top_product and sold_map.get(prod, 0) > 0:
+            btn_text = f"🏆 {btn_text}"
         m.add(types.InlineKeyboardButton(btn_text, callback_data=f"select_prod_{prod}"))
     
     if hasattr(message, 'data'):
@@ -1596,6 +1606,13 @@ def handle_callbacks(call):
         if flash_active:
             info += f"│ {gt_shop(lang, 'flash')} 🔥 {fs['discount']}% {gt_shop(lang, 'off')}!\n"
         info += f"└────────────────────────────\n\n"
+        # 🏆 دليل اجتماعي: كم مرة اشتُري هذا المنتج مؤخراً
+        try:
+            sold = bot12.product_sales_count(prod, days=30)
+            if sold > 0:
+                info += f"🏆 <b>{bot12.ux(lang, 'best_seller')}</b> — {sold} 🛒 (30d)\n\n"
+        except Exception:
+            pass
         info += f"{gt_shop(lang, 'prod_desc_text')}\n\n"
         info += f"{gt_shop(lang, 'duration')}"
         
@@ -1625,31 +1642,6 @@ def handle_callbacks(call):
                     callback_data=f"notifyme|{prod}|{plan}"))
             
         m.add(types.InlineKeyboardButton(gt_shop(lang, "btn_back"), callback_data="menu_shop_back"))
-        try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
-        except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
-        return
-        u_disc = u.get("rank_discount", 0.0) or 0.0
-        fs = get_active_flash_sale()
-        flash_active = fs and fs["product"] == prod
-        info = f"📦 <b>━━ {prod} ━━</b>\n\n"
-        info += f"┃ 💎 Your Discount: <b>{int(u_disc*100)}%</b>\n"
-        info += f"┃ 💰 Balance: <b>{u.get('points', 0)}</b>\n"
-        if flash_active:
-            info += f"┃ ⚡ <b>FLASH SALE:</b> {fs['discount']}% OFF!\n"
-        info += "╰━━━━━━━━━━━━╯\n\n⏱️ <b>Choose duration:</b>"
-        m = types.InlineKeyboardMarkup()
-        for plan in ["1 Day", "7 Days", "30 Days"]:
-            base_p = prices_config[prod].get(plan, 0)
-            disc = bot_config.get("discount", 0)
-            fs_disc = fs["discount"] if flash_active else 0
-            total_disc = disc + fs_disc
-            final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
-            stock = len(keys_store.get(prod, {}).get(plan, []))
-            emoji = "✅" if stock > 0 else "❌"
-            btn_txt = f"{emoji} {plan} | {final_p} 💎 | 📊 {stock}"
-            if flash_active: btn_txt = f"⚡ {btn_txt}"
-            m.add(types.InlineKeyboardButton(btn_txt, callback_data=f"buy_plan|{prod}|{plan}"))
-        m.add(types.InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_shop_back"))
         try: bot.edit_message_text(info, chat_id, msg_id, reply_markup=m, parse_mode="HTML")
         except: bot.send_message(chat_id, info, reply_markup=m, parse_mode="HTML")
         return
@@ -2820,7 +2812,14 @@ if __name__ == "__main__":
     _boot_log.info("✅ Database initialized")
     _boot_log.info("✅ الموديولات المحمّلة: bot2..bot13 + botlog")
     _boot_log.info("💻 Developer: @fkLJh00302")
+    # 📋 قائمة الأوامر داخل تيليجرام (زر Menu) — تحتاج اتصالاً، لذلك عند التشغيل فقط
+    try:
+        _boot_log.info("📋 أوامر تيليجرام: %s قائمة مسجّلة", bot12.setup_bot_commands())
+    except Exception as _cmd_err:
+        _boot_log.warning("تعذّر تسجيل قائمة الأوامر: %s", _cmd_err)
     _boot_log.info("🤖 Bot is now RUNNING!")
     _boot_log.info("=" * 50)
     # 🚀 تشغيل متعدد الخيوط لمنع التجمد
-    bot.infinity_polling(none_stop=True, timeout=60)
+    # 📡 نمرّر ALLOWED_UPDATES صراحةً (مصدر واحد في config.py) بدل الاعتماد
+    #    على ترقيع bot6/bot9 الذي كانت نتيجته تتغيّر بترتيب الاستيراد.
+    bot.infinity_polling(none_stop=True, timeout=60, allowed_updates=ALLOWED_UPDATES)

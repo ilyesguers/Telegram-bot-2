@@ -170,6 +170,10 @@ def _wrap_handler(func, kind):
                 uid = payload.from_user.id
                 if kind == "callback":
                     bot.answer_callback_query(payload.id, _friendly(uid)[:190], show_alert=True)
+                elif kind == "payment":
+                    # لا نترك المستخدم في شاشة دفع معلّقة
+                    bot.answer_pre_checkout_query(payload.id, ok=False,
+                                                  error_message="⚠️ خطأ مؤقت، حاول لاحقاً")
                 else:
                     bot.send_message(payload.chat.id, _friendly(uid))
             except Exception:
@@ -188,6 +192,8 @@ def install_handler_guards(target_bot=None):
     groups = (
         ("message", getattr(target_bot, "message_handlers", [])),
         ("callback", getattr(target_bot, "callback_query_handlers", [])),
+        ("payment", getattr(target_bot, "pre_checkout_query_handlers", [])),
+        ("payment", getattr(target_bot, "shipping_query_handlers", [])),
     )
     for kind, handlers in groups:
         for entry in handlers:

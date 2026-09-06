@@ -321,6 +321,34 @@ def badge_line(user, limit=5):
 
 
 # =====================================================================
+# 🔥 الأكثر مبيعاً
+# =====================================================================
+def top_selling_products(days=30, limit=None):
+    """يرجع [(المنتج، عدد المبيعات)] مرتبة تنازلياً خلال المدة المحددة."""
+    from datetime import timedelta
+    since = datetime.now() - timedelta(days=days)
+    counter = {}
+    for sale in bot_config.get("sales_log", []) or []:
+        try:
+            if datetime.fromisoformat(sale.get("date", "")) < since:
+                continue
+        except Exception:
+            continue
+        product = sale.get("product")
+        if product:
+            counter[product] = counter.get(product, 0) + 1
+    ranked = sorted(counter.items(), key=lambda item: -item[1])
+    return ranked[:limit] if limit else ranked
+
+
+def product_sales_count(product, days=30):
+    for name, count in top_selling_products(days):
+        if name == product:
+            return count
+    return 0
+
+
+# =====================================================================
 # 🧾 بطاقة الملف الشخصي
 # =====================================================================
 def profile_text(uid):
@@ -596,8 +624,57 @@ def back_to_main(call):
             get_main_inline(uid, lang))
 
 
+# =====================================================================
+# 📋 قائمة الأوامر داخل تيليجرام (زر Menu)
+# =====================================================================
+USER_COMMANDS = [
+    ("start", {"ar": "القائمة الرئيسية", "en": "Main menu", "fr": "Menu principal",
+               "es": "Menú principal", "vi": "Menu chính"}),
+    ("help", {"ar": "المساعدة", "en": "Help", "fr": "Aide", "es": "Ayuda", "vi": "Trợ giúp"}),
+    ("pp", {"ar": "دليل الأوامر", "en": "Commands guide", "fr": "Guide des commandes",
+            "es": "Guía de comandos", "vi": "Hướng dẫn lệnh"}),
+    ("id", {"ar": "معرّفي", "en": "My Telegram ID", "fr": "Mon ID", "es": "Mi ID", "vi": "ID của tôi"}),
+    ("cancel", {"ar": "إلغاء العملية الحالية", "en": "Cancel current step",
+                "fr": "Annuler l'étape", "es": "Cancelar paso", "vi": "Hủy bước hiện tại"}),
+]
+
+ADMIN_COMMANDS = [
+    ("dash", "لوحة القيادة"),
+    ("start", "القائمة الرئيسية"),
+    ("stars", "إدارة النجوم"),
+    ("games", "ألعاب القناة"),
+    ("cancel", "إلغاء العملية الحالية"),
+]
+
+
+def setup_bot_commands():
+    """يسجّل أوامر البوت في تيليجرام (زر Menu) لكل لغة + للأدمن."""
+    from telebot import types as _types
+    done = 0
+    try:
+        default = [_types.BotCommand(name, labels["en"]) for name, labels in USER_COMMANDS]
+        bot.set_my_commands(default)
+        done += 1
+        for lang in ("ar", "fr", "es", "vi"):
+            localized = [_types.BotCommand(name, labels.get(lang, labels["en"]))
+                         for name, labels in USER_COMMANDS]
+            bot.set_my_commands(localized, language_code=lang)
+            done += 1
+
+        admin_list = [_types.BotCommand(name, label) for name, label in ADMIN_COMMANDS]
+        for admin_id in (ADMIN_PRIMARY, ADMIN_SECONDARY):
+            try:
+                bot.set_my_commands(admin_list, scope=_types.BotCommandScopeChat(admin_id))
+                done += 1
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"⚠️ تعذّر ضبط قائمة الأوامر: {e}")
+    return done
+
+
 print("=" * 55)
 print("✅ bot12.py — حزمة تجربة المستخدم")
-print("🧾 بطاقة العضوية | 🎖️ الشارات | 🏆 المتصدرون")
+print("🧾 بطاقة العضوية | 🎖️ الشارات | 🏆 المتصدرون | 🔥 الأكثر مبيعاً")
 print("🛒 تأكيد الشراء | 🔔 تنبيه عودة المخزون | 🏠 back_main")
 print("=" * 55)

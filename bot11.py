@@ -191,8 +191,45 @@ def guard_user(call_or_uid, answer_call=None):
     return True
 
 
+# =====================================================================
+# 💳 معالج الدفع الموحّد (pre_checkout)
+# =====================================================================
+# كان مسجّلاً 3 مرات (bot2 مرتين + bot9 مرة)، وتيليجرام ينفّذ أول معالج
+# مطابق فقط — أي أن سلوك الدفع كان يتغيّر بتغيّر ترتيب الاستيراد.
+# الآن معالج واحد موثوق هنا (يُحمَّل أولاً)، والباقي أُلغي تسجيله.
+KNOWN_PAYLOAD_PREFIXES = ("vip_purchase_", "stars_convert_")
+
+
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def unified_pre_checkout(pre_checkout_query):
+    """يوافق على الفواتير المعروفة فقط، ولا يترك الدفع معلّقاً أبداً."""
+    payload = ""
+    try:
+        payload = pre_checkout_query.invoice_payload or ""
+    except Exception:
+        pass
+
+    try:
+        if payload.startswith(KNOWN_PAYLOAD_PREFIXES):
+            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+            print(f"✅ pre_checkout: تمت الموافقة ({payload[:40]})")
+        else:
+            bot.answer_pre_checkout_query(
+                pre_checkout_query.id, ok=False,
+                error_message="❌ فاتورة غير معروفة — تواصل مع الدعم")
+            print(f"⛔ pre_checkout: فاتورة مرفوضة ({payload[:40]})")
+    except Exception as e:
+        print(f"⚠️ pre_checkout error: {e}")
+        # آخر محاولة: لا نترك المستخدم في شاشة دفع معلّقة
+        try:
+            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+        except Exception:
+            pass
+
+
 print("=" * 55)
 print("✅ bot11.py — إصلاحات جوهرية")
 print("🚪 أمر /cancel العام: مفعّل")
 print("🧭 لوحة التنقّل الموحّدة: جاهزة")
+print("💳 معالج الدفع الموحّد: مسجَّل")
 print("=" * 55)

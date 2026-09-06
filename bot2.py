@@ -882,7 +882,8 @@ start_restock_thread()
 # =====================================================
 # ✅ PRE-CHECKOUT HANDLER - إصلاح مشكلة تعليق الدفع
 # =====================================================
-@bot.pre_checkout_query_handler(func=lambda query: True)
+# ⚠️ أُلغي التسجيل المكرّر: المعالج الموحّد صار في bot11.py
+# (كان مسجّلاً 3 مرات في bot2 مرتين وbot9 مرة، والنتيجة تعتمد على ترتيب الاستيراد)
 def handle_pre_checkout(pre_checkout_query):
     try:
         payload = pre_checkout_query.invoice_payload
@@ -1187,7 +1188,7 @@ def handle_star_purchase(call):
 # TELEGRAM STARS PAYMENT HANDLERS
 # =====================================================
 
-@bot.pre_checkout_query_handler(func=lambda query: True)
+# ⚠️ أُلغي التسجيل المكرّر: المعالج الموحّد صار في bot11.py
 def pre_checkout_handler(pre_checkout_query):
     try:
         bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
