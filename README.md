@@ -1,5 +1,16 @@
 # 🤖 EVE Store Bot — بوت متجر تيليجرام متكامل
 
+## 📦 تحميل مباشر (Zip)
+
+| النسخة | الرابط |
+|---|---|
+| 🕰️ قبل التحديثات | [`releases/01_BEFORE_old-version_a5493a8.zip`](releases/01_BEFORE_old-version_a5493a8.zip) |
+| 🚀 بعد التحديثات | [`releases/02_AFTER_new-version_v4.zip`](releases/02_AFTER_new-version_v4.zip) |
+
+التفاصيل في [`releases/README.md`](releases/README.md).
+
+
+
 بوت تيليجرام لمتجر رقمي بالنقاط: متجر مفاتيح + رتب + مكافآت + ألعاب + Giveaway
 + نجوم تيليجرام + دعم فني + إدارة قنوات + حماية ذكية + نسخ احتياطي تلقائي.
 
