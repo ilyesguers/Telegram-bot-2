@@ -281,7 +281,7 @@ class AdminFlowTests(unittest.TestCase):
         for row in keyboards.get_admin_keyboard().keyboard:
             for button in row:
                 labels.add(button["text"] if isinstance(button, dict) else button.text)
-        for expected in ("📦 المنتجات", "🔑 المفاتيح", "👥 الأعضاء", "🎫 التذاكر",
+        for expected in ("🏠 لوحة القيادة", "🔎 بحث شامل", "📦 المنتجات", "🔑 المفاتيح", "👥 الأعضاء", "🎫 التذاكر",
                          "💰 المبيعات", "📢 التسويق", "⚡ عروض خاطفة", "🎁 Giveaway",
                          "👑 إدارة VIP", "📦 التجديد التلقائي", "📨 رسائل القناة",
                          "📢 نشر في القنوات", "🔐 إدارة الاشتراك الإجباري", "🎮 الألعاب",
@@ -301,6 +301,109 @@ class AdminFlowTests(unittest.TestCase):
         bot8.show_protection_panel(make_message(self.ADMIN, "🧠 الحماية الذكية"))
         self.assertTrue(self.rec.sent or self.rec.edited,
                         "لوحة الحماية الذكية ما زالت غير قابلة للفتح")
+
+
+class CommandCenterTests(unittest.TestCase):
+    """المرحلة 2: لوحة القيادة، المخزون المنخفض، البحث، التدقيق، الإذاعة، CSV."""
+
+    ADMIN = config.ADMIN_PRIMARY
+
+    @classmethod
+    def setUpClass(cls):
+        database.init_db()
+        cls.rec = Recorder()
+        cls.rec.install()
+
+    def setUp(self):
+        self.rec.reset()
+        database.register_user(SimpleNamespace(id=self.ADMIN, username="admin", first_name="Admin"))
+        database.update_user_data(str(self.ADMIN), verified=True, lang_selected=True,
+                                  lang="ar", is_admin=True)
+
+    def test_dashboard_shows_key_numbers(self):
+        import bot13
+        body = bot13.dashboard_text()
+        for label in ("لوحة القيادة", "الأعضاء", "المبيعات", "المتجر", "الدعم"):
+            self.assertIn(label, body)
+
+    def test_dashboard_button_is_admin_only(self):
+        import bot13
+        self.assertTrue(bot13.is_admin(self.ADMIN))
+        self.assertFalse(bot13.is_admin(999999123))
+
+    def test_low_stock_detection_and_threshold(self):
+        import bot13
+        database.prices_config["LowProd"] = {"1 Day": 10, "7 Days": 20, "30 Days": 30}
+        database.keys_store["LowProd"] = {"1 Day": [], "7 Days": ["a", "b", "c", "d", "e"], "30 Days": []}
+        items = dict(((p, pl), s) for p, pl, s in bot13.low_stock_items(threshold=3))
+        self.assertEqual(items.get(("LowProd", "1 Day")), 0, "لم يُكتشف نفاد المخزون")
+        self.assertNotIn(("LowProd", "7 Days"), items, "منتج متوفر صُنّف كمخزون منخفض")
+
+    def test_low_stock_alert_is_sent_once(self):
+        import bot13
+        database.bot_config["low_stock_notified"] = {}
+        database.prices_config["AlertProd"] = {"1 Day": 10, "7 Days": 20, "30 Days": 30}
+        database.keys_store["AlertProd"] = {"1 Day": [], "7 Days": [], "30 Days": []}
+
+        self.rec.reset()
+        bot13.check_low_stock_and_alert()
+        first = len([txt for txt in self.rec.texts if "مخزون منخفض" in txt])
+        self.assertGreater(first, 0, "لم يصل أي تنبيه مخزون")
+
+        self.rec.reset()
+        bot13.check_low_stock_and_alert()
+        self.assertEqual([txt for txt in self.rec.texts if "مخزون منخفض" in txt], [],
+                         "التنبيه تكرر رغم أنه أُرسل مسبقاً")
+
+    def test_audit_log_records_actions(self):
+        import bot13
+        database.bot_config["audit_log"] = []
+        bot13.log_action(self.ADMIN, "اختبار", "تفاصيل الاختبار")
+        self.assertEqual(len(database.bot_config["audit_log"]), 1)
+        self.assertIn("اختبار", bot13.audit_text())
+
+    def test_broadcast_segments_are_computed(self):
+        import bot13
+        everyone = bot13.segment_users("all")
+        self.assertIn(str(self.ADMIN), everyone)
+        self.assertLessEqual(len(bot13.segment_users("vip")), len(everyone))
+
+    def test_csv_exports_have_headers(self):
+        import bot13
+        sales = bot13._export_sales().getvalue().decode("utf-8-sig")
+        users = bot13._export_users().getvalue().decode("utf-8-sig")
+        self.assertTrue(sales.startswith("date,uid,username,product"))
+        self.assertTrue(users.startswith("uid,username,points"))
+
+    def test_global_search_finds_user(self):
+        import bot13
+        self.rec.reset()
+        bot13._run_search(make_message(self.ADMIN, str(self.ADMIN)))
+        body = self.rec.texts[-1]
+        self.assertIn("عضو", body)
+        self.assertIn(str(self.ADMIN), body)
+
+    def test_dashboard_button_routes_through_real_dispatcher(self):
+        """يتأكد أن ترتيب تسجيل المعالجات يجعل الزر الجديد يعمل فعلياً."""
+        import time as _time
+        self.rec.reset()
+        update = types.Update.de_json({
+            "update_id": 991,
+            "message": {
+                "message_id": 7,
+                "from": {"id": self.ADMIN, "is_bot": False, "first_name": "Admin"},
+                "chat": {"id": self.ADMIN, "type": "private"},
+                "date": 1700000000,
+                "text": "🏠 لوحة القيادة",
+            },
+        })
+        BOT.process_new_updates([update])
+        for _ in range(40):
+            if any("لوحة القيادة" in txt for txt in self.rec.texts):
+                break
+            _time.sleep(0.05)
+        self.assertTrue(any("لوحة القيادة" in txt for txt in self.rec.texts),
+                        "زر لوحة القيادة لم يصل إلى معالجه")
 
 
 if __name__ == "__main__":

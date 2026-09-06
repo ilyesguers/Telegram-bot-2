@@ -29,6 +29,7 @@ import bot8
 import bot9
 import bot10  # ✨ الطبقة الجمالية (المحفظة/الرتبة/الإحالة/اليومية/المهام/FAQ + /pp)
 import bot12  # 🧾 بطاقة العضوية + 🎖️ الشارات + 🏆 المتصدرون + 🛒 تأكيد الشراء + 🔔 تنبيه المخزون
+import bot13  # 👑 مركز قيادة الأدمن: /dash + بحث شامل + سجل تدقيق + إذاعة مستهدفة + CSV
 # 🎁 استيراد bot2 (نظام Giveaway ورسائل القناة)
 from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
                   claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
@@ -56,6 +57,14 @@ def is_admin(uid, u=None):
     if u is None:
         u = get_user(uid) or {}
     return int(uid) in [ADMIN_PRIMARY, ADMIN_SECONDARY] or u.get("is_admin", False)
+
+
+def audit(admin_uid, action, details=""):
+    """تسجيل أي إجراء إداري في سجل التدقيق (bot13) بأمان."""
+    try:
+        bot13.log_action(admin_uid, action, details)
+    except Exception as e:
+        print(f"⚠️ audit error: {e}")
 
 def get_all_user_ids():
     with engine.connect() as conn:
@@ -660,6 +669,7 @@ def main_router(message):
             new_state = not current
             bot_config["maintenance"] = new_state
             save_json(DB_CONFIG, bot_config)
+            audit(uid, "وضع الصيانة", "تشغيل" if new_state else "إيقاف")
             if new_state:
                 msg = (f"╔═══════════════════╗\n"
                        f"║ 🛠️ <b>MAINTENANCE ON</b> ║\n"
@@ -2555,6 +2565,7 @@ def admin_add_product(message):
     keys_store[prod] = {"1 Day": [], "7 Days": [], "30 Days": []}
     save_json(DB_PRICES, prices_config)
     save_json(DB_KEYS, keys_store)
+    audit(message.from_user.id, "إضافة منتج", prod)
     bot.send_message(message.chat.id, f"➕ أُضيف: <b>{prod}</b>", parse_mode="HTML")
 
 def admin_del_product(message):
@@ -2564,6 +2575,7 @@ def admin_del_product(message):
     keys_store.pop(prod, None)
     save_json(DB_PRICES, prices_config)
     save_json(DB_KEYS, keys_store)
+    audit(message.from_user.id, "حذف منتج", prod)
     bot.send_message(message.chat.id, f"✅ حُذف: <b>{prod}</b>", parse_mode="HTML")
 
 def admin_save_price(message, prod, plan):
@@ -2571,6 +2583,7 @@ def admin_save_price(message, prod, plan):
         p = int(message.text.strip())
         prices_config[prod][plan] = p
         save_json(DB_PRICES, prices_config)
+        audit(message.from_user.id, "تعديل سعر", f"{prod}/{plan} = {p}")
         bot.send_message(message.chat.id, f"✅ {prod}/{plan} = <b>{p}</b>", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌ أرقام فقط")
 
@@ -2590,6 +2603,7 @@ def admin_save_keys(message, prod, plan):
             notified = bot12.notify_restock(prod, plan)
         except Exception as e:
             print(f"⚠️ restock notify error: {e}")
+    audit(message.from_user.id, "إضافة مفاتيح", f"{prod}/{plan} +{added}")
     extra = f"\n🔔 تم تنبيه <b>{notified}</b> عضو ينتظر المنتج" if notified else ""
     bot.send_message(message.chat.id, f"✅ +<b>{added}</b> مفتاح{extra}", parse_mode="HTML")
 
@@ -2631,6 +2645,7 @@ def admin_charge_member(message):
         if get_user(t_id):
             update_user_data(t_id, points=pts, accumulated_points=pts)
             update_user_rank_and_quests(t_id)
+            audit(message.from_user.id, "شحن رصيد عضو", f"{t_id} +{pts}")
             bot.send_message(message.chat.id, f"💰 +<b>{pts}</b> إلى {t_id}", parse_mode="HTML")
             try:
                 bot.send_message(int(t_id), f"🎉 <b>+{pts} 💎</b> من الإدارة!", parse_mode="HTML")
@@ -2644,6 +2659,7 @@ def admin_create_code(message):
         code, pts = p[0], int(p[1])
         redeem_codes[code] = pts
         save_json(DB_REDEEM, redeem_codes)
+        audit(message.from_user.id, "إنشاء كود", f"{code} = {pts}")
         bot.send_message(message.chat.id, f"🎫 <code>{code}</code> = <b>{pts}</b> 💎", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌")
 
@@ -2653,6 +2669,7 @@ def admin_set_discount(message):
         if 0 <= d < 100:
             bot_config["discount"] = d
             save_json(DB_CONFIG, bot_config)
+            audit(message.from_user.id, "خصم عام", f"{d}%")
             bot.send_message(message.chat.id, f"🔥 خصم عام: <b>{d}%</b>", parse_mode="HTML")
     except: bot.send_message(message.chat.id, "❌")
 
@@ -2669,6 +2686,7 @@ def admin_broadcast(message):
 
     # "إذاعة للمستخدمين" remains a user broadcast and is also mirrored in
     # every added channel, matching the all-channel marketing requirement.
+    audit(message.from_user.id, "إذاعة عامة", f"وصلت لـ {s} عضو")
     channel_deliveries = broadcast_channel_message(message.text)
     bot.send_message(
         message.chat.id,

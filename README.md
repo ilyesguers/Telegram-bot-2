@@ -61,13 +61,16 @@ python bot.py
 | `bot9.py` | نظام النجوم `/stars` + العجلة + الصندوق + الاسترجاع |
 | `bot10.py` | الطبقة الجمالية Premium + `/pp` |
 | `bot11.py` | إصلاحات جوهرية: `/cancel` العام + تنقّل موحّد + فحوصات أمان |
+| `bot12.py` | تجربة المستخدم: بطاقة العضوية + الشارات + المتصدرون + تأكيد الشراء + تنبيه المخزون |
+| `bot13.py` | مركز قيادة الأدمن: `/dash` + بحث شامل + سجل تدقيق + إذاعة مستهدفة + CSV |
 
 ---
 
 ## 🧪 الاختبارات
 
 ```bash
-python tests/test_channel_broadcasting.py
+python tests/test_channel_broadcasting.py   # 3 اختبارات
+python tests/test_smoke_flows.py            # 23 اختبار دخان
 ```
 
 ---
@@ -75,7 +78,7 @@ python tests/test_channel_broadcasting.py
 ## 📜 الأوامر
 
 **المستخدم:** `/start` • `/id` • `/help` • `/close` • `/cancel` • `/pp`
-**الأدمن:** `/stars` • `/games`
+**الأدمن:** `/dash` • `/stars` • `/games`
 
 ---
 

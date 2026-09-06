@@ -36,6 +36,15 @@ def _is_admin(uid):
     return bool(u.get("is_admin", False))
 
 
+def _audit(admin_uid, action, details=""):
+    """تسجيل الإجراء في سجل التدقيق (bot13) بأمان."""
+    try:
+        import bot13
+        bot13.log_action(admin_uid, action, details)
+    except Exception:
+        pass
+
+
 def _set_field_raw(uid, field, value):
     """تعديل مباشر لحقل رقمي/نصي بدقة (وليس تجميع/إضافة)"""
     allowed = {"points", "accumulated_points", "streak_days", "last_claim", "banned_until"}
@@ -231,6 +240,7 @@ def _ucp_callbacks(call):
     if action == "vipremove":
         if _VIP_AVAILABLE:
             deactivate_vip(target)
+            _audit(call.from_user.id, "سحب VIP", target)
             bot.answer_callback_query(call.id, "✅ تم سحب VIP", show_alert=True)
         else:
             bot.answer_callback_query(call.id, "❌ نظام VIP غير متاح حالياً", show_alert=True)
@@ -252,16 +262,19 @@ def _ucp_callbacks(call):
 
     if action == "banperm":
         ban_user(target, permanent=True)
+        _audit(call.from_user.id, "حظر دائم", target)
         bot.answer_callback_query(call.id, "⛔ تم الحظر الدائم", show_alert=True)
         return _show_profile(chat_id, target, msg_id)
 
     if action == "bantemp":
         ban_user(target, permanent=False, hours=24)
+        _audit(call.from_user.id, "حظر مؤقت 24س", target)
         bot.answer_callback_query(call.id, "⏱️ تم الحظر 24 ساعة", show_alert=True)
         return _show_profile(chat_id, target, msg_id)
 
     if action == "unban":
         unban_user(target)
+        _audit(call.from_user.id, "فك الحظر", target)
         bot.answer_callback_query(call.id, "🟢 تم فك الحظر", show_alert=True)
         return _show_profile(chat_id, target, msg_id)
 
@@ -426,6 +439,7 @@ def _apply_vip_grant(message, target):
     try:
         days = int(message.text.strip())
         activate_vip(target, days)
+        _audit(message.from_user.id, "منح VIP", f"{target} — {days} يوم")
         bot.send_message(message.chat.id, f"✅ تم منح VIP لمدة {days} يوم")
         try:
             bot.send_message(int(target), f"🎉 تم منحك VIP لمدة {days} يوم من الإدارة!", parse_mode="HTML")

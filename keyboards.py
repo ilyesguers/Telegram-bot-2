@@ -260,6 +260,11 @@ def get_ticket_categories(lang):
 def get_admin_keyboard():
     """Admin panel reply keyboard"""
     m = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    # 🏠 لوحة القيادة الجديدة (bot13) — كل الأرقام المهمة في مكان واحد
+    m.add(
+        types.KeyboardButton("🏠 لوحة القيادة"),
+        types.KeyboardButton("🔎 بحث شامل")
+    )
     m.add(
         types.KeyboardButton("📦 المنتجات"),
         types.KeyboardButton("🔑 المفاتيح")
