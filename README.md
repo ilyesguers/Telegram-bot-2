@@ -38,6 +38,7 @@ python bot.py
 | `ADMIN_SECONDARY` | ➖ | معرّف الأدمن الثانوي |
 | `CHANNEL_ID` | ➖ | معرّف القناة الافتراضية |
 | `CHANNEL_LINK` | ➖ | رابط القناة الافتراضية |
+| `LOG_LEVEL` | ➖ | مستوى السجلات: DEBUG / INFO (افتراضي) / WARNING |
 
 ---
 
@@ -63,14 +64,19 @@ python bot.py
 | `bot11.py` | إصلاحات جوهرية: `/cancel` العام + تنقّل موحّد + فحوصات أمان |
 | `bot12.py` | تجربة المستخدم: بطاقة العضوية + الشارات + المتصدرون + تأكيد الشراء + تنبيه المخزون |
 | `bot13.py` | مركز قيادة الأدمن: `/dash` + بحث شامل + سجل تدقيق + إذاعة مستهدفة + CSV |
+| `botlog.py` | سجلات مركزية + درع معالجات + تنبيه الأدمن عند أي خطأ |
 
 ---
 
 ## 🧪 الاختبارات
 
 ```bash
-python tests/test_channel_broadcasting.py   # 3 اختبارات
-python tests/test_smoke_flows.py            # 23 اختبار دخان
+python tests/run_all.py                     # كل الاختبارات (40)
+
+# أو مجموعة بمفردها
+python tests/test_channel_broadcasting.py   # 3  — النشر بالقنوات
+python tests/test_smoke_flows.py            # 25 — مسارات المستخدم والأدمن
+python tests/test_resilience.py             # 12 — المتانة والحفظ الذرّي
 ```
 
 ---

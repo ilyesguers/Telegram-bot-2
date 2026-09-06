@@ -123,7 +123,6 @@ def make_call(uid, data, chat_id=None):
 
 class UserFlowTests(unittest.TestCase):
     USER = 777001
-
     @classmethod
     def setUpClass(cls):
         database.init_db()
@@ -258,6 +257,25 @@ class ExperiencePackTests(unittest.TestCase):
         bot12.back_to_main(make_call(self.USER, "back_main"))
         self.assertTrue(self.rec.texts, "زر الرجوع للرئيسية لا يستجيب")
         self.assertIsNotNone(self.rec.last_markup())
+
+
+class ResilienceIntegrationTests(unittest.TestCase):
+    """المرحلة 3: التأكد أن درع المعالجات مركّب فعلاً على البوت الحقيقي."""
+
+    def test_every_registered_handler_is_guarded(self):
+        unguarded = []
+        for kind in ("message_handlers", "callback_query_handlers"):
+            for entry in getattr(BOT, kind, []):
+                function = entry.get("function")
+                if function and not getattr(function, "_botlog_guarded", False):
+                    unguarded.append((kind, getattr(function, "__name__", "?")))
+        self.assertEqual(unguarded, [], f"معالجات غير مؤمَّنة: {unguarded}")
+
+    def test_atomic_save_is_active(self):
+        import inspect
+        source = inspect.getsource(database.save_json)
+        self.assertIn("os.replace", source, "الحفظ ليس ذرّياً")
+        self.assertIn("lock", source.lower(), "لا يوجد قفل تزامن على الحفظ")
 
 
 class AdminFlowTests(unittest.TestCase):

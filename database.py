@@ -1,8 +1,19 @@
 import os
 import json
+import copy
+import time
+import tempfile
+import threading
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 from config import CHANNEL_ID, CHANNEL_LINK
+
+try:
+    from botlog import get_logger
+    log = get_logger(__name__)
+except Exception:  # في حال استُخدم الملف منفرداً
+    import logging
+    log = logging.getLogger("database")
 
 # =====================================================
 # 📁 أسماء ملفات JSON
@@ -23,17 +34,95 @@ def load_json(filename):
             with open(filename, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"⚠️ خطأ في تحميل {filename}: {e}")
+            log.error("خطأ في تحميل %s: %s", filename, e)
+            # نسخة احتياطية من الملف التالف بدل ضياعه نهائياً
+            try:
+                os.replace(filename, f"{filename}.corrupted")
+                log.warning("تم نقل الملف التالف إلى %s.corrupted", filename)
+            except Exception:
+                pass
             return {}
     return {}
 
-def save_json(filename, data):
-    """حفظ ملف JSON بأمان"""
+
+# قفل كتابة لكل ملف: يمنع تشابك عدة خيوط على نفس الملف
+_save_locks = {}
+_locks_guard = threading.Lock()
+
+
+def _lock_for(filename):
+    with _locks_guard:
+        if filename not in _save_locks:
+            _save_locks[filename] = threading.Lock()
+        return _save_locks[filename]
+
+
+def _serialize(data, attempts=6):
+    """يحوّل البيانات إلى نص JSON حتى لو كان القاموس يتغيّر من خيط آخر.
+
+    القواميس المشتركة (bot_config…) تُعدَّل من عدة خيوط، وكان ذلك يرمي
+    RuntimeError أثناء الحفظ فيفشل الحفظ بصمت. هنا نعيد المحاولة بلقطة
+    ثابتة، وكحل أخير ننسخ المفاتيح واحداً واحداً.
+    """
+    for _ in range(attempts):
+        try:
+            return json.dumps(data, indent=4, ensure_ascii=False, default=str)
+        except RuntimeError:
+            time.sleep(0.01)   # القاموس تغيّر أثناء التسلسل — أعد المحاولة
+        except Exception:
+            break
+
+    # محاولة أخيرة: لقطة سطحية آمنة
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        if isinstance(data, dict):
+            snapshot = {}
+            for key in list(data.keys()):
+                try:
+                    snapshot[key] = copy.deepcopy(data[key])
+                except Exception:
+                    snapshot[key] = str(data.get(key))
+            return json.dumps(snapshot, indent=4, ensure_ascii=False, default=str)
+        return json.dumps(data, indent=4, ensure_ascii=False, default=str)
     except Exception as e:
-        print(f"⚠️ خطأ في حفظ {filename}: {e}")
+        log.error("تعذّر تسلسل البيانات: %s", e)
+        return None
+
+
+def save_json(filename, data):
+    """حفظ ملف JSON بشكل ذرّي وآمن ضد التزامن.
+
+    كان الحفظ السابق يكتب مباشرة فوق الملف: أي انقطاع (Redeploy/إعادة تشغيل)
+    في منتصف الكتابة كان يترك ملفاً تالفاً وتضيع بيانات المتجر أو الإعدادات.
+    الآن: نكتب في ملف مؤقت ثم نستبدل الأصل دفعة واحدة (os.replace ذرّية)،
+    مع قفل يمنع كتابتين متزامنتين على نفس الملف.
+    """
+    lock = _lock_for(filename)
+    with lock:
+        payload = _serialize(data)
+        if payload is None:
+            log.error("لم يُحفظ %s — فشل تجهيز البيانات", filename)
+            return
+
+        directory = os.path.dirname(os.path.abspath(filename)) or "."
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory,
+                                             prefix=f".{os.path.basename(filename)}.",
+                                             suffix=".tmp", delete=False) as tmp:
+                tmp.write(payload)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+                tmp_path = tmp.name
+            os.replace(tmp_path, filename)
+            tmp_path = None
+        except Exception as e:
+            log.error("خطأ في حفظ %s: %s", filename, e)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
 
 # =====================================================
 # 📦 تحميل البيانات
@@ -127,9 +216,21 @@ save_json(DB_CONFIG, bot_config)
 # =====================================================
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    print("⚠️ WARNING: DATABASE_URL not set!")
+    log.warning("DATABASE_URL غير مضبوط!")
 
-engine = create_engine(DATABASE_URL)
+# ⚙️ إعدادات اتصال متينة:
+#   pool_pre_ping  → يكتشف الاتصالات الميتة (Railway يقطع الاتصال الخامل)
+#   pool_recycle   → يجدّد الاتصال كل 30 دقيقة قبل أن يقطعه الخادم
+#   pool_size/overflow → يمنع نفاد الاتصالات مع تعدد الخيوط
+_engine_options = {"pool_pre_ping": True, "pool_recycle": 1800}
+if DATABASE_URL and not DATABASE_URL.startswith("sqlite"):
+    _engine_options.update({"pool_size": 10, "max_overflow": 20, "pool_timeout": 30})
+
+try:
+    engine = create_engine(DATABASE_URL, **_engine_options)
+except Exception as _engine_error:  # pragma: no cover
+    log.error("فشل إنشاء محرّك قاعدة البيانات بالخيارات المتقدمة: %s", _engine_error)
+    engine = create_engine(DATABASE_URL)
 
 # =====================================================
 # 🗄️ إنشاء الجداول
@@ -216,7 +317,23 @@ def init_db():
                     print(f"عمود {col_name}: {e}")
         
         conn.commit()
-    print("✅ قاعدة البيانات جاهزة - كل الأعمدة موجودة")
+    log.info("✅ قاعدة البيانات جاهزة - كل الأعمدة موجودة")
+
+    # 🚀 فهارس تسريع الاستعلامات المتكرّرة (المتصدرون، النشاط اليومي)
+    try:
+        with engine.connect() as conn:
+            for index_sql in (
+                "CREATE INDEX IF NOT EXISTS idx_users_acc_points ON users (accumulated_points DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_users_invites ON users (invite_count DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_users_last_active ON users (last_active)",
+            ):
+                try:
+                    conn.execute(text(index_sql))
+                except Exception as e:
+                    log.debug("فهرس: %s", e)
+            conn.commit()
+    except Exception as e:
+        log.warning("تعذّر إنشاء الفهارس: %s", e)
 
 # =====================================================
 # 👤 تسجيل مستخدم جديد

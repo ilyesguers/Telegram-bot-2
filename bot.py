@@ -19,6 +19,7 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    broadcast_channel_voice, get_publish_channels)
 from keyboards import *
 from shop_ui import gt_shop
+import botlog   # 📝 سجلات مركزية + مُعالج استثناءات عام (يُحمّل أولاً)
 import bot11   # 🚪 /cancel العام + لوحة تنقّل موحّدة (يُحمّل أولاً)
 import bot3
 import bot4
@@ -2803,17 +2804,23 @@ def process_add_force_sub_channel(message):
             parse_mode="HTML")
 
 # =====================================================
+# 🧱 تأمين كل المعالجات (بعد تحميل كل الموديولات)
+# =====================================================
+# أي خطأ داخل أي زر أو أمر يُسجَّل ويصل تنبيه للأدمن، ويحصل المستخدم على
+# رسالة واضحة بدل أن "يتجمّد" البوت أمامه.
+botlog.install_handler_guards(bot)
+
+# =====================================================
 # 🚀 التشغيل
 # =====================================================
 if __name__ == "__main__":
-    print("=" * 50)
-    print("🚀 EVE Store Bot v3.0 - Starting...")
-    print("=" * 50)
-    print("✅ Database initialized")
-    print("✅ bot2.py loaded (Giveaway + Channel)")
-    print("💻 Developer: @fkLJh00302")
-    print("=" * 50)
-    print("🤖 Bot is now RUNNING!")
-    print("=" * 50)
+    _boot_log = botlog.get_logger("startup")
+    _boot_log.info("=" * 50)
+    _boot_log.info("🚀 EVE Store Bot v3.0 - Starting...")
+    _boot_log.info("✅ Database initialized")
+    _boot_log.info("✅ الموديولات المحمّلة: bot2..bot13 + botlog")
+    _boot_log.info("💻 Developer: @fkLJh00302")
+    _boot_log.info("🤖 Bot is now RUNNING!")
+    _boot_log.info("=" * 50)
     # 🚀 تشغيل متعدد الخيوط لمنع التجمد
     bot.infinity_polling(none_stop=True, timeout=60)
