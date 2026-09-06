@@ -260,6 +260,48 @@ def ui(lang, key):
 
 
 # =====================================================
+# 🧭 NAVIGATION + SAFETY (added in Phase 0)
+# =====================================================
+# كل شاشات bot10 كانت بلا أزرار، فكان المستخدم يصل إلى "طريق مسدود".
+# هذه الدوال تضيف زر رجوع/تحديث موحّد وتحمي الشاشات بفحص الحظر والاشتراك.
+
+def nav(lang, back_cb, refresh_cb=None):
+    """لوحة تنقّل موحّدة لكل شاشة بريميوم."""
+    try:
+        from bot11 import nav_kb
+        return nav_kb(lang, back_cb=back_cb, refresh_cb=refresh_cb)
+    except Exception:
+        m = types.InlineKeyboardMarkup(row_width=2)
+        row = []
+        if refresh_cb:
+            row.append(types.InlineKeyboardButton("🔄", callback_data=refresh_cb))
+        row.append(types.InlineKeyboardButton("🔙", callback_data=back_cb))
+        m.add(*row)
+        return m
+
+
+def allowed(call):
+    """فحص الحظر والاشتراك الإجباري قبل عرض أي شاشة."""
+    try:
+        from bot11 import guard_user
+        return guard_user(call, answer_call=call)
+    except Exception:
+        return True
+
+
+def render(chat_id, msg_id, msg, kb=None):
+    """عرض الشاشة مع أزرارها (تعديل الرسالة أو إرسال جديدة)."""
+    try:
+        bot.edit_message_text(msg, chat_id, msg_id, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        try:
+            bot.send_message(chat_id, msg, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            pass
+
+
+
+# =====================================================
 # 🔧 HELPER FUNCTIONS
 # =====================================================
 
@@ -384,6 +426,12 @@ def premium_wallet(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     # ═══ Animation Sequence ═══
     frames = [
@@ -437,10 +485,7 @@ def premium_wallet(call):
     ✨ {decorate(ui(lang, 'welcome'))} ✨
 """
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_account", "menu_balance"))
 
 
 # =====================================================
@@ -454,6 +499,12 @@ def premium_rank(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     # ═══ Animation ═══
     frames = [
@@ -516,10 +567,7 @@ def premium_rank(call):
 
    💪 Keep earning points!"""
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_account", "menu_rank"))
 
 
 # =====================================================
@@ -533,6 +581,12 @@ def premium_referral(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     # ═══ Animation ═══
     frames = [
@@ -607,10 +661,7 @@ def premium_referral(call):
 💡 {ui(lang, 'share')} & {ui(lang, 'earnings')} {reward} 💎!
 """
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_account", "menu_referral"))
 
 
 # =====================================================
@@ -624,6 +675,12 @@ def premium_about(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     # ═══ Animation ═══
     frames = [
@@ -662,10 +719,7 @@ def premium_about(call):
    🌍 Multi-Language Support
 """
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_settings", "menu_about"))
 
 
 # =====================================================
@@ -679,6 +733,12 @@ def premium_daily(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     last_claim = u.get("last_claim")
     streak = u.get("streak_days", 0) or 0
@@ -800,10 +860,7 @@ def premium_daily(call):
    💡 {ui(lang, 'keep_streak')}!
 """
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_rewards", None))
 
 
 # =====================================================
@@ -817,6 +874,12 @@ def premium_quests(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     # ═══ Animation ═══
     frames = [
@@ -872,10 +935,7 @@ def premium_quests(call):
    💪 Complete quests for rewards!
 """
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_rewards", "menu_quests"))
 
 
 # =====================================================
@@ -889,6 +949,12 @@ def premium_faq(call):
     lang = u.get("lang", "en")
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
+    if not allowed(call):
+        return
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
 
     faqs = {
         "ar": [
@@ -945,10 +1011,7 @@ def premium_faq(call):
    💬 Need more help? Open a ticket!
 """
 
-    try:
-        bot.edit_message_text(msg, chat_id, msg_id, parse_mode="HTML")
-    except:
-        bot.send_message(chat_id, msg, parse_mode="HTML")
+    render(chat_id, msg_id, msg, nav(lang, "back_support", "menu_faq"))
 
 
 # =====================================================

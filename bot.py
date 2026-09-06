@@ -19,6 +19,7 @@ from utils import (check_spam, is_user_banned, check_channel_join, generate_fake
                    broadcast_channel_voice, get_publish_channels)
 from keyboards import *
 from shop_ui import gt_shop
+import bot11   # 🚪 /cancel العام + لوحة تنقّل موحّدة (يُحمّل أولاً)
 import bot3
 import bot4
 import bot5
@@ -26,6 +27,7 @@ import bot6
 import bot7
 import bot8
 import bot9
+import bot10  # ✨ الطبقة الجمالية (المحفظة/الرتبة/الإحالة/اليومية/المهام/FAQ + /pp)
 # 🎁 استيراد bot2 (نظام Giveaway ورسائل القناة)
 from bot2 import (create_giveaway, get_giveaway, is_giveaway_valid, has_user_claimed_giveaway,
                   claim_giveaway, publish_giveaway_to_channel, start_giveaway_captcha,
@@ -152,6 +154,8 @@ def handle_commands(message):
             f"🔹 /start - Main menu\n"
             f"🔹 /id - Your Telegram ID\n"
             f"🔹 /close - End ticket chat\n"
+            f"🔹 /cancel - Cancel any pending step\n"
+            f"🔹 /pp - Commands guide\n"
             f"🔹 /help - This menu\n\n"
             f"💻 <b>Developer:</b> @fkLJh00302"
         )

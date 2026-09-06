@@ -274,18 +274,21 @@ def get_admin_keyboard():
     )
     m.add(
         types.KeyboardButton("🛡️ مكافحة الرشق"),
-        types.KeyboardButton("🔧 استعادة المشتريات")
+        types.KeyboardButton("🧠 الحماية الذكية")
     )
     m.add(
-        types.KeyboardButton("⚙️ النظام"),
-        types.KeyboardButton("📊 الإحصائيات")
+        types.KeyboardButton("🔧 استعادة المشتريات"),
+        types.KeyboardButton("⚙️ النظام")
     )
     m.add(
-        types.KeyboardButton("💡 الطلبات"),
-        types.KeyboardButton("🛠️ وضع الصيانة")
+        types.KeyboardButton("📊 الإحصائيات"),
+        types.KeyboardButton("💡 الطلبات")
     )
     m.add(
-        types.KeyboardButton("🎮 ألعاب القناة التفاعلية"),
+        types.KeyboardButton("🛠️ وضع الصيانة"),
+        types.KeyboardButton("🎮 ألعاب القناة التفاعلية")
+    )
+    m.add(
         types.KeyboardButton("🧑‍💻 التحكم الشامل بالأعضاء")
     )
     m.add(types.KeyboardButton("🔙 العودة"))

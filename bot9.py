@@ -1437,6 +1437,18 @@ def bot9_handle_successful_payment(message):
                 "days": 30
             }
             save_json(DB_CONFIG, bot_config)
+
+            # ✅ توحيد تفعيل VIP مع bot2 + ضبط عمود vip في قاعدة البيانات،
+            # حتى تعمل كل الميزات المرتبطة بالـ VIP (مكافأة مضاعفة، خصم، شارة).
+            try:
+                from bot2 import activate_vip
+                expires = activate_vip(uid, 30)
+            except Exception as vip_err:
+                print(f"⚠️ bot9: activate_vip fallback: {vip_err}")
+            try:
+                update_user_data(uid, vip=True)
+            except Exception as db_err:
+                print(f"⚠️ bot9: vip column update failed: {db_err}")
             
             log_transaction("vip", uid, total_amount, "VIP 30 days", charge_id)
             

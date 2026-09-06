@@ -69,6 +69,10 @@ def is_vip_active(uid):
         else:
             del bot_config["vip_subscribers"][uid]
             save_json(DB_CONFIG, bot_config)
+            try:
+                update_user_data(uid, vip=False)
+            except Exception:
+                pass
             return False
     except:
         return False
@@ -95,15 +99,25 @@ def activate_vip(uid, days=30):
         "days": days
     }
     save_json(DB_CONFIG, bot_config)
+    # مزامنة عمود vip في قاعدة البيانات حتى تعمل كل الميزات المعتمدة عليه.
+    try:
+        update_user_data(uid, vip=True)
+    except Exception as e:
+        print(f"⚠️ activate_vip: db sync failed: {e}")
     return expires
 
 def deactivate_vip(uid):
     uid = str(uid)
+    removed = False
     if uid in bot_config.get("vip_subscribers", {}):
         del bot_config["vip_subscribers"][uid]
         save_json(DB_CONFIG, bot_config)
-        return True
-    return False
+        removed = True
+    try:
+        update_user_data(uid, vip=False)
+    except Exception as e:
+        print(f"⚠️ deactivate_vip: db sync failed: {e}")
+    return removed
 
 # =====================================================
 # GIVEAWAY SYSTEM  —  Premium Multi-Type Engine v2.0

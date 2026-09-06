@@ -1,14 +1,26 @@
 import os
 import telebot
 
+
+def _env_int(name, default):
+    """قراءة رقم من متغيرات البيئة مع الرجوع للقيمة الحالية عند غيابه."""
+    try:
+        value = os.getenv(name)
+        return int(value) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        return default
+
+
 API_TOKEN = os.getenv("API_TOKEN")
 bot = telebot.TeleBot(API_TOKEN, threaded=True)
 
-ADMIN_PRIMARY = 5145154527
-ADMIN_SECONDARY = 8878290572
+# 🔐 يمكن الآن تغيير الأدمن/القناة من متغيرات البيئة بدون تعديل الكود،
+#    ومع بقاء القيم الحالية كافتراضي حتى لا يتأثر أي شيء قائم.
+ADMIN_PRIMARY = _env_int("ADMIN_PRIMARY", 5145154527)
+ADMIN_SECONDARY = _env_int("ADMIN_SECONDARY", 8878290572)
 
-CHANNEL_ID = -1003763276411  
-CHANNEL_LINK = "https://t.me/evee7x"
+CHANNEL_ID = _env_int("CHANNEL_ID", -1003763276411)
+CHANNEL_LINK = os.getenv("CHANNEL_LINK") or "https://t.me/evee7x"
 
 DB_USERS = "users_data.json"
 DB_KEYS = "keys_store.json"

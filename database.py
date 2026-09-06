@@ -190,11 +190,30 @@ def init_db():
             ("referral_earnings", "INTEGER DEFAULT 0")
         ]
         
-        for col_name, col_def in missing_columns:
-            try:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
-            except Exception as e:
-                print(f"عمود {col_name}: {e}")
+        # ملاحظة: "ADD COLUMN IF NOT EXISTS" خاصة بـ PostgreSQL، لذلك نتحقق من
+        # نوع قاعدة البيانات أولاً حتى يمكن تشغيل المشروع واختباره محلياً
+        # (SQLite) بدون سيل من رسائل الخطأ — والسلوك على PostgreSQL كما هو.
+        dialect = ""
+        try:
+            dialect = engine.dialect.name
+        except Exception:
+            pass
+
+        if dialect == "sqlite":
+            existing = {row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
+            for col_name, col_def in missing_columns:
+                if col_name in existing:
+                    continue
+                try:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"))
+                except Exception as e:
+                    print(f"عمود {col_name}: {e}")
+        else:
+            for col_name, col_def in missing_columns:
+                try:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_def}"))
+                except Exception as e:
+                    print(f"عمود {col_name}: {e}")
         
         conn.commit()
     print("✅ قاعدة البيانات جاهزة - كل الأعمدة موجودة")
