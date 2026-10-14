@@ -792,20 +792,9 @@ BACKUP_VERSION = 2
 
 
 def export_full_backup():
-    """Export canonical JSON stores and relational user records to a portable JSON object."""
+    """Export one consistent snapshot of all durable stores and relational records."""
     _ensure_state_table()
-    # Flush the current in-memory stores before taking the export snapshot.
-    # This also captures settings that a feature updated just before /backup.
-    for filename, data in (
-        (DB_USERS, users),
-        (DB_KEYS, keys_store),
-        (DB_REDEEM, redeem_codes),
-        (DB_PRICES, prices_config),
-        (DB_CONFIG, bot_config),
-    ):
-        save_json(filename, data)
-
-    with _state_lock, engine.begin() as conn:
+    with engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
                 charge_id TEXT PRIMARY KEY,
@@ -816,23 +805,44 @@ def export_full_backup():
                 processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """))
-        state_rows = conn.execute(text(
-            f"SELECT store_key, data_json FROM {_STATE_TABLE} ORDER BY store_key"
-        )).fetchall()
-        user_rows = conn.execute(text("SELECT * FROM users ORDER BY uid")).fetchall()
-        user_columns = list(conn.execute(text(
-            "SELECT * FROM users LIMIT 0"
-        )).keys())
-        payment_rows = conn.execute(text("""
-            SELECT charge_id, uid, payment_type, total_amount, payload
-            FROM bot_processed_star_payments ORDER BY charge_id
-        """)).fetchall()
+
+    # Flush mutable compatibility dictionaries while holding the same lock
+    # used by atomic purchases, then read a repeatable-read DB snapshot.
+    with _state_lock:
+        for filename, data in (
+            (DB_USERS, users),
+            (DB_KEYS, keys_store),
+            (DB_REDEEM, redeem_codes),
+            (DB_PRICES, prices_config),
+            (DB_CONFIG, bot_config),
+        ):
+            save_json(filename, data)
+
+        with engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as conn:
+            with conn.begin():
+                state_rows = conn.execute(text(
+                    f"SELECT store_key, data_json FROM {_STATE_TABLE} ORDER BY store_key"
+                )).fetchall()
+                user_rows = conn.execute(
+                    text("SELECT * FROM users ORDER BY uid")
+                ).fetchall()
+                user_columns = list(conn.execute(
+                    text("SELECT * FROM users LIMIT 0")
+                ).keys())
+                payment_rows = conn.execute(text("""
+                    SELECT charge_id, uid, payment_type, total_amount, payload
+                    FROM bot_processed_star_payments ORDER BY charge_id
+                """)).fetchall()
 
     return {
         "format": "telegram_bot_full_backup",
         "version": BACKUP_VERSION,
-        "created_at": datetime.utcnow().isoformat() + "Z",
-        "state": [{"key": row[0], "data_json": row[1]} for row in state_rows],
+        "created_at": datetime.now().isoformat(),
+        "state": [
+            {"key": row[0], "data_json": row[1]} for row in state_rows
+        ],
         "users_table": {
             "columns": user_columns,
             "rows": [dict(row._mapping) for row in user_rows],
