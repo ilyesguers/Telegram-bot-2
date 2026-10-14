@@ -53,7 +53,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install minimal smoke-test dependencies
-        run: python -m pip install --disable-pip-version-check sqlalchemy psycopg2-binary pyTelegramBotAPI
+        run: python -m pip install --disable-pip-version-check sqlalchemy 'psycopg[binary]' pyTelegramBotAPI
       - name: Exercise persistence, atomic purchase, payment idempotency, and backup restore
         run: |
           python - <<'PY'
