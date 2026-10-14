@@ -433,6 +433,113 @@ def update_user_data(uid, **kwargs):
     except Exception as e:
         print(f"⚠️ خطأ update_user_data: {e}")
 
+
+# =====================================================
+# 🛒 شراء ذري: خصم الرصيد وسحب المخزون وتسجيل البيع معاً
+# =====================================================
+def purchase_key_atomic(uid, product, plan, price, username=""):
+    """
+    Atomically reserve one key, deduct points and record the sale.
+    PostgreSQL row locks prevent two concurrent purchases from taking the same
+    key or spending the same balance. Raises ValueError with a stable reason.
+    """
+    uid = str(uid)
+    price = int(price)
+    if price < 0:
+        raise ValueError("invalid_price")
+
+    _ensure_state_table()
+    with _state_lock:
+        with engine.begin() as conn:
+            user_row = conn.execute(
+                text("SELECT points FROM users WHERE uid = :uid FOR UPDATE"),
+                {"uid": uid},
+            ).fetchone()
+            if not user_row:
+                raise ValueError("user_not_found")
+            current_points = int(user_row[0] or 0)
+            if current_points < price:
+                raise ValueError("insufficient_balance")
+
+            keys_row = conn.execute(
+                text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
+                {"k": DB_KEYS},
+            ).fetchone()
+            config_row = conn.execute(
+                text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
+                {"k": DB_CONFIG},
+            ).fetchone()
+            if not keys_row or not config_row:
+                raise RuntimeError("Persistent store is missing keys or bot configuration")
+
+            stored_keys = json.loads(keys_row[0])
+            stored_config = json.loads(config_row[0])
+            product_data = stored_keys.get(product, {})
+            stock = product_data.get(plan, []) if isinstance(product_data, dict) else []
+            if not isinstance(stock, list) or not stock:
+                raise ValueError("out_of_stock")
+
+            key = stock.pop(0)
+            product_data[plan] = stock
+            stored_keys[product] = product_data
+
+            stored_config["total_sales"] = int(stored_config.get("total_sales", 0) or 0) + 1
+            stored_config["total_earnings"] = int(stored_config.get("total_earnings", 0) or 0) + price
+            sales_log = stored_config.setdefault("sales_log", [])
+            if not isinstance(sales_log, list):
+                raise RuntimeError("Invalid sales_log data in persistent store")
+            sales_log.append({
+                "uid": uid,
+                "username": username or "",
+                "product": product,
+                "plan": plan,
+                "price": price,
+                "key": key,
+                "date": datetime.now().isoformat(),
+            })
+
+            remaining = conn.execute(
+                text("""
+                    UPDATE users
+                    SET points = COALESCE(points, 0) - :price,
+                        total_spent = COALESCE(total_spent, 0) + :price,
+                        purchases_count = COALESCE(purchases_count, 0) + 1
+                    WHERE uid = :uid AND COALESCE(points, 0) >= :price
+                    RETURNING points
+                """),
+                {"uid": uid, "price": price},
+            ).fetchone()
+            if not remaining:
+                raise ValueError("insufficient_balance")
+
+            conn.execute(text(f"""
+                UPDATE {_STATE_TABLE}
+                SET data_json = :data, updated_at = CURRENT_TIMESTAMP
+                WHERE store_key = :k
+            """), {
+                "data": json.dumps(stored_keys, ensure_ascii=False, default=str),
+                "k": DB_KEYS,
+            })
+            conn.execute(text(f"""
+                UPDATE {_STATE_TABLE}
+                SET data_json = :data, updated_at = CURRENT_TIMESTAMP
+                WHERE store_key = :k
+            """), {
+                "data": json.dumps(stored_config, ensure_ascii=False, default=str),
+                "k": DB_CONFIG,
+            })
+
+        # Reflect only committed values in the in-memory compatibility stores.
+        keys_store.clear()
+        keys_store.update(stored_keys)
+        bot_config.clear()
+        bot_config.update(stored_config)
+        _write_legacy_mirror(DB_KEYS, keys_store)
+        _write_legacy_mirror(DB_CONFIG, bot_config)
+
+    return key, len(stock), int(remaining[0] or 0)
+
+
 # =====================================================
 # 🏆 تحديث الرتبة والمهام تلقائياً
 # =====================================================
