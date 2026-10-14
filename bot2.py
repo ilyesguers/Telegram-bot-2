@@ -10,9 +10,9 @@ import threading
 from datetime import datetime, timedelta
 from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID, CHANNEL_LINK, t
-from database import (bot_config, save_json, DB_CONFIG, DB_KEYS, get_user, 
+from database import (bot_config, save_json, DB_CONFIG, DB_KEYS, get_user,
                       update_user_data, update_user_rank_and_quests,
-                      keys_store, prices_config)
+                      keys_store, prices_config, process_stars_payment_atomic)
 from utils import (
     generate_captcha, broadcast_channel_message, get_publish_channels,
     publish_vip_purchase_to_channels, publish_stars_conversion_to_channels,
@@ -1167,9 +1167,42 @@ def handle_star_purchase(call):
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def pre_checkout_handler(pre_checkout_query):
     try:
-        bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-    except Exception as e:
-        print(f"⚠️ Pre-checkout: {e}")
+        uid = str(pre_checkout_query.from_user.id)
+        payload = pre_checkout_query.invoice_payload or ""
+        valid_currency = getattr(pre_checkout_query, "currency", None) == "XTR"
+        valid = (
+            valid_currency
+            and payload == f"vip_purchase_{uid}"
+            and int(pre_checkout_query.total_amount) == int(bot_config.get("vip_price_stars", 100) or 100)
+        )
+        if payload.startswith("stars_convert_"):
+            parts = payload.split("_")
+            valid = (
+                valid_currency
+                and len(parts) == 5
+                and parts[0] == "stars"
+                and parts[1] == "convert"
+                and parts[2] == uid
+                and parts[3].isdigit()
+                and parts[4].isdigit()
+                and int(parts[3]) > 0
+                and int(parts[4]) > 0
+                and int(parts[3]) == int(pre_checkout_query.total_amount)
+            )
+        bot.answer_pre_checkout_query(
+            pre_checkout_query.id,
+            ok=bool(valid),
+            error_message=None if valid else "❌ Invalid payment request",
+        )
+    except Exception as exc:
+        print(f"⚠️ Pre-checkout validation failed: {exc}")
+        try:
+            bot.answer_pre_checkout_query(
+                pre_checkout_query.id, ok=False, error_message="Unable to validate payment"
+            )
+        except Exception:
+            pass
+
 
 @bot.message_handler(content_types=['successful_payment'])
 def payment_success_handler(message):
@@ -1177,53 +1210,79 @@ def payment_success_handler(message):
     payment = message.successful_payment
     payload = payment.invoice_payload
     total_amount = payment.total_amount
-    charge_id = getattr(payment, "telegram_payment_charge_id", None)
-    
-    if payload.startswith("vip_purchase_"):
-        expires = activate_vip(uid, 30)
-        bot.send_message(message.chat.id,
-            f"╔═══════════════════════╗\n"
-            f"║ 🎊 <b>VIP ACTIVATED!</b> 🎊 ║\n"
-            f"╚═══════════════════════╝\n\n"
-            f"👑 <b>Welcome to VIP!</b>\n\n"
-            f"⏰ Valid until: {expires.strftime('%Y-%m-%d')}\n"
-            f"💎 All benefits activated\n\n"
-            f"✨ <i>Enjoy!</i>",
-            parse_mode="HTML")
-        # Every paid VIP purchase is announced in all added channels.
-        publish_vip_purchase_to_channel(total_amount, charge_id)
+    charge_id = payment.telegram_payment_charge_id
+
+    try:
+        if getattr(payment, "currency", None) != "XTR":
+            raise ValueError("invalid_currency")
+        result = process_stars_payment_atomic(uid, payload, total_amount, charge_id)
+        if result.get("duplicate"):
+            bot.send_message(message.chat.id, "ℹ️ This payment has already been processed.")
+            return
+
+        if result["type"] == "vip":
+            expires = datetime.fromisoformat(result["expires"])
+            bot.send_message(
+                message.chat.id,
+                "╔═══════════════════════╗\n"
+                "║ 🎊 <b>VIP ACTIVATED!</b> 🎊 ║\n"
+                "╚═══════════════════════╝\n\n"
+                "👑 <b>Welcome to VIP!</b>\n\n"
+                f"⏰ Valid until: {expires.strftime('%Y-%m-%d')}\n"
+                "💎 All benefits activated\n\n"
+                "✨ <i>Enjoy!</i>",
+                parse_mode="HTML",
+            )
+            publish_vip_purchase_to_channel(total_amount, charge_id)
+            try:
+                user = get_user(uid) or {}
+                bot.send_message(
+                    ADMIN_PRIMARY,
+                    f"💰 <b>NEW VIP!</b>\n\n"
+                    f"👤 @{user.get('username', 'N/A')}\n"
+                    f"🆔 {uid}\n⭐ Paid: {total_amount} stars",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+        else:
+            update_user_rank_and_quests(uid)
+            user = get_user(uid) or {}
+            stars = result["stars"]
+            points = result["points"]
+            bot.send_message(
+                message.chat.id,
+                "╔═══════════════════════╗\n"
+                "║ 🎉 <b>DONE!</b> 🎉 ║\n"
+                "╚═══════════════════════╝\n\n"
+                f"⭐ Stars used: <b>{stars}</b>\n"
+                f"💎 Points: <b>+{points}</b>\n"
+                f"💰 New balance: <b>{user.get('points', result.get('balance', 0))}</b>",
+                parse_mode="HTML",
+            )
+            publish_stars_conversion_to_channel(stars, points, charge_id)
+            try:
+                user = get_user(uid) or {}
+                bot.send_message(
+                    ADMIN_PRIMARY,
+                    f"⭐ <b>CONVERSION</b>\n@{user.get('username', 'N/A')}\n"
+                    f"{uid}\n⭐ {stars} → 💎 {points}",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+    except ValueError as exc:
+        print(f"⚠️ Rejected Stars payment uid={uid}: {exc}")
         try:
-            u = get_user(uid) or {}
-            bot.send_message(ADMIN_PRIMARY,
-                f"💰 <b>NEW VIP!</b>\n\n"
-                f"👤 @{u.get('username', 'N/A')}\n"
-                f"🆔 {uid}\n"
-                f"⭐ Paid: {total_amount} stars",
-                parse_mode="HTML")
-        except: pass
-    
-    elif payload.startswith("stars_convert_"):
-        parts = payload.split("_")
-        stars = int(parts[2])
-        points = int(parts[3])
-        update_user_data(uid, points=points, accumulated_points=points)
-        update_user_rank_and_quests(uid)
-        u_new = get_user(uid) or {}
-        bot.send_message(message.chat.id,
-            f"╔═══════════════════════╗\n"
-            f"║ 🎉 <b>DONE!</b> 🎉 ║\n"
-            f"╚═══════════════════════╝\n\n"
-            f"⭐ Stars used: <b>{stars}</b>\n"
-            f"💎 Points: <b>+{points}</b>\n"
-            f"💰 New balance: <b>{u_new.get('points', 0)}</b>",
-            parse_mode="HTML")
-        publish_stars_conversion_to_channel(stars, points, charge_id)
+            bot.send_message(message.chat.id, "❌ Payment could not be verified. Keep the receipt and contact support.")
+        except Exception:
+            pass
+    except Exception as exc:
+        print(f"⚠️ Payment processing failed uid={uid}: {exc}")
         try:
-            u = get_user(uid) or {}
-            bot.send_message(ADMIN_PRIMARY,
-                f"⭐ <b>CONVERSION</b>\n@{u.get('username', 'N/A')}\n{uid}\n⭐ {stars} → 💎 {points}",
-                parse_mode="HTML")
-        except: pass
+            bot.send_message(ADMIN_PRIMARY, f"🚨 Failed to process Stars payment for {uid}; check logs.")
+        except Exception:
+            pass
 
 # =====================================================
 # ADMIN VIP CALLBACKS
