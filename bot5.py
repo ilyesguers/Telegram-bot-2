@@ -87,7 +87,7 @@ def _save_backup(store_key, data):
         # Keep the canonical bot_state table in sync as well as the legacy
         # snapshot table. Do this before marking the hash saved so DB errors
         # are retried by the next autosave cycle.
-        database.save_json(filename, data)
+        database.save_json(TRACKED_STORES[store_key][2], data)
 
         with engine.connect() as conn:
             conn.execute(text(f"""
