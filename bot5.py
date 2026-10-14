@@ -111,13 +111,14 @@ def _restore_all():
             continue
 
         backup_updated_at = backup.get("updated_at")
-        if state_updated_at and backup_updated_at and state_updated_at > backup_updated_at:
+        if state_updated_at and backup_updated_at and state_updated_at >= backup_updated_at:
             print(f"ℹ️ bot5: تجاهل نسخة أقدم لـ '{store_key}' حفاظاً على أحدث بيانات")
             continue
 
         live_dict = getattr(mod, attr)
         backup_data = backup.get("data", {})
         if isinstance(backup_data, dict):
+            live_dict.clear()
             live_dict.update(backup_data)
             # Reconcile the recovered snapshot into the canonical durable store.
             database.save_json(filename, live_dict)
