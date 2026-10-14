@@ -608,7 +608,7 @@ print("=" * 55)
 @bot.message_handler(commands=["backup"])
 def handle_full_backup_command(message):
     uid = str(message.from_user.id)
-    if not is_admin(uid):
+    if uid not in {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}:
         return
     if getattr(message.chat, "type", None) != "private":
         bot.reply_to(message, "لأمان بيانات المستخدمين، استخدم الأمر في الخاص مع البوت.")
@@ -642,7 +642,7 @@ def handle_full_backup_command(message):
 )
 def handle_full_backup_restore(message):
     uid = str(message.from_user.id)
-    if not is_admin(uid):
+    if uid not in {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}:
         return
     if getattr(message.chat, "type", None) != "private":
         bot.reply_to(message, "لأمان البيانات، أرسل النسخة في الخاص مع البوت.")
