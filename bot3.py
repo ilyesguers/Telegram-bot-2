@@ -11,7 +11,7 @@ from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID, t
 from database import (bot_config, save_json, DB_CONFIG, DB_KEYS, get_user,
                       update_user_data, update_user_rank_and_quests,
-                      keys_store, prices_config)
+                      keys_store, prices_config, purchase_key_atomic)
 from utils import (get_active_flash_sale, publish_sale_to_channel,
                    check_channel_join)
 
@@ -131,66 +131,41 @@ def fixed_purchase_handler(call):
     total_disc = disc + fs_disc
     final_p = int(base_p * (1 - total_disc/100) * (1 - u_disc))
     
-    # Check balance
-    user_points = u.get("points", 0) or 0
-    if user_points < final_p:
-        return bot.answer_callback_query(call.id,
-            t(lang, "insufficient_balance"), show_alert=True)
-    
-    # Check stock
-    product_keys = keys_store.get(prod, {}).get(plan, [])
-    if not product_keys:
-        return bot.answer_callback_query(call.id,
-            "⚠️ Out of stock!", show_alert=True)
-    
-    # ═══════════════════════════════════
-    # STEP 1: DELIVER KEY FIRST (GUARANTEED)
-    # ═══════════════════════════════════
-    
+    # Atomic validation and commit: the UI pre-checks above are not trusted.
     try:
-        # Get the key
-        key = product_keys.pop(0)
-        
-        # Deduct points
-        update_user_data(uid, points=-final_p, total_spent=final_p, purchases_count=1)
-        
-        # Record sale
-        bot_config["total_sales"] = bot_config.get("total_sales", 0) + 1
-        bot_config["total_earnings"] = bot_config.get("total_earnings", 0) + final_p
-        if "sales_log" not in bot_config:
-            bot_config["sales_log"] = []
-        bot_config["sales_log"].append({
-            "uid": uid,
-            "username": u.get("username", ""),
-            "product": prod,
-            "plan": plan,
-            "price": final_p,
-            "key": key,
-            "date": datetime.now().isoformat()
-        })
-        
-        # Save everything
-        save_json(DB_KEYS, keys_store)
-        save_json(DB_CONFIG, bot_config)
-        
-        # Update rank
+        key, remaining_stock, remaining_points = purchase_key_atomic(
+            uid, prod, plan, final_p, username=u.get("username", "")
+        )
         update_user_rank_and_quests(uid)
-        
-        # Record for anti-abuse
         record_purchase(uid)
-        
+    except ValueError as e:
+        reason = str(e)
+        if reason == "insufficient_balance":
+            return bot.answer_callback_query(
+                call.id, t(lang, "insufficient_balance"), show_alert=True
+            )
+        if reason == "out_of_stock":
+            return bot.answer_callback_query(call.id, "⚠️ Out of stock!", show_alert=True)
+        print(f"PURCHASE REJECTED uid={uid} product={prod}/{plan}: {reason}")
+        return bot.answer_callback_query(
+            call.id, "تعذر إتمام الشراء. تحقق من الحساب وحاول مجدداً.", show_alert=True
+        )
     except Exception as e:
         print(f"CRITICAL PURCHASE ERROR: {e}")
-        bot.answer_callback_query(call.id,
-            "Error processing - Contact admin", show_alert=True)
+        bot.answer_callback_query(
+            call.id, "Error processing - Contact admin", show_alert=True
+        )
         try:
-            bot.send_message(ADMIN_PRIMARY,
+            bot.send_message(
+                ADMIN_PRIMARY,
                 f"🚨 <b>PURCHASE ERROR!</b>\n\n"
                 f"👤 {uid}\n"
                 f"📦 {prod}/{plan}\n"
                 f"❌ {str(e)[:200]}",
-                parse_mode="HTML")
-        except: pass
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
         return
     
     # ═══════════════════════════════════
