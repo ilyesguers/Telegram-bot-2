@@ -135,10 +135,14 @@ def _restore_all():
 def _save_all(force=False):
     with _lock:
         for store_key, (mod, attr, _f) in TRACKED_STORES.items():
-            live_dict = getattr(mod, attr)
-            if force:
-                _last_hash.pop(store_key, None)
-            _save_backup(store_key, dict(live_dict))
+            # Snapshot and persist under the canonical state lock so this
+            # compatibility worker cannot overwrite a just-committed purchase
+            # with a dictionary captured before that purchase completed.
+            with database._state_lock:
+                live_dict = getattr(mod, attr)
+                if force:
+                    _last_hash.pop(store_key, None)
+                _save_backup(store_key, dict(live_dict))
 
 
 def _autosave_worker():
