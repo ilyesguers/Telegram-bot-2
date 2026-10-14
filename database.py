@@ -1000,6 +1000,23 @@ def process_stars_payment_atomic(uid, payload, total_amount, charge_id):
         points = int(parts[4])
         if stars <= 0 or points <= 0 or stars != total_amount:
             raise ValueError("invalid_conversion_amount")
+        # Never trust the points amount embedded in an invoice payload.
+        # Recompute the reward from the current server-side conversion rate.
+        config_check = None
+        with engine.connect() as check_conn:
+            config_row = check_conn.execute(
+                text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k"),
+                {"k": DB_CONFIG},
+            ).fetchone()
+        if not config_row:
+            raise RuntimeError("Persistent bot configuration is missing")
+        config_check = json.loads(config_row[0])
+        try:
+            rate = int(config_check.get("star_to_points_rate", 2) or 2)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Invalid Stars conversion rate configuration") from exc
+        if rate <= 0 or points != stars * rate:
+            raise ValueError("invalid_conversion_reward")
         payment_type = "convert"
     else:
         raise ValueError("unsupported_payment_payload")
