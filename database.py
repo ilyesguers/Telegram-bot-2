@@ -1044,6 +1044,15 @@ def process_stars_payment_atomic(uid, payload, total_amount, charge_id):
         if not claimed:
             return {"duplicate": True, "type": payment_type}
 
+        # Use the same lock order as atomic purchases (user before config) to
+        # avoid a purchase/payment deadlock for the same account.
+        locked_user = conn.execute(
+            text("SELECT uid FROM users WHERE uid = :uid FOR UPDATE"),
+            {"uid": uid},
+        ).fetchone()
+        if not locked_user:
+            raise ValueError("user_not_found")
+
         config_row = conn.execute(
             text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
             {"k": DB_CONFIG},
