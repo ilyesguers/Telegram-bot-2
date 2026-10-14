@@ -1,0 +1,27 @@
+name: Validate Python source
+
+on:
+  push:
+    branches:
+      - main
+      - "hardening/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile all Python files
+        run: python -m compileall -q .
+      - name: Check patch whitespace
+        run: git diff --check origin/main...HEAD
