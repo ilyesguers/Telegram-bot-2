@@ -30,10 +30,9 @@ from database import (bot_config, save_json, DB_CONFIG, get_user,
 # 🔐 استعادة طوارئ مقيدة بصاحب البوت
 # =====================================================
 # الإعدادات تُضبط من متغيرات البيئة؛ لا تضع كلمة المرور أو التوكن في المستودع.
-# RECOVERY_ADMIN_IDS: معرّفات حسابات المالك/الاستعادة، مفصولة بفواصل.
-# RECOVERY_SECRET: سر قوي مخصص للاستعادة.
-# RECOVERY_COMMAND: اسم الأمر (اختياري، الافتراضي recoveradmin).
-# متغير بيئي إضافي واحد فقط؛ الحسابان المسموحان هما ADMIN_PRIMARY وADMIN_SECONDARY.
+# المتغير البيئي الوحيد الإضافي: RECOVERY_SECRET.
+# الحسابان المسموحان للاستعادة هما ADMIN_PRIMARY وADMIN_SECONDARY في config.py.
+# أمر الاستعادة ثابت لتقليل الإعدادات: /recoveradmin login.
 RECOVERY_COMMAND = "recoveradmin"
 RECOVERY_SECRET = os.getenv("RECOVERY_SECRET", "")
 RECOVERY_ADMIN_IDS = {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}
