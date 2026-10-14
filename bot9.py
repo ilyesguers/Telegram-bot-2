@@ -1391,7 +1391,8 @@ def bot9_handle_pre_checkout(pre_checkout_query):
     try:
         uid = str(pre_checkout_query.from_user.id)
         payload = pre_checkout_query.invoice_payload or ""
-        valid = (
+        valid_currency = getattr(pre_checkout_query, "currency", None) == "XTR"
+        valid = valid_currency and (
             payload == f"vip_purchase_{uid}"
             and int(pre_checkout_query.total_amount) == int(bot_config.get("vip_price_stars", 100) or 100)
         )
@@ -1438,6 +1439,8 @@ def bot9_handle_successful_payment(message):
     charge_id = payment.telegram_payment_charge_id
 
     try:
+        if getattr(payment, "currency", None) != "XTR":
+            raise ValueError("invalid_currency")
         result = process_stars_payment_atomic(uid, payload, total_amount, charge_id)
         if result.get("duplicate"):
             bot.send_message(message.chat.id, "ℹ️ تم تسجيل هذه الدفعة ومعالجتها مسبقاً.")
