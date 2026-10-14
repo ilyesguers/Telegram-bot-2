@@ -83,6 +83,12 @@ def _save_backup(store_key, data):
         h = hashlib.md5(payload.encode("utf-8")).hexdigest()
         if _last_hash.get(store_key) == h:
             return  # لا تغيير منذ آخر حفظ، تجاهل لتوفير الموارد
+
+        # Keep the canonical bot_state table in sync as well as the legacy
+        # snapshot table. Do this before marking the hash saved so DB errors
+        # are retried by the next autosave cycle.
+        database.save_json(filename, data)
+
         with engine.connect() as conn:
             conn.execute(text(f"""
                 INSERT INTO {_TABLE} (store_key, data_json, updated_at)
