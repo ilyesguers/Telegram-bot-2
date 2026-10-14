@@ -144,17 +144,17 @@ def save_json(filename, data):
     a failed durable write for a successful save.
     """
     _ensure_state_table()
-    payload = json.dumps(data, ensure_ascii=False, default=str)
-    with _state_lock, engine.begin() as conn:
-        conn.execute(text(f"""
-            INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
-            VALUES (:k, :d, CURRENT_TIMESTAMP)
-            ON CONFLICT (store_key)
-            DO UPDATE SET data_json = EXCLUDED.data_json,
-                          updated_at = CURRENT_TIMESTAMP
-        """), {"k": filename, "d": payload})
-
-    _write_legacy_mirror(filename, data)
+    with _state_lock:
+        payload = json.dumps(data, ensure_ascii=False, default=str)
+        with engine.begin() as conn:
+            conn.execute(text(f"""
+                INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+                VALUES (:k, :d, CURRENT_TIMESTAMP)
+                ON CONFLICT (store_key)
+                DO UPDATE SET data_json = EXCLUDED.data_json,
+                              updated_at = CURRENT_TIMESTAMP
+            """), {"k": filename, "d": payload})
+        _write_legacy_mirror(filename, data)
 
 
 def get_json_state_updated_at(filename):
@@ -427,11 +427,12 @@ def update_user_data(uid, **kwargs):
     query = f"UPDATE users SET {', '.join(updates)} WHERE uid = :uid"
     
     try:
-        with engine.connect() as conn:
-            conn.execute(text(query), params)
-            conn.commit()
+        with engine.begin() as conn:
+            result = conn.execute(text(query), params)
+        return result.rowcount > 0
     except Exception as e:
-        print(f"⚠️ خطأ update_user_data: {e}")
+        print(f"❌ خطأ update_user_data للمستخدم {uid}: {e}")
+        raise RuntimeError(f"Failed to update user {uid}") from e
 
 
 # =====================================================
