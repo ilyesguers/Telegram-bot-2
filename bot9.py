@@ -1391,7 +1391,10 @@ def bot9_handle_pre_checkout(pre_checkout_query):
     try:
         uid = str(pre_checkout_query.from_user.id)
         payload = pre_checkout_query.invoice_payload or ""
-        valid = payload == f"vip_purchase_{uid}"
+        valid = (
+            payload == f"vip_purchase_{uid}"
+            and int(pre_checkout_query.total_amount) == int(bot_config.get("vip_price_stars", 100) or 100)
+        )
 
         if payload.startswith("stars_convert_"):
             parts = payload.split("_")
