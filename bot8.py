@@ -15,7 +15,10 @@ import random
 import time
 import hmac
 import os
+import io
+import json
 import threading
+import database
 from datetime import datetime, timedelta
 from collections import defaultdict
 from telebot import types
@@ -605,3 +608,85 @@ print("🛡️ مكافحة الرشق: Active")
 print("🔐 استعادة الطوارئ: تعتمد على RECOVERY_SECRET وRECOVERY_ADMIN_IDS")
 print("⚡ لا يؤثر على الأزرار الأخرى!")
 print("=" * 55)
+
+
+# =====================================================
+# 📦 نسخة احتياطية كاملة ونقل البيانات بين قواعد Railway
+# =====================================================
+@bot.message_handler(commands=["backup"])
+def handle_full_backup_command(message):
+    uid = str(message.from_user.id)
+    if not is_admin(uid):
+        return
+    if getattr(message.chat, "type", None) != "private":
+        bot.reply_to(message, "لأمان بيانات المستخدمين، استخدم الأمر في الخاص مع البوت.")
+        return
+
+    try:
+        backup = database.export_full_backup()
+        payload = json.dumps(backup, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        if len(payload) > 45 * 1024 * 1024:
+            bot.reply_to(message, "حجم النسخة أكبر من حد الإرسال الآمن عبر تيليجرام. استخدم تصدير PostgreSQL من Railway.")
+            return
+        document = io.BytesIO(payload)
+        document.name = f"bot_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        bot.send_document(
+            message.chat.id,
+            document,
+            caption=(
+                "✅ نسخة احتياطية كاملة لبيانات البوت.\n"
+                "تتضمن مخازن البيانات وإعدادات البوت وسجلات المستخدمين.\n"
+                "احتفظ بها في مكان آمن ولا تنشرها."
+            ),
+        )
+    except Exception as exc:
+        print(f"❌ Full backup failed: {exc}")
+        bot.reply_to(message, "❌ فشل إنشاء النسخة الاحتياطية. راجع سجل التشغيل.")
+
+
+@bot.message_handler(
+    content_types=["document"],
+    func=lambda message: (message.caption or "").strip().split()[0:1] == ["/restorebackup"],
+)
+def handle_full_backup_restore(message):
+    uid = str(message.from_user.id)
+    if not is_admin(uid):
+        return
+    if getattr(message.chat, "type", None) != "private":
+        bot.reply_to(message, "لأمان البيانات، أرسل النسخة في الخاص مع البوت.")
+        return
+
+    document = message.document
+    if not document or not (document.file_name or "").lower().endswith(".json"):
+        bot.reply_to(message, "أرسل ملف JSON الناتج من /backup مع كتابة /restorebackup في التعليق.")
+        return
+    if document.file_size and document.file_size > 15 * 1024 * 1024:
+        bot.reply_to(message, "الملف كبير جداً للاستعادة عبر تيليجرام. استخدم نقل PostgreSQL مباشرة.")
+        return
+
+    try:
+        file_info = bot.get_file(document.file_id)
+        raw = bot.download_file(file_info.file_path)
+        if len(raw) > 15 * 1024 * 1024:
+            raise ValueError("backup_too_large")
+        backup = json.loads(raw.decode("utf-8"))
+        result = database.restore_full_backup(backup)
+        bot.reply_to(
+            message,
+            "✅ تمت استعادة البيانات في قاعدة البيانات الجديدة.\n"
+            f"مخازن البيانات: {result['state_stores']}\n"
+            f"سجلات المستخدمين: {result['users']}\n\n"
+            "تحقق من السجلات ثم أعد تشغيل الخدمة للتأكد من تحميل جميع البيانات.",
+        )
+    except ValueError as exc:
+        reasons = {
+            "invalid_backup_format": "هذا الملف ليس نسخة احتياطية صالحة من البوت.",
+            "unsupported_backup_version": "إصدار النسخة غير مدعوم.",
+            "destination_not_empty": "قاعدة البيانات المستهدفة تحتوي على مستخدمين؛ لن أستبدل بياناتها. استخدم قاعدة PostgreSQL جديدة وفارغة.",
+            "users_schema_mismatch": "مخطط جدول المستخدمين مختلف؛ لم تُستعد البيانات.",
+            "backup_too_large": "حجم النسخة أكبر من الحد المسموح.",
+        }
+        bot.reply_to(message, "❌ " + reasons.get(str(exc), "النسخة غير صالحة أو لا تتوافق مع هذا الإصدار."))
+    except Exception as exc:
+        print(f"❌ Full backup restore failed: {exc}")
+        bot.reply_to(message, "❌ فشلت الاستعادة. راجع سجل التشغيل ولا تحذف النسخة الأصلية.")
