@@ -67,11 +67,11 @@ def _load_backup(store_key):
     try:
         with engine.connect() as conn:
             row = conn.execute(
-                text(f"SELECT data_json FROM {_TABLE} WHERE store_key = :k"),
+                text(f"SELECT data_json, updated_at FROM {_TABLE} WHERE store_key = :k"),
                 {"k": store_key}
             ).fetchone()
             if row and row[0]:
-                return json.loads(row[0])
+                return {"data": json.loads(row[0]), "updated_at": row[1]}
     except Exception as e:
         print(f"⚠️ bot5: خطأ تحميل نسخة '{store_key}': {e}")
     return None
@@ -97,14 +97,31 @@ def _save_backup(store_key, data):
 
 
 def _restore_all():
-    for store_key, (mod, attr, _f) in TRACKED_STORES.items():
+    for store_key, (mod, attr, filename) in TRACKED_STORES.items():
         backup = _load_backup(store_key)
-        if backup:
-            live_dict = getattr(mod, attr)
-            live_dict.update(backup)  # يدمج فوق القيم الافتراضية بدون حذف مفاتيح جديدة أضافها تحديث لاحق للكود
-            print(f"✅ bot5: تم استرجاع '{store_key}' من PostgreSQL ({len(backup)} عنصر رئيسي)")
-        else:
-            print(f"ℹ️ bot5: لا توجد نسخة سابقة لـ '{store_key}' — أول تشغيل، سيتم إنشاؤها تلقائياً")
+        if not backup:
+            print(f"ℹ️ bot5: لا توجد نسخة سابقة لـ '{store_key}' — سيتم استخدام مخزن PostgreSQL الأساسي")
+            continue
+
+        # Never let an older 4-second snapshot overwrite a newer durable save.
+        try:
+            state_updated_at = database.get_json_state_updated_at(filename)
+        except Exception as exc:
+            print(f"⚠️ bot5: تعذر مقارنة توقيت مخزن '{store_key}': {exc}")
+            continue
+
+        backup_updated_at = backup.get("updated_at")
+        if state_updated_at and backup_updated_at and state_updated_at > backup_updated_at:
+            print(f"ℹ️ bot5: تجاهل نسخة أقدم لـ '{store_key}' حفاظاً على أحدث بيانات")
+            continue
+
+        live_dict = getattr(mod, attr)
+        backup_data = backup.get("data", {})
+        if isinstance(backup_data, dict):
+            live_dict.update(backup_data)
+            # Reconcile the recovered snapshot into the canonical durable store.
+            database.save_json(filename, live_dict)
+            print(f"✅ bot5: تمت استعادة '{store_key}' من نسخة أحدث ({len(backup_data)} عنصر رئيسي)")
 
 
 def _save_all(force=False):
