@@ -1040,6 +1040,10 @@ def process_stars_payment_atomic(uid, payload, total_amount, charge_id):
             raise RuntimeError("Persistent bot configuration is missing")
 
         stored_config = json.loads(config_row[0])
+        if payment_type == "vip":
+            expected_price = int(stored_config.get("vip_price_stars", 100) or 100)
+            if total_amount != expected_price:
+                raise ValueError("invalid_vip_amount")
         stats = stored_config.setdefault("stars_stats", {})
         if not isinstance(stats, dict):
             raise RuntimeError("Invalid stars_stats data")
