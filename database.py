@@ -914,3 +914,160 @@ def restore_full_backup(backup):
             elif isinstance(current_value, list) and isinstance(restored_value, list):
                 current_value[:] = restored_value
     return {"state_stores": len(state_rows), "users": len(user_rows)}
+
+
+# =====================================================
+# ⭐ معالجة دفع Telegram Stars مرة واحدة وبمعاملة ذرية
+# =====================================================
+def process_stars_payment_atomic(uid, payload, total_amount, charge_id):
+    """Validate, deduplicate, and apply a Stars payment in one PostgreSQL transaction."""
+    uid = str(uid)
+    payload = str(payload or "")
+    charge_id = str(charge_id or "").strip()
+    total_amount = int(total_amount)
+
+    if not charge_id or total_amount <= 0:
+        raise ValueError("invalid_payment")
+
+    payment_type = None
+    stars = total_amount
+    points = 0
+    if payload.startswith("vip_purchase_"):
+        if payload != f"vip_purchase_{uid}":
+            raise ValueError("payload_user_mismatch")
+        payment_type = "vip"
+    elif payload.startswith("stars_convert_"):
+        parts = payload.split("_")
+        if (
+            len(parts) != 5
+            or parts[0] != "stars"
+            or parts[1] != "convert"
+            or parts[2] != uid
+            or not parts[3].isdigit()
+            or not parts[4].isdigit()
+        ):
+            raise ValueError("invalid_conversion_payload")
+        stars = int(parts[3])
+        points = int(parts[4])
+        if stars <= 0 or points <= 0 or stars != total_amount:
+            raise ValueError("invalid_conversion_amount")
+        payment_type = "convert"
+    else:
+        raise ValueError("unsupported_payment_payload")
+
+    _ensure_state_table()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
+                charge_id TEXT PRIMARY KEY,
+                uid VARCHAR(50) NOT NULL,
+                payment_type VARCHAR(20) NOT NULL,
+                total_amount BIGINT NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        claimed = conn.execute(text("""
+            INSERT INTO bot_processed_star_payments
+                (charge_id, uid, payment_type, total_amount, payload)
+            VALUES (:charge_id, :uid, :payment_type, :amount, :payload)
+            ON CONFLICT (charge_id) DO NOTHING
+            RETURNING charge_id
+        """), {
+            "charge_id": charge_id,
+            "uid": uid,
+            "payment_type": payment_type,
+            "amount": total_amount,
+            "payload": payload,
+        }).fetchone()
+        if not claimed:
+            return {"duplicate": True, "type": payment_type}
+
+        config_row = conn.execute(
+            text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
+            {"k": DB_CONFIG},
+        ).fetchone()
+        if not config_row:
+            raise RuntimeError("Persistent bot configuration is missing")
+
+        stored_config = json.loads(config_row[0])
+        stats = stored_config.setdefault("stars_stats", {})
+        if not isinstance(stats, dict):
+            raise RuntimeError("Invalid stars_stats data")
+        stats["total_received"] = int(stats.get("total_received", 0) or 0) + total_amount
+
+        now = datetime.now()
+        expires = None
+        balance = None
+        if payment_type == "vip":
+            expires = now + timedelta(days=30)
+            subscribers = stored_config.setdefault("vip_subscribers", {})
+            if not isinstance(subscribers, dict):
+                raise RuntimeError("Invalid vip_subscribers data")
+            subscribers[uid] = {
+                "activated": now.isoformat(),
+                "expires": expires.isoformat(),
+                "days": 30,
+            }
+            details = "VIP 30 days"
+            transaction_amount = total_amount
+        else:
+            updated = conn.execute(text("""
+                UPDATE users
+                SET points = COALESCE(points, 0) + :points,
+                    accumulated_points = COALESCE(accumulated_points, 0) + :points
+                WHERE uid = :uid
+                RETURNING points
+            """), {"uid": uid, "points": points}).fetchone()
+            if not updated:
+                raise ValueError("user_not_found")
+            balance = int(updated[0] or 0)
+            details = f"{stars}⭐→{points}💎"
+            transaction_amount = stars
+
+        transactions = stats.setdefault("transactions", [])
+        if not isinstance(transactions, list):
+            raise RuntimeError("Invalid Stars transaction history")
+        transactions.append({
+            "type": payment_type,
+            "uid": uid,
+            "amount": transaction_amount,
+            "details": details,
+            "charge_id": charge_id,
+            "time": now.isoformat(),
+            "refunded": False,
+        })
+        stats["transactions"] = transactions[-500:]
+
+        payments_log = stats.setdefault("payments_log", [])
+        if not isinstance(payments_log, list):
+            raise RuntimeError("Invalid Stars payments log")
+        payments_log.append({
+            "uid": uid,
+            "amount": transaction_amount,
+            "charge_id": charge_id,
+            "type": payment_type,
+            "time": now.isoformat(),
+            "refunded": False,
+        })
+        stats["payments_log"] = payments_log[-200:]
+
+        conn.execute(text(f"""
+            UPDATE {_STATE_TABLE}
+            SET data_json = :data, updated_at = CURRENT_TIMESTAMP
+            WHERE store_key = :k
+        """), {
+            "data": json.dumps(stored_config, ensure_ascii=False, default=str),
+            "k": DB_CONFIG,
+        })
+
+    bot_config.clear()
+    bot_config.update(stored_config)
+    return {
+        "duplicate": False,
+        "type": payment_type,
+        "expires": expires.isoformat() if expires else None,
+        "stars": stars,
+        "points": points,
+        "balance": balance,
+    }
