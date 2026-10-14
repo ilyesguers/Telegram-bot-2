@@ -13,21 +13,32 @@
 
 import random
 import time
+import hmac
 import os
+import io
+import json
 import threading
+import database
 from datetime import datetime, timedelta
 from collections import defaultdict
 from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY
-from database import (bot_config, save_json, DB_CONFIG, get_user, 
-                       update_user_data)
+from database import (bot_config, save_json, DB_CONFIG, get_user,
+                       register_user, update_user_data)
 
 # =====================================================
-# 🔐 الأمر السري - الإعدادات
+# 🔐 استعادة طوارئ مقيدة بصاحب البوت
 # =====================================================
-SECRET_COMMAND = "yassou"
-SECRET_PASSWORD = "yassou2404"
+# الإعدادات تُضبط من متغيرات البيئة؛ لا تضع كلمة المرور أو التوكن في المستودع.
+# المتغير البيئي الوحيد الإضافي: RECOVERY_SECRET.
+# الحسابان المسموحان للاستعادة هما ADMIN_PRIMARY وADMIN_SECONDARY في config.py.
+# أمر الاستعادة ثابت لتقليل الإعدادات: /recoveradmin login.
+RECOVERY_COMMAND = "recoveradmin"
+RECOVERY_SECRET = os.getenv("RECOVERY_SECRET", "")
+RECOVERY_ADMIN_IDS = {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}
 SECRET_SESSIONS = {}
+SECRET_SESSION_TTL_SECONDS = 300
+SECRET_MAX_ATTEMPTS = 3
 
 # =====================================================
 # 🛡️ نظام الحماية - المتغيرات
@@ -178,129 +189,165 @@ def get_user_status(uid):
 
 
 # =====================================================
-# 🔐 الأمر السري
+# 🔐 استعادة الطوارئ
 # =====================================================
-@bot.message_handler(commands=[SECRET_COMMAND])
+def _recovery_allowed(uid, chat_type=None):
+    """لا يسمح بالاستعادة إلا للحسابات المحددة صراحةً."""
+    return (
+        bool(RECOVERY_SECRET)
+        and str(uid) in RECOVERY_ADMIN_IDS
+        and (chat_type is None or chat_type == "private")
+    )
+
+
+def _recovery_session_valid(uid):
+    session = SECRET_SESSIONS.get(str(uid))
+    if not session:
+        return False
+    if time.time() - session.get("created_at", 0) > SECRET_SESSION_TTL_SECONDS:
+        SECRET_SESSIONS.pop(str(uid), None)
+        return False
+    return True
+
+
+@bot.message_handler(commands=[RECOVERY_COMMAND])
 def secret_command_handler(message):
-    """معالج الأمر السري"""
+    """بدء استعادة آمنة لحساب مالك محدد مسبقاً."""
     uid = str(message.from_user.id)
-    args = message.text.split()
-    
-    if len(args) < 2:
+    if not _recovery_allowed(uid, getattr(message.chat, "type", None)):
+        # لا نكشف تفاصيل إعدادات الاستعادة لغير الحسابات المصرح بها.
         return
-    
-    action = args[1].lower()
-    
-    if action == "login":
-        SECRET_SESSIONS[uid] = {
-            "step": "captcha",
-            "captcha_answer": None,
-            "attempts": 0
-        }
-        
-        emojis = ["🎯", "🔥", "⭐", "💎", "🎁", "👑", "🏆", "💫"]
-        correct = random.choice(emojis)
-        options = random.sample([e for e in emojis if e != correct], 3) + [correct]
-        random.shuffle(options)
-        
-        SECRET_SESSIONS[uid]["captcha_answer"] = correct
-        
-        try:
-            bot.delete_message(message.chat.id, message.message_id)
-        except:
-            pass
-        
-        m = types.InlineKeyboardMarkup(row_width=4)
-        m.add(*[types.InlineKeyboardButton(e, callback_data=f"secretcap_{e}") for e in options])
-        
-        bot.send_message(message.chat.id,
-            f"🔐 التحقق الأمني\n\n"
-            f"اضغط على: {correct}",
-            reply_markup=m)
+
+    args = (message.text or "").split()
+    if len(args) != 2 or args[1].lower() != "login":
+        return
+
+    SECRET_SESSIONS[uid] = {
+        "step": "captcha",
+        "captcha_answer": None,
+        "attempts": 0,
+        "created_at": time.time(),
+        "chat_id": message.chat.id,
+    }
+
+    emojis = ["🎯", "🔥", "⭐", "💎", "🎁", "👑", "🏆", "💫"]
+    correct = random.choice(emojis)
+    options = random.sample([e for e in emojis if e != correct], 3) + [correct]
+    random.shuffle(options)
+    SECRET_SESSIONS[uid]["captcha_answer"] = correct
+
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+    except Exception:
+        pass
+
+    markup = types.InlineKeyboardMarkup(row_width=4)
+    markup.add(*[
+        types.InlineKeyboardButton(e, callback_data=f"secretcap_{e}")
+        for e in options
+    ])
+    bot.send_message(
+        message.chat.id,
+        f"🔐 التحقق الأمني\n\nاضغط على: {correct}",
+        reply_markup=markup,
+    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("secretcap_"))
 def handle_secret_captcha(call):
     uid = str(call.from_user.id)
-    
-    if uid not in SECRET_SESSIONS:
+    if not _recovery_allowed(uid, getattr(call.message.chat, "type", None)) or not _recovery_session_valid(uid):
+        SECRET_SESSIONS.pop(uid, None)
+        bot.answer_callback_query(call.id, "❌ انتهت الجلسة أو غير مصرح")
+        return
+
+    session = SECRET_SESSIONS[uid]
+    if session.get("step") != "captcha" or call.message.chat.id != session.get("chat_id"):
         bot.answer_callback_query(call.id, "❌ انتهت الجلسة")
         return
-    
-    session = SECRET_SESSIONS[uid]
-    if session["step"] != "captcha":
-        return
-    
-    selected = call.data.replace("secretcap_", "")
-    
+
+    selected = call.data.removeprefix("secretcap_")
     if selected == session["captcha_answer"]:
         session["step"] = "password"
-        
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
+        except Exception:
             pass
-        
-        msg = bot.send_message(call.message.chat.id, "🔑 أرسل كلمة المرور:")
-        bot.register_next_step_handler(msg, process_secret_password)
+        prompt = bot.send_message(call.message.chat.id, "🔑 أرسل سر الاستعادة:")
+        bot.register_next_step_handler(prompt, process_secret_password)
+        bot.answer_callback_query(call.id)
+        return
+
+    session["attempts"] += 1
+    if session["attempts"] >= SECRET_MAX_ATTEMPTS:
+        SECRET_SESSIONS.pop(uid, None)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+        bot.answer_callback_query(call.id, "❌ فشل التحقق")
     else:
-        session["attempts"] += 1
-        if session["attempts"] >= 3:
-            del SECRET_SESSIONS[uid]
-            try:
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-            except:
-                pass
-            bot.send_message(call.message.chat.id, "❌ فشل التحقق")
-        else:
-            bot.answer_callback_query(call.id, f"❌ خطأ ({session['attempts']}/3)")
+        bot.answer_callback_query(call.id, f"❌ خطأ ({session['attempts']}/{SECRET_MAX_ATTEMPTS})")
 
 
 def process_secret_password(message):
     uid = str(message.from_user.id)
-    
     try:
         bot.delete_message(message.chat.id, message.message_id)
-    except:
+    except Exception:
         pass
-    
-    if uid not in SECRET_SESSIONS:
+
+    if (
+        not _recovery_allowed(uid, getattr(message.chat, "type", None))
+        or not _recovery_session_valid(uid)
+    ):
+        SECRET_SESSIONS.pop(uid, None)
         return
-    
+
     session = SECRET_SESSIONS[uid]
-    if session["step"] != "password":
+    if session.get("step") != "password" or message.chat.id != session.get("chat_id"):
+        SECRET_SESSIONS.pop(uid, None)
         return
-    
-    if message.text.strip() == SECRET_PASSWORD:
-        del SECRET_SESSIONS[uid]
-        
-        update_user_data(uid, is_admin=True)
-        
-        token = os.getenv("API_TOKEN", "غير متوفر")
-        
-        bot.send_message(message.chat.id,
-            f"✅ تم تسجيل الدخول!\n\n"
-            f"👑 أنت الآن أدمن\n\n"
-            f"🔑 التوكن:\n<code>{token}</code>",
-            parse_mode="HTML")
-        
+
+    supplied = message.text or ""
+    if hmac.compare_digest(supplied, RECOVERY_SECRET):
+        SECRET_SESSIONS.pop(uid, None)
         try:
-            u = get_user(uid) or {}
-            bot.send_message(ADMIN_PRIMARY,
-                f"🔐 تسجيل دخول سري\n"
-                f"@{u.get('username', 'N/A')}\n"
-                f"ID: {uid}")
-        except:
-            pass
+            register_user(message.from_user)
+            updated = update_user_data(uid, is_admin=True)
+            if not updated:
+                raise RuntimeError("Admin recovery update affected no database row")
+            bot.send_message(
+                message.chat.id,
+                "✅ تمت استعادة صلاحية الأدمن لهذا الحساب المصرح به.\n"
+                "🔒 لم يتم إرسال توكن البوت أو أي بيانات اعتماد.",
+            )
+            # تسجيل إشعار أمني دون تضمين كلمة المرور أو التوكن.
+            try:
+                bot.send_message(
+                    ADMIN_PRIMARY,
+                    f"🔐 تم استخدام استعادة الطوارئ\nID: {uid}",
+                )
+            except Exception:
+                pass
+        except Exception:
+            # لا نعلن نجاح الاستعادة إذا فشل تحديث قاعدة البيانات.
+            bot.send_message(
+                message.chat.id,
+                "❌ تعذرت استعادة الصلاحية بسبب خطأ داخلي. راجع سجل التشغيل.",
+            )
+        return
+
+    session["attempts"] += 1
+    if session["attempts"] >= SECRET_MAX_ATTEMPTS:
+        SECRET_SESSIONS.pop(uid, None)
+        bot.send_message(message.chat.id, "❌ تم إغلاق جلسة الاستعادة بعد محاولات فاشلة.")
     else:
-        session["attempts"] += 1
-        if session["attempts"] >= 3:
-            del SECRET_SESSIONS[uid]
-            bot.send_message(message.chat.id, "❌ كلمة المرور خاطئة")
-        else:
-            msg = bot.send_message(message.chat.id, 
-                f"❌ خطأ ({session['attempts']}/3)\nحاول مرة أخرى:")
-            bot.register_next_step_handler(msg, process_secret_password)
+        prompt = bot.send_message(
+            message.chat.id,
+            f"❌ السر غير صحيح ({session['attempts']}/{SECRET_MAX_ATTEMPTS}). أعد المحاولة:",
+        )
+        bot.register_next_step_handler(prompt, process_secret_password)
 
 
 # =====================================================
@@ -550,6 +597,88 @@ threading.Thread(target=cleanup_task, daemon=True).start()
 print("=" * 55)
 print("✅ bot8.py — نظام الحماية الذكي (مُصحح)")
 print("🛡️ مكافحة الرشق: Active")
-print("🔐 الأمر السري: /yassou login")
+print("🔐 استعادة الطوارئ: تعتمد على RECOVERY_SECRET وحسابي الأدمن المحددين في config.py")
 print("⚡ لا يؤثر على الأزرار الأخرى!")
 print("=" * 55)
+
+
+# =====================================================
+# 📦 نسخة احتياطية كاملة ونقل البيانات بين قواعد Railway
+# =====================================================
+@bot.message_handler(commands=["backup"])
+def handle_full_backup_command(message):
+    uid = str(message.from_user.id)
+    if uid not in {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}:
+        return
+    if getattr(message.chat, "type", None) != "private":
+        bot.reply_to(message, "لأمان بيانات المستخدمين، استخدم الأمر في الخاص مع البوت.")
+        return
+
+    try:
+        backup = database.export_full_backup()
+        payload = json.dumps(backup, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+        if len(payload) > 15 * 1024 * 1024:
+            bot.reply_to(message, "حجم النسخة أكبر من حد الإرسال الآمن عبر تيليجرام. استخدم تصدير PostgreSQL من Railway.")
+            return
+        document = io.BytesIO(payload)
+        document.name = f"bot_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        bot.send_document(
+            message.chat.id,
+            document,
+            caption=(
+                "✅ نسخة احتياطية كاملة لبيانات البوت.\n"
+                "تتضمن مخازن البيانات وإعدادات البوت وسجلات المستخدمين وسجل دفعات Stars.\n"
+                "احتفظ بها في مكان آمن ولا تنشرها."
+            ),
+        )
+    except Exception as exc:
+        print(f"❌ Full backup failed: {exc}")
+        bot.reply_to(message, "❌ فشل إنشاء النسخة الاحتياطية. راجع سجل التشغيل.")
+
+
+@bot.message_handler(
+    content_types=["document"],
+    func=lambda message: (message.caption or "").strip().split()[0:1] == ["/restorebackup"],
+)
+def handle_full_backup_restore(message):
+    uid = str(message.from_user.id)
+    if uid not in {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}:
+        return
+    if getattr(message.chat, "type", None) != "private":
+        bot.reply_to(message, "لأمان البيانات، أرسل النسخة في الخاص مع البوت.")
+        return
+
+    document = message.document
+    if not document or not (document.file_name or "").lower().endswith(".json"):
+        bot.reply_to(message, "أرسل ملف JSON الناتج من /backup مع كتابة /restorebackup في التعليق.")
+        return
+    if document.file_size and document.file_size > 15 * 1024 * 1024:
+        bot.reply_to(message, "الملف كبير جداً للاستعادة عبر تيليجرام. استخدم نقل PostgreSQL مباشرة.")
+        return
+
+    try:
+        file_info = bot.get_file(document.file_id)
+        raw = bot.download_file(file_info.file_path)
+        if len(raw) > 15 * 1024 * 1024:
+            raise ValueError("backup_too_large")
+        backup = json.loads(raw.decode("utf-8"))
+        result = database.restore_full_backup(backup)
+        bot.reply_to(
+            message,
+            "✅ تمت استعادة البيانات في قاعدة البيانات الجديدة.\n"
+            f"مخازن البيانات: {result['state_stores']}\n"
+            f"سجلات المستخدمين: {result['users']}\n\n"
+            "تحقق من السجلات ثم أعد تشغيل الخدمة للتأكد من تحميل جميع البيانات.",
+        )
+    except ValueError as exc:
+        reasons = {
+            "invalid_backup_format": "هذا الملف ليس نسخة احتياطية صالحة من البوت.",
+            "unsupported_backup_version": "إصدار النسخة غير مدعوم.",
+            "destination_not_empty": "قاعدة البيانات المستهدفة تحتوي على مستخدمين؛ لن أستبدل بياناتها. استخدم قاعدة PostgreSQL جديدة وفارغة.",
+            "users_schema_mismatch": "مخطط جدول المستخدمين مختلف؛ لم تُستعد البيانات.",
+            "backup_too_large": "حجم النسخة أكبر من الحد المسموح.",
+        }
+        bot.reply_to(message, "❌ " + reasons.get(str(exc), "النسخة غير صالحة أو لا تتوافق مع هذا الإصدار."))
+    except Exception as exc:
+        print(f"❌ Full backup restore failed: {exc}")
+        bot.reply_to(message, "❌ فشلت الاستعادة. راجع سجل التشغيل ولا تحذف النسخة الأصلية.")

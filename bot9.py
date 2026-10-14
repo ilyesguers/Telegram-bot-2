@@ -20,8 +20,9 @@ import time
 from datetime import datetime, timedelta
 from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY, CHANNEL_ID
-from database import (bot_config, save_json, DB_CONFIG, get_user, 
-                       update_user_data, update_user_rank_and_quests)
+from database import (bot_config, save_json, DB_CONFIG, get_user,
+                       update_user_data, update_user_rank_and_quests,
+                       process_stars_payment_atomic)
 from utils import (
     broadcast_channel_message, publish_vip_purchase_to_channels,
     publish_stars_conversion_to_channels,
@@ -1389,98 +1390,115 @@ def handle_lootbox_no(call):
 def bot9_handle_pre_checkout(pre_checkout_query):
     try:
         uid = str(pre_checkout_query.from_user.id)
-        payload = pre_checkout_query.invoice_payload
-        
-        print(f"🔔 bot9: Pre-checkout from {uid}")
-        
-        valid = payload.startswith("vip_purchase_") or payload.startswith("stars_convert_")
-        
-        if valid:
-            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-            print(f"✅ bot9: Approved")
-        else:
-            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=False, 
-                                          error_message="❌ طلب غير صالح")
-    except Exception as e:
-        print(f"⚠️ bot9: Error: {e}")
+        payload = pre_checkout_query.invoice_payload or ""
+        valid_currency = getattr(pre_checkout_query, "currency", None) == "XTR"
+        valid = valid_currency and (
+            payload == f"vip_purchase_{uid}"
+            and int(pre_checkout_query.total_amount) == int(bot_config.get("vip_price_stars", 100) or 100)
+        )
+
+        if payload.startswith("stars_convert_"):
+            parts = payload.split("_")
+            valid = (
+                valid_currency
+                and len(parts) == 5
+                and parts[0] == "stars"
+                and parts[1] == "convert"
+                and parts[2] == uid
+                and parts[3].isdigit()
+                and parts[4].isdigit()
+                and int(parts[3]) > 0
+                and int(parts[4]) > 0
+                and int(parts[3]) == int(pre_checkout_query.total_amount)
+                and int(parts[4]) == int(parts[3]) * int(bot_config.get("star_to_points_rate", 2) or 2)
+            )
+
+        bot.answer_pre_checkout_query(
+            pre_checkout_query.id,
+            ok=bool(valid),
+            error_message=None if valid else "❌ طلب دفع غير صالح",
+        )
+    except Exception as exc:
+        print(f"⚠️ bot9: Pre-checkout verification failed: {exc}")
         try:
-            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-        except:
+            bot.answer_pre_checkout_query(
+                pre_checkout_query.id, ok=False,
+                error_message="تعذر التحقق من الطلب",
+            )
+        except Exception:
             pass
 
 
 # =====================================================
-# ✅ SUCCESSFUL PAYMENT HANDLER
+# ✅ SUCCESSFUL PAYMENT HANDLER (IDEMPOTENT)
 # =====================================================
 @bot.message_handler(content_types=['successful_payment'])
 def bot9_handle_successful_payment(message):
+    uid = str(message.from_user.id)
+    payment = message.successful_payment
+    payload = payment.invoice_payload
+    total_amount = payment.total_amount
+    charge_id = payment.telegram_payment_charge_id
+
     try:
-        uid = str(message.from_user.id)
-        payment = message.successful_payment
-        payload = payment.invoice_payload
-        total_amount = payment.total_amount
-        charge_id = payment.telegram_payment_charge_id
-        
-        print(f"💰 bot9: Payment from {uid}, amount={total_amount}, charge={charge_id}")
-        
-        if "stars_stats" not in bot_config:
-            bot_config["stars_stats"] = {}
-        bot_config["stars_stats"]["total_received"] = bot_config["stars_stats"].get("total_received", 0) + total_amount
-        
-        if payload.startswith("vip_purchase_"):
-            expires = datetime.now() + timedelta(days=30)
-            if "vip_subscribers" not in bot_config:
-                bot_config["vip_subscribers"] = {}
-            bot_config["vip_subscribers"][uid] = {
-                "activated": datetime.now().isoformat(),
-                "expires": expires.isoformat(),
-                "days": 30
-            }
-            save_json(DB_CONFIG, bot_config)
-            
-            log_transaction("vip", uid, total_amount, "VIP 30 days", charge_id)
-            
-            bot.send_message(message.chat.id,
-                f"╔═══════════════════════════╗\n"
-                f"║ 🎊 VIP مفعّل! 🎊 ║\n"
-                f"╚═══════════════════════════╝\n\n"
-                f"👑 أهلاً بك!\n"
-                f"⏰ حتى: {expires.strftime('%Y-%m-%d')}", parse_mode="HTML")
+        if getattr(payment, "currency", None) != "XTR":
+            raise ValueError("invalid_currency")
+        result = process_stars_payment_atomic(uid, payload, total_amount, charge_id)
+        if result.get("duplicate"):
+            bot.send_message(message.chat.id, "ℹ️ تم تسجيل هذه الدفعة ومعالجتها مسبقاً.")
+            return
 
-            # Every paid VIP purchase is broadcast to all added channels.
+        print(f"💰 bot9: Processed {result['type']} payment uid={uid}, amount={total_amount}")
+
+        if result["type"] == "vip":
+            expires = datetime.fromisoformat(result["expires"])
+            bot.send_message(
+                message.chat.id,
+                "╔═══════════════════════════╗\n"
+                "║ 🎊 VIP مفعّل! 🎊 ║\n"
+                "╚═══════════════════════════╝\n\n"
+                "👑 أهلاً بك!\n"
+                f"⏰ حتى: {expires.strftime('%Y-%m-%d')}",
+                parse_mode="HTML",
+            )
             publish_vip_purchase_to_channels(total_amount, charge_id)
-            
             try:
-                u = get_user(uid) or {}
-                bot.send_message(ADMIN_PRIMARY,
-                    f"💰 VIP جديد!\n@{u.get('username', 'N/A')}\n{total_amount}⭐", parse_mode="HTML")
-            except:
+                user = get_user(uid) or {}
+                bot.send_message(
+                    ADMIN_PRIMARY,
+                    f"💰 VIP جديد!\n@{user.get('username', 'N/A')}\n{total_amount}⭐",
+                    parse_mode="HTML",
+                )
+            except Exception:
                 pass
-                
-        elif payload.startswith("stars_convert_"):
-            parts = payload.split("_")
-            stars = int(parts[2])
-            points = int(parts[3])
-            
-            update_user_data(uid, points=points, accumulated_points=points)
+        else:
             update_user_rank_and_quests(uid)
-            
-            log_transaction("convert", uid, stars, f"{stars}⭐→{points}💎", charge_id)
-            
-            u_new = get_user(uid) or {}
-            bot.send_message(message.chat.id,
-                f"✅ تم!\n⭐ {stars} → 💎 {points}\n💰 رصيدك: {u_new.get('points', 0)}", parse_mode="HTML")
-
-            # Only a Stars conversion above 20 is announced in all channels.
+            user = get_user(uid) or {}
+            stars = result["stars"]
+            points = result["points"]
+            bot.send_message(
+                message.chat.id,
+                f"✅ تم!\n⭐ {stars} → 💎 {points}\n"
+                f"💰 رصيدك: {user.get('points', result.get('balance', 0))}",
+                parse_mode="HTML",
+            )
             publish_stars_conversion_to_channels(stars, points, charge_id)
-            
             try:
                 bot.send_message(ADMIN_PRIMARY, f"⭐ تحويل: {stars}→{points}💎", parse_mode="HTML")
-            except:
+            except Exception:
                 pass
-                
-    except Exception as e:
-        print(f"⚠️ bot9: Payment error: {e}")
+    except ValueError as exc:
+        print(f"⚠️ bot9: Rejected Stars payment uid={uid}: {exc}")
+        try:
+            bot.send_message(message.chat.id, "❌ تعذر التحقق من الدفعة. تواصل مع الدعم واحتفظ بإيصال الدفع.")
+        except Exception:
+            pass
+    except Exception as exc:
+        print(f"⚠️ bot9: Payment processing failed uid={uid}: {exc}")
+        try:
+            bot.send_message(ADMIN_PRIMARY, f"🚨 تعذر معالجة دفعة Stars للمستخدم {uid}. راجع سجل التشغيل.")
+        except Exception:
+            pass
 
 
 # =====================================================

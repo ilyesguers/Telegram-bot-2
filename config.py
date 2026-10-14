@@ -2,6 +2,8 @@ import os
 import telebot
 
 API_TOKEN = os.getenv("API_TOKEN")
+if not API_TOKEN:
+    raise RuntimeError("API_TOKEN is required. Configure your Telegram bot token in the hosting environment.")
 bot = telebot.TeleBot(API_TOKEN, threaded=True)
 
 ADMIN_PRIMARY = 5145154527

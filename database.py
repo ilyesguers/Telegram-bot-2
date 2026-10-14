@@ -1,8 +1,79 @@
 import os
 import json
+import tempfile
+import threading
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 from config import CHANNEL_ID, CHANNEL_LINK
+
+# PostgreSQL is the durable source of truth for the legacy JSON-shaped stores.
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required. Configure PostgreSQL before starting the bot."
+    )
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
+
+_STATE_TABLE = "bot_state"
+_state_lock = threading.RLock()
+_state_table_ready = False
+_file_locks = {}
+_file_locks_guard = threading.Lock()
+
+
+def _ensure_state_table():
+    """Create the generic state table once, safely across concurrent callers."""
+    global _state_table_ready
+    if _state_table_ready:
+        return
+    with _state_lock:
+        if _state_table_ready:
+            return
+        with engine.begin() as conn:
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS {_STATE_TABLE} (
+                    store_key VARCHAR(100) PRIMARY KEY,
+                    data_json TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        _state_table_ready = True
+
+
+def _file_lock(filename):
+    with _file_locks_guard:
+        return _file_locks.setdefault(filename, threading.RLock())
+
+
+def _write_legacy_mirror(filename, data):
+    """Write a best-effort atomic local mirror for migration/older tooling."""
+    directory = os.path.dirname(os.path.abspath(filename))
+    temp_path = None
+    try:
+        with _file_lock(filename):
+            fd, temp_path = tempfile.mkstemp(
+                prefix=".bot-state-", suffix=".tmp", dir=directory
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(data, stream, indent=4, ensure_ascii=False, default=str)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, filename)
+            temp_path = None
+    except Exception as exc:
+        # PostgreSQL already committed; mirror failure must not misreport DB failure.
+        print(f"⚠️ تعذر تحديث النسخة المحلية الاختيارية {filename}: {exc}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 # =====================================================
 # 📁 أسماء ملفات JSON
@@ -14,26 +85,88 @@ DB_PRICES = 'prices_config.json'
 DB_CONFIG = 'bot_config.json'
 
 # =====================================================
-# 🔧 دوال JSON
+# 🔧 توافق JSON مع تخزين دائم وفوري في PostgreSQL
 # =====================================================
 def load_json(filename):
-    """تحميل ملف JSON بأمان"""
+    """
+    Load a store from PostgreSQL. If this is the first migration, import its
+    legacy JSON file into PostgreSQL once. The local file is only a mirror.
+    """
+    _ensure_state_table()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k"),
+            {"k": filename},
+        ).fetchone()
+
+    if row and row[0] is not None:
+        try:
+            return json.loads(row[0])
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"Stored state for {filename} is invalid JSON; refusing silent reset."
+            ) from exc
+
+    legacy_data = {}
     if os.path.exists(filename):
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل {filename}: {e}")
-            return {}
-    return {}
+            with _file_lock(filename), open(filename, "r", encoding="utf-8") as stream:
+                legacy_data = json.load(stream)
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(f"Could not read legacy state file {filename}: {exc}") from exc
+
+    # Import legacy data (including an empty object) so future reads are DB-backed.
+    payload = json.dumps(legacy_data, ensure_ascii=False, default=str)
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+            VALUES (:k, :d, CURRENT_TIMESTAMP)
+            ON CONFLICT (store_key)
+            DO NOTHING
+        """), {"k": filename, "d": payload})
+
+    # Another process may have won the first-write race; read its committed row.
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k"),
+            {"k": filename},
+        ).fetchone()
+    if not row or row[0] is None:
+        raise RuntimeError(f"Failed to initialize persistent state for {filename}")
+    return json.loads(row[0])
+
 
 def save_json(filename, data):
-    """حفظ ملف JSON بأمان"""
-    try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ خطأ في حفظ {filename}: {e}")
+    """
+    Persist the complete store to PostgreSQL before returning.
+    Local JSON is retained only as an atomic compatibility/migration mirror.
+    Database errors are raised rather than swallowed so callers cannot mistake
+    a failed durable write for a successful save.
+    """
+    _ensure_state_table()
+    with _state_lock:
+        payload = json.dumps(data, ensure_ascii=False, default=str)
+        with engine.begin() as conn:
+            conn.execute(text(f"""
+                INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+                VALUES (:k, :d, CURRENT_TIMESTAMP)
+                ON CONFLICT (store_key)
+                DO UPDATE SET data_json = EXCLUDED.data_json,
+                              updated_at = CURRENT_TIMESTAMP
+            """), {"k": filename, "d": payload})
+        _write_legacy_mirror(filename, data)
+
+
+def get_json_state_updated_at(filename):
+    """Return the last PostgreSQL commit timestamp for a persisted store."""
+    _ensure_state_table()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT updated_at FROM {_STATE_TABLE} WHERE store_key = :k"),
+            {"k": filename},
+        ).fetchone()
+    return row[0] if row else None
+
 
 # =====================================================
 # 📦 تحميل البيانات
@@ -123,13 +256,8 @@ if not bot_config.get("force_sub_channels") and CHANNEL_ID:
 save_json(DB_CONFIG, bot_config)
 
 # =====================================================
-# 🔌 الاتصال بقاعدة البيانات PostgreSQL
+# 🔌 اتصال PostgreSQL مهيأ في أعلى الملف
 # =====================================================
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("⚠️ WARNING: DATABASE_URL not set!")
-
-engine = create_engine(DATABASE_URL)
 
 # =====================================================
 # 🗄️ إنشاء الجداول
@@ -299,11 +427,119 @@ def update_user_data(uid, **kwargs):
     query = f"UPDATE users SET {', '.join(updates)} WHERE uid = :uid"
     
     try:
-        with engine.connect() as conn:
-            conn.execute(text(query), params)
-            conn.commit()
+        with engine.begin() as conn:
+            result = conn.execute(text(query), params)
+        return result.rowcount > 0
     except Exception as e:
-        print(f"⚠️ خطأ update_user_data: {e}")
+        print(f"❌ خطأ update_user_data للمستخدم {uid}: {e}")
+        raise RuntimeError(f"Failed to update user {uid}") from e
+
+
+# =====================================================
+# 🛒 شراء ذري: خصم الرصيد وسحب المخزون وتسجيل البيع معاً
+# =====================================================
+def purchase_key_atomic(uid, product, plan, price, username=""):
+    """
+    Atomically reserve one key, deduct points and record the sale.
+    PostgreSQL row locks prevent two concurrent purchases from taking the same
+    key or spending the same balance. Raises ValueError with a stable reason.
+    """
+    uid = str(uid)
+    price = int(price)
+    if price < 0:
+        raise ValueError("invalid_price")
+
+    _ensure_state_table()
+    with _state_lock:
+        with engine.begin() as conn:
+            user_row = conn.execute(
+                text("SELECT points FROM users WHERE uid = :uid FOR UPDATE"),
+                {"uid": uid},
+            ).fetchone()
+            if not user_row:
+                raise ValueError("user_not_found")
+            current_points = int(user_row[0] or 0)
+            if current_points < price:
+                raise ValueError("insufficient_balance")
+
+            keys_row = conn.execute(
+                text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
+                {"k": DB_KEYS},
+            ).fetchone()
+            config_row = conn.execute(
+                text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
+                {"k": DB_CONFIG},
+            ).fetchone()
+            if not keys_row or not config_row:
+                raise RuntimeError("Persistent store is missing keys or bot configuration")
+
+            stored_keys = json.loads(keys_row[0])
+            stored_config = json.loads(config_row[0])
+            product_data = stored_keys.get(product, {})
+            stock = product_data.get(plan, []) if isinstance(product_data, dict) else []
+            if not isinstance(stock, list) or not stock:
+                raise ValueError("out_of_stock")
+
+            key = stock.pop(0)
+            product_data[plan] = stock
+            stored_keys[product] = product_data
+
+            stored_config["total_sales"] = int(stored_config.get("total_sales", 0) or 0) + 1
+            stored_config["total_earnings"] = int(stored_config.get("total_earnings", 0) or 0) + price
+            sales_log = stored_config.setdefault("sales_log", [])
+            if not isinstance(sales_log, list):
+                raise RuntimeError("Invalid sales_log data in persistent store")
+            sales_log.append({
+                "uid": uid,
+                "username": username or "",
+                "product": product,
+                "plan": plan,
+                "price": price,
+                "key": key,
+                "date": datetime.now().isoformat(),
+            })
+
+            remaining = conn.execute(
+                text("""
+                    UPDATE users
+                    SET points = COALESCE(points, 0) - :price,
+                        total_spent = COALESCE(total_spent, 0) + :price,
+                        purchases_count = COALESCE(purchases_count, 0) + 1
+                    WHERE uid = :uid AND COALESCE(points, 0) >= :price
+                    RETURNING points
+                """),
+                {"uid": uid, "price": price},
+            ).fetchone()
+            if not remaining:
+                raise ValueError("insufficient_balance")
+
+            conn.execute(text(f"""
+                UPDATE {_STATE_TABLE}
+                SET data_json = :data, updated_at = CURRENT_TIMESTAMP
+                WHERE store_key = :k
+            """), {
+                "data": json.dumps(stored_keys, ensure_ascii=False, default=str),
+                "k": DB_KEYS,
+            })
+            conn.execute(text(f"""
+                UPDATE {_STATE_TABLE}
+                SET data_json = :data, updated_at = CURRENT_TIMESTAMP
+                WHERE store_key = :k
+            """), {
+                "data": json.dumps(stored_config, ensure_ascii=False, default=str),
+                "k": DB_CONFIG,
+            })
+
+        # Reflect only committed values in the in-memory compatibility stores.
+        keys_store.clear()
+        keys_store.update(stored_keys)
+        bot_config.clear()
+        bot_config.update(stored_config)
+        _write_legacy_mirror(DB_KEYS, keys_store)
+        _write_legacy_mirror(DB_CONFIG, bot_config)
+
+    return key, len(stock), int(remaining[0] or 0)
+
 
 # =====================================================
 # 🏆 تحديث الرتبة والمهام تلقائياً
@@ -547,3 +783,372 @@ __all__ = [
     'get_top_users_by_points', 'get_top_users_by_invites', 'get_bot_stats',
     'search_user', 'get_all_admins', 'ban_user', 'unban_user'
 ]
+
+
+# =====================================================
+# 📦 تصدير/استيراد نسخة كاملة قابلة للنقل بين قواعد Railway
+# =====================================================
+BACKUP_VERSION = 2
+
+
+def export_full_backup():
+    """Export one consistent snapshot of all durable stores and relational records."""
+    _ensure_state_table()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
+                charge_id TEXT PRIMARY KEY,
+                uid VARCHAR(50) NOT NULL,
+                payment_type VARCHAR(20) NOT NULL,
+                total_amount BIGINT NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+
+    # Flush mutable compatibility dictionaries while holding the same lock
+    # used by atomic purchases, then read a repeatable-read DB snapshot.
+    with _state_lock:
+        for filename, data in (
+            (DB_USERS, users),
+            (DB_KEYS, keys_store),
+            (DB_REDEEM, redeem_codes),
+            (DB_PRICES, prices_config),
+            (DB_CONFIG, bot_config),
+        ):
+            save_json(filename, data)
+
+        with engine.connect().execution_options(
+            isolation_level="REPEATABLE READ"
+        ) as conn:
+            with conn.begin():
+                state_rows = conn.execute(text(
+                    f"SELECT store_key, data_json FROM {_STATE_TABLE} ORDER BY store_key"
+                )).fetchall()
+                user_rows = conn.execute(
+                    text("SELECT * FROM users ORDER BY uid")
+                ).fetchall()
+                user_columns = list(conn.execute(
+                    text("SELECT * FROM users LIMIT 0")
+                ).keys())
+                payment_rows = conn.execute(text("""
+                    SELECT charge_id, uid, payment_type, total_amount, payload
+                    FROM bot_processed_star_payments ORDER BY charge_id
+                """)).fetchall()
+
+    return {
+        "format": "telegram_bot_full_backup",
+        "version": BACKUP_VERSION,
+        "created_at": datetime.now().isoformat(),
+        "state": [
+            {"key": row[0], "data_json": row[1]} for row in state_rows
+        ],
+        "users_table": {
+            "columns": user_columns,
+            "rows": [dict(row._mapping) for row in user_rows],
+        },
+        "processed_star_payments": [
+            dict(row._mapping) for row in payment_rows
+        ],
+    }
+
+
+def restore_full_backup(backup):
+    """
+    Restore a portable backup into an EMPTY users table.
+    Refuses non-empty destinations to avoid accidental data loss.
+    """
+    if not isinstance(backup, dict) or backup.get("format") != "telegram_bot_full_backup":
+        raise ValueError("invalid_backup_format")
+    if backup.get("version") != BACKUP_VERSION:
+        raise ValueError("unsupported_backup_version")
+    state_rows = backup.get("state")
+    user_table = backup.get("users_table")
+    if not isinstance(state_rows, list) or not isinstance(user_table, dict):
+        raise ValueError("invalid_backup_structure")
+    user_columns = user_table.get("columns")
+    user_rows = user_table.get("rows")
+    payment_rows = backup.get("processed_star_payments")
+    if not isinstance(user_columns, list) or not isinstance(user_rows, list):
+        raise ValueError("invalid_users_section")
+    if not isinstance(payment_rows, list):
+        raise ValueError("invalid_payment_ledger")
+    if any(not isinstance(row, dict) for row in user_rows):
+        raise ValueError("invalid_users_rows")
+    allowed_user_columns = set(user_columns)
+    if not allowed_user_columns or "uid" not in allowed_user_columns:
+        raise ValueError("invalid_users_columns")
+    for row in user_rows:
+        if set(row) - allowed_user_columns:
+            raise ValueError("unexpected_user_columns")
+
+    seen_keys = set()
+    required_stores = {DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG}
+    for row in state_rows:
+        if not isinstance(row, dict) or not isinstance(row.get("key"), str) or not isinstance(row.get("data_json"), str):
+            raise ValueError("invalid_state_row")
+        if row["key"] in seen_keys:
+            raise ValueError("duplicate_state_key")
+        seen_keys.add(row["key"])
+        # Refuse malformed state rather than importing a broken backup.
+        decoded = json.loads(row["data_json"])
+        if row["key"] in required_stores and not isinstance(decoded, dict):
+            raise ValueError("invalid_required_store")
+
+    if not required_stores.issubset(seen_keys):
+        raise ValueError("missing_required_store")
+
+    seen_charges = set()
+    for row in payment_rows:
+        if not isinstance(row, dict):
+            raise ValueError("invalid_payment_ledger_row")
+        required = {"charge_id", "uid", "payment_type", "total_amount", "payload"}
+        if not required.issubset(row):
+            raise ValueError("invalid_payment_ledger_row")
+        if not row["charge_id"] or row["charge_id"] in seen_charges:
+            raise ValueError("invalid_payment_ledger_row")
+        seen_charges.add(row["charge_id"])
+
+    _ensure_state_table()
+    with _state_lock, engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
+                charge_id TEXT PRIMARY KEY,
+                uid VARCHAR(50) NOT NULL,
+                payment_type VARCHAR(20) NOT NULL,
+                total_amount BIGINT NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        existing_users = conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
+        if existing_users:
+            raise ValueError("destination_not_empty")
+
+        live_columns = set(conn.execute(text("SELECT * FROM users LIMIT 0")).keys())
+        if not allowed_user_columns.issubset(live_columns):
+            raise ValueError("users_schema_mismatch")
+
+        # This function is intended for a fresh destination database only.
+        conn.execute(text(f"DELETE FROM {_STATE_TABLE}"))
+        conn.execute(text("DELETE FROM users"))
+        conn.execute(text("DELETE FROM bot_processed_star_payments"))
+
+        for row in state_rows:
+            conn.execute(text(f"""
+                INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+                VALUES (:k, :d, CURRENT_TIMESTAMP)
+            """), {"k": row["key"], "d": row["data_json"]})
+
+        if user_rows:
+            columns_sql = ", ".join(f'"{name}"' for name in user_columns)
+            values_sql = ", ".join(f":{name}" for name in user_columns)
+            insert_sql = text(f"INSERT INTO users ({columns_sql}) VALUES ({values_sql})")
+            for row in user_rows:
+                conn.execute(insert_sql, row)
+
+        for row in payment_rows:
+            conn.execute(text("""
+                INSERT INTO bot_processed_star_payments
+                    (charge_id, uid, payment_type, total_amount, payload)
+                VALUES (:charge_id, :uid, :payment_type, :total_amount, :payload)
+            """), row)
+
+    # Refresh shared dictionaries in-place so modules importing them see restored data.
+    global_state_map = {
+        DB_USERS: "users",
+        DB_KEYS: "keys_store",
+        DB_REDEEM: "redeem_codes",
+        DB_PRICES: "prices_config",
+        DB_CONFIG: "bot_config",
+    }
+    for store_key, attr in global_state_map.items():
+        match = next((item for item in state_rows if item["key"] == store_key), None)
+        if match:
+            restored_value = json.loads(match["data_json"])
+            current_value = globals().get(attr)
+            if isinstance(current_value, dict) and isinstance(restored_value, dict):
+                current_value.clear()
+                current_value.update(restored_value)
+            elif isinstance(current_value, list) and isinstance(restored_value, list):
+                current_value[:] = restored_value
+    return {"state_stores": len(state_rows), "users": len(user_rows)}
+
+
+# =====================================================
+# ⭐ معالجة دفع Telegram Stars مرة واحدة وبمعاملة ذرية
+# =====================================================
+def process_stars_payment_atomic(uid, payload, total_amount, charge_id):
+    """Validate, deduplicate, and apply a Stars payment in one PostgreSQL transaction."""
+    uid = str(uid)
+    payload = str(payload or "")
+    charge_id = str(charge_id or "").strip()
+    total_amount = int(total_amount)
+
+    if not charge_id or total_amount <= 0:
+        raise ValueError("invalid_payment")
+
+    payment_type = None
+    stars = total_amount
+    points = 0
+    if payload.startswith("vip_purchase_"):
+        if payload != f"vip_purchase_{uid}":
+            raise ValueError("payload_user_mismatch")
+        payment_type = "vip"
+    elif payload.startswith("stars_convert_"):
+        parts = payload.split("_")
+        if (
+            len(parts) != 5
+            or parts[0] != "stars"
+            or parts[1] != "convert"
+            or parts[2] != uid
+            or not parts[3].isdigit()
+            or not parts[4].isdigit()
+        ):
+            raise ValueError("invalid_conversion_payload")
+        stars = int(parts[3])
+        points = int(parts[4])
+        if stars <= 0 or points <= 0 or stars != total_amount:
+            raise ValueError("invalid_conversion_amount")
+        # The reward is validated against the locked server-side configuration
+        # inside the payment transaction below.
+        payment_type = "convert"
+    else:
+        raise ValueError("unsupported_payment_payload")
+
+    _ensure_state_table()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
+                charge_id TEXT PRIMARY KEY,
+                uid VARCHAR(50) NOT NULL,
+                payment_type VARCHAR(20) NOT NULL,
+                total_amount BIGINT NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        claimed = conn.execute(text("""
+            INSERT INTO bot_processed_star_payments
+                (charge_id, uid, payment_type, total_amount, payload)
+            VALUES (:charge_id, :uid, :payment_type, :amount, :payload)
+            ON CONFLICT (charge_id) DO NOTHING
+            RETURNING charge_id
+        """), {
+            "charge_id": charge_id,
+            "uid": uid,
+            "payment_type": payment_type,
+            "amount": total_amount,
+            "payload": payload,
+        }).fetchone()
+        if not claimed:
+            return {"duplicate": True, "type": payment_type}
+
+        # Use the same lock order as atomic purchases (user before config) to
+        # avoid a purchase/payment deadlock for the same account.
+        locked_user = conn.execute(
+            text("SELECT uid FROM users WHERE uid = :uid FOR UPDATE"),
+            {"uid": uid},
+        ).fetchone()
+        if not locked_user:
+            raise ValueError("user_not_found")
+
+        config_row = conn.execute(
+            text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k FOR UPDATE"),
+            {"k": DB_CONFIG},
+        ).fetchone()
+        if not config_row:
+            raise RuntimeError("Persistent bot configuration is missing")
+
+        stored_config = json.loads(config_row[0])
+        if payment_type == "vip":
+            expected_price = int(stored_config.get("vip_price_stars", 100) or 100)
+            if total_amount != expected_price:
+                raise ValueError("invalid_vip_amount")
+        else:
+            try:
+                rate = int(stored_config.get("star_to_points_rate", 2) or 2)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("Invalid Stars conversion rate configuration") from exc
+            if rate <= 0 or points != stars * rate:
+                raise ValueError("invalid_conversion_reward")
+        stats = stored_config.setdefault("stars_stats", {})
+        if not isinstance(stats, dict):
+            raise RuntimeError("Invalid stars_stats data")
+        stats["total_received"] = int(stats.get("total_received", 0) or 0) + total_amount
+
+        now = datetime.now()
+        expires = None
+        balance = None
+        if payment_type == "vip":
+            expires = now + timedelta(days=30)
+            subscribers = stored_config.setdefault("vip_subscribers", {})
+            if not isinstance(subscribers, dict):
+                raise RuntimeError("Invalid vip_subscribers data")
+            subscribers[uid] = {
+                "activated": now.isoformat(),
+                "expires": expires.isoformat(),
+                "days": 30,
+            }
+            details = "VIP 30 days"
+            transaction_amount = total_amount
+        else:
+            updated = conn.execute(text("""
+                UPDATE users
+                SET points = COALESCE(points, 0) + :points,
+                    accumulated_points = COALESCE(accumulated_points, 0) + :points
+                WHERE uid = :uid
+                RETURNING points
+            """), {"uid": uid, "points": points}).fetchone()
+            if not updated:
+                raise ValueError("user_not_found")
+            balance = int(updated[0] or 0)
+            details = f"{stars}⭐→{points}💎"
+            transaction_amount = stars
+
+        transactions = stats.setdefault("transactions", [])
+        if not isinstance(transactions, list):
+            raise RuntimeError("Invalid Stars transaction history")
+        transactions.append({
+            "type": payment_type,
+            "uid": uid,
+            "amount": transaction_amount,
+            "details": details,
+            "charge_id": charge_id,
+            "time": now.isoformat(),
+            "refunded": False,
+        })
+        stats["transactions"] = transactions[-500:]
+
+        payments_log = stats.setdefault("payments_log", [])
+        if not isinstance(payments_log, list):
+            raise RuntimeError("Invalid Stars payments log")
+        payments_log.append({
+            "uid": uid,
+            "amount": transaction_amount,
+            "charge_id": charge_id,
+            "type": payment_type,
+            "time": now.isoformat(),
+            "refunded": False,
+        })
+        stats["payments_log"] = payments_log[-200:]
+
+        conn.execute(text(f"""
+            UPDATE {_STATE_TABLE}
+            SET data_json = :data, updated_at = CURRENT_TIMESTAMP
+            WHERE store_key = :k
+        """), {
+            "data": json.dumps(stored_config, ensure_ascii=False, default=str),
+            "k": DB_CONFIG,
+        })
+
+    bot_config.clear()
+    bot_config.update(stored_config)
+    return {
+        "duplicate": False,
+        "type": payment_type,
+        "expires": expires.isoformat() if expires else None,
+        "stars": stars,
+        "points": points,
+        "balance": balance,
+    }

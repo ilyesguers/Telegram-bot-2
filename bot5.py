@@ -67,11 +67,11 @@ def _load_backup(store_key):
     try:
         with engine.connect() as conn:
             row = conn.execute(
-                text(f"SELECT data_json FROM {_TABLE} WHERE store_key = :k"),
+                text(f"SELECT data_json, updated_at FROM {_TABLE} WHERE store_key = :k"),
                 {"k": store_key}
             ).fetchone()
             if row and row[0]:
-                return json.loads(row[0])
+                return {"data": json.loads(row[0]), "updated_at": row[1]}
     except Exception as e:
         print(f"⚠️ bot5: خطأ تحميل نسخة '{store_key}': {e}")
     return None
@@ -83,6 +83,12 @@ def _save_backup(store_key, data):
         h = hashlib.md5(payload.encode("utf-8")).hexdigest()
         if _last_hash.get(store_key) == h:
             return  # لا تغيير منذ آخر حفظ، تجاهل لتوفير الموارد
+
+        # Keep the canonical bot_state table in sync as well as the legacy
+        # snapshot table. Do this before marking the hash saved so DB errors
+        # are retried by the next autosave cycle.
+        database.save_json(TRACKED_STORES[store_key][2], data)
+
         with engine.connect() as conn:
             conn.execute(text(f"""
                 INSERT INTO {_TABLE} (store_key, data_json, updated_at)
@@ -97,23 +103,46 @@ def _save_backup(store_key, data):
 
 
 def _restore_all():
-    for store_key, (mod, attr, _f) in TRACKED_STORES.items():
+    for store_key, (mod, attr, filename) in TRACKED_STORES.items():
         backup = _load_backup(store_key)
-        if backup:
-            live_dict = getattr(mod, attr)
-            live_dict.update(backup)  # يدمج فوق القيم الافتراضية بدون حذف مفاتيح جديدة أضافها تحديث لاحق للكود
-            print(f"✅ bot5: تم استرجاع '{store_key}' من PostgreSQL ({len(backup)} عنصر رئيسي)")
-        else:
-            print(f"ℹ️ bot5: لا توجد نسخة سابقة لـ '{store_key}' — أول تشغيل، سيتم إنشاؤها تلقائياً")
+        if not backup:
+            print(f"ℹ️ bot5: لا توجد نسخة سابقة لـ '{store_key}' — سيتم استخدام مخزن PostgreSQL الأساسي")
+            continue
+
+        # Never let an older 4-second snapshot overwrite a newer durable save.
+        try:
+            state_updated_at = database.get_json_state_updated_at(filename)
+        except Exception as exc:
+            print(f"⚠️ bot5: تعذر مقارنة توقيت مخزن '{store_key}': {exc}")
+            continue
+
+        # bot_state is now the canonical store. Never let the legacy snapshot
+        # overwrite it, even when timestamp precision or process clocks differ.
+        if state_updated_at is not None:
+            print(f"ℹ️ bot5: تجاهل النسخة الاحتياطية القديمة لـ '{store_key}' لأن PostgreSQL الأساسي هو المصدر المعتمد")
+            continue
+
+        live_dict = getattr(mod, attr)
+        backup_data = backup.get("data", {})
+        if isinstance(backup_data, dict):
+            live_dict.clear()
+            live_dict.update(backup_data)
+            # Reconcile the recovered snapshot into the canonical durable store.
+            database.save_json(filename, live_dict)
+            print(f"✅ bot5: تمت استعادة '{store_key}' من نسخة أحدث ({len(backup_data)} عنصر رئيسي)")
 
 
 def _save_all(force=False):
     with _lock:
         for store_key, (mod, attr, _f) in TRACKED_STORES.items():
-            live_dict = getattr(mod, attr)
-            if force:
-                _last_hash.pop(store_key, None)
-            _save_backup(store_key, dict(live_dict))
+            # Snapshot and persist under the canonical state lock so this
+            # compatibility worker cannot overwrite a just-committed purchase
+            # with a dictionary captured before that purchase completed.
+            with database._state_lock:
+                live_dict = getattr(mod, attr)
+                if force:
+                    _last_hash.pop(store_key, None)
+                _save_backup(store_key, dict(live_dict))
 
 
 def _autosave_worker():
