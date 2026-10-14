@@ -783,3 +783,117 @@ __all__ = [
     'get_top_users_by_points', 'get_top_users_by_invites', 'get_bot_stats',
     'search_user', 'get_all_admins', 'ban_user', 'unban_user'
 ]
+
+
+# =====================================================
+# 📦 تصدير/استيراد نسخة كاملة قابلة للنقل بين قواعد Railway
+# =====================================================
+BACKUP_VERSION = 1
+
+
+def export_full_backup():
+    """Export canonical JSON stores and relational user records to a portable JSON object."""
+    _ensure_state_table()
+    with engine.begin() as conn:
+        state_rows = conn.execute(text(
+            f"SELECT store_key, data_json FROM {_STATE_TABLE} ORDER BY store_key"
+        )).fetchall()
+        user_rows = conn.execute(text("SELECT * FROM users ORDER BY uid")).fetchall()
+        user_columns = list(conn.execute(text(
+            "SELECT * FROM users LIMIT 0"
+        )).keys())
+
+    return {
+        "format": "telegram_bot_full_backup",
+        "version": BACKUP_VERSION,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "state": [{"key": row[0], "data_json": row[1]} for row in state_rows],
+        "users_table": {
+            "columns": user_columns,
+            "rows": [dict(row._mapping) for row in user_rows],
+        },
+    }
+
+
+def restore_full_backup(backup):
+    """
+    Restore a portable backup into an EMPTY users table.
+    Refuses non-empty destinations to avoid accidental data loss.
+    """
+    if not isinstance(backup, dict) or backup.get("format") != "telegram_bot_full_backup":
+        raise ValueError("invalid_backup_format")
+    if backup.get("version") != BACKUP_VERSION:
+        raise ValueError("unsupported_backup_version")
+    state_rows = backup.get("state")
+    user_table = backup.get("users_table")
+    if not isinstance(state_rows, list) or not isinstance(user_table, dict):
+        raise ValueError("invalid_backup_structure")
+    user_columns = user_table.get("columns")
+    user_rows = user_table.get("rows")
+    if not isinstance(user_columns, list) or not isinstance(user_rows, list):
+        raise ValueError("invalid_users_section")
+    if any(not isinstance(row, dict) for row in user_rows):
+        raise ValueError("invalid_users_rows")
+    allowed_user_columns = set(user_columns)
+    if not allowed_user_columns or "uid" not in allowed_user_columns:
+        raise ValueError("invalid_users_columns")
+    for row in user_rows:
+        if set(row) - allowed_user_columns:
+            raise ValueError("unexpected_user_columns")
+
+    seen_keys = set()
+    for row in state_rows:
+        if not isinstance(row, dict) or not isinstance(row.get("key"), str) or not isinstance(row.get("data_json"), str):
+            raise ValueError("invalid_state_row")
+        if row["key"] in seen_keys:
+            raise ValueError("duplicate_state_key")
+        seen_keys.add(row["key"])
+        # Refuse malformed state rather than importing a broken backup.
+        json.loads(row["data_json"])
+
+    _ensure_state_table()
+    with _state_lock, engine.begin() as conn:
+        existing_users = conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
+        if existing_users:
+            raise ValueError("destination_not_empty")
+
+        live_columns = set(conn.execute(text("SELECT * FROM users LIMIT 0")).keys())
+        if not allowed_user_columns.issubset(live_columns):
+            raise ValueError("users_schema_mismatch")
+
+        # This function is intended for a fresh destination database only.
+        conn.execute(text(f"DELETE FROM {_STATE_TABLE}"))
+        conn.execute(text("DELETE FROM users"))
+
+        for row in state_rows:
+            conn.execute(text(f"""
+                INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+                VALUES (:k, :d, CURRENT_TIMESTAMP)
+            """), {"k": row["key"], "d": row["data_json"]})
+
+        if user_rows:
+            columns_sql = ", ".join(f'"{name}"' for name in user_columns)
+            values_sql = ", ".join(f":{name}" for name in user_columns)
+            insert_sql = text(f"INSERT INTO users ({columns_sql}) VALUES ({values_sql})")
+            for row in user_rows:
+                conn.execute(insert_sql, row)
+
+    # Refresh shared dictionaries in-place so modules importing them see restored data.
+    global_state_map = {
+        DB_USERS: "users",
+        DB_KEYS: "keys_store",
+        DB_REDEEM: "redeem_codes",
+        DB_PRICES: "prices_config",
+        DB_CONFIG: "bot_config",
+    }
+    for store_key, attr in global_state_map.items():
+        match = next((item for item in state_rows if item["key"] == store_key), None)
+        if match:
+            restored_value = json.loads(match["data_json"])
+            current_value = globals().get(attr)
+            if isinstance(current_value, dict) and isinstance(restored_value, dict):
+                current_value.clear()
+                current_value.update(restored_value)
+            elif isinstance(current_value, list) and isinstance(restored_value, list):
+                current_value[:] = restored_value
+    return {"state_stores": len(state_rows), "users": len(user_rows)}
