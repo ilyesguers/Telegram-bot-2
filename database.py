@@ -157,6 +157,17 @@ def save_json(filename, data):
     _write_legacy_mirror(filename, data)
 
 
+def get_json_state_updated_at(filename):
+    """Return the last PostgreSQL commit timestamp for a persisted store."""
+    _ensure_state_table()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT updated_at FROM {_STATE_TABLE} WHERE store_key = :k"),
+            {"k": filename},
+        ).fetchone()
+    return row[0] if row else None
+
+
 # =====================================================
 # 📦 تحميل البيانات
 # =====================================================
