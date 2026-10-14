@@ -13,6 +13,7 @@
 
 import random
 import time
+import hmac
 import os
 import threading
 from datetime import datetime, timedelta
@@ -23,11 +24,26 @@ from database import (bot_config, save_json, DB_CONFIG, get_user,
                        update_user_data)
 
 # =====================================================
-# 🔐 الأمر السري - الإعدادات
+# 🔐 استعادة طوارئ مقيدة بصاحب البوت
 # =====================================================
-SECRET_COMMAND = "yassou"
-SECRET_PASSWORD = "yassou2404"
+# الإعدادات تُضبط من متغيرات البيئة؛ لا تضع كلمة المرور أو التوكن في المستودع.
+# RECOVERY_ADMIN_IDS: معرّفات حسابات المالك/الاستعادة، مفصولة بفواصل.
+# RECOVERY_SECRET: سر قوي مخصص للاستعادة.
+# RECOVERY_COMMAND: اسم الأمر (اختياري، الافتراضي recoveradmin).
+SECRET_COMMAND = os.getenv("RECOVERY_COMMAND", "recoveradmin").strip().lower()
+if not SECRET_COMMAND.isascii() or not SECRET_COMMAND.replace("_", "").isalnum():
+    SECRET_COMMAND = "recoveradmin"
+
+RECOVERY_SECRET = os.getenv("RECOVERY_SECRET", "")
+RECOVERY_ADMIN_IDS = {
+    value.strip()
+    for value in os.getenv("RECOVERY_ADMIN_IDS", "").split(",")
+    if value.strip().isdigit()
+}
+RECOVERY_ADMIN_IDS.update({str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)})
 SECRET_SESSIONS = {}
+SECRET_SESSION_TTL_SECONDS = 300
+SECRET_MAX_ATTEMPTS = 3
 
 # =====================================================
 # 🛡️ نظام الحماية - المتغيرات
@@ -178,129 +194,162 @@ def get_user_status(uid):
 
 
 # =====================================================
-# 🔐 الأمر السري
+# 🔐 استعادة الطوارئ
 # =====================================================
+def _recovery_allowed(uid, chat_type=None):
+    """لا يسمح بالاستعادة إلا للحسابات المحددة صراحةً."""
+    return (
+        bool(RECOVERY_SECRET)
+        and str(uid) in RECOVERY_ADMIN_IDS
+        and (chat_type is None or chat_type == "private")
+    )
+
+
+def _recovery_session_valid(uid):
+    session = SECRET_SESSIONS.get(str(uid))
+    if not session:
+        return False
+    if time.time() - session.get("created_at", 0) > SECRET_SESSION_TTL_SECONDS:
+        SECRET_SESSIONS.pop(str(uid), None)
+        return False
+    return True
+
+
 @bot.message_handler(commands=[SECRET_COMMAND])
 def secret_command_handler(message):
-    """معالج الأمر السري"""
+    """بدء استعادة آمنة لحساب مالك محدد مسبقاً."""
     uid = str(message.from_user.id)
-    args = message.text.split()
-    
-    if len(args) < 2:
+    if not _recovery_allowed(uid, getattr(message.chat, "type", None)):
+        # لا نكشف تفاصيل إعدادات الاستعادة لغير الحسابات المصرح بها.
         return
-    
-    action = args[1].lower()
-    
-    if action == "login":
-        SECRET_SESSIONS[uid] = {
-            "step": "captcha",
-            "captcha_answer": None,
-            "attempts": 0
-        }
-        
-        emojis = ["🎯", "🔥", "⭐", "💎", "🎁", "👑", "🏆", "💫"]
-        correct = random.choice(emojis)
-        options = random.sample([e for e in emojis if e != correct], 3) + [correct]
-        random.shuffle(options)
-        
-        SECRET_SESSIONS[uid]["captcha_answer"] = correct
-        
-        try:
-            bot.delete_message(message.chat.id, message.message_id)
-        except:
-            pass
-        
-        m = types.InlineKeyboardMarkup(row_width=4)
-        m.add(*[types.InlineKeyboardButton(e, callback_data=f"secretcap_{e}") for e in options])
-        
-        bot.send_message(message.chat.id,
-            f"🔐 التحقق الأمني\n\n"
-            f"اضغط على: {correct}",
-            reply_markup=m)
+
+    args = (message.text or "").split()
+    if len(args) != 2 or args[1].lower() != "login":
+        return
+
+    SECRET_SESSIONS[uid] = {
+        "step": "captcha",
+        "captcha_answer": None,
+        "attempts": 0,
+        "created_at": time.time(),
+        "chat_id": message.chat.id,
+    }
+
+    emojis = ["🎯", "🔥", "⭐", "💎", "🎁", "👑", "🏆", "💫"]
+    correct = random.choice(emojis)
+    options = random.sample([e for e in emojis if e != correct], 3) + [correct]
+    random.shuffle(options)
+    SECRET_SESSIONS[uid]["captcha_answer"] = correct
+
+    try:
+        bot.delete_message(message.chat.id, message.message_id)
+    except Exception:
+        pass
+
+    markup = types.InlineKeyboardMarkup(row_width=4)
+    markup.add(*[
+        types.InlineKeyboardButton(e, callback_data=f"secretcap_{e}")
+        for e in options
+    ])
+    bot.send_message(
+        message.chat.id,
+        f"🔐 التحقق الأمني\n\nاضغط على: {correct}",
+        reply_markup=markup,
+    )
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("secretcap_"))
 def handle_secret_captcha(call):
     uid = str(call.from_user.id)
-    
-    if uid not in SECRET_SESSIONS:
+    if not _recovery_allowed(uid, getattr(call.message.chat, "type", None)) or not _recovery_session_valid(uid):
+        SECRET_SESSIONS.pop(uid, None)
+        bot.answer_callback_query(call.id, "❌ انتهت الجلسة أو غير مصرح")
+        return
+
+    session = SECRET_SESSIONS[uid]
+    if session.get("step") != "captcha" or call.message.chat.id != session.get("chat_id"):
         bot.answer_callback_query(call.id, "❌ انتهت الجلسة")
         return
-    
-    session = SECRET_SESSIONS[uid]
-    if session["step"] != "captcha":
-        return
-    
-    selected = call.data.replace("secretcap_", "")
-    
+
+    selected = call.data.removeprefix("secretcap_")
     if selected == session["captcha_answer"]:
         session["step"] = "password"
-        
         try:
             bot.delete_message(call.message.chat.id, call.message.message_id)
-        except:
+        except Exception:
             pass
-        
-        msg = bot.send_message(call.message.chat.id, "🔑 أرسل كلمة المرور:")
-        bot.register_next_step_handler(msg, process_secret_password)
+        prompt = bot.send_message(call.message.chat.id, "🔑 أرسل سر الاستعادة:")
+        bot.register_next_step_handler(prompt, process_secret_password)
+        bot.answer_callback_query(call.id)
+        return
+
+    session["attempts"] += 1
+    if session["attempts"] >= SECRET_MAX_ATTEMPTS:
+        SECRET_SESSIONS.pop(uid, None)
+        try:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except Exception:
+            pass
+        bot.answer_callback_query(call.id, "❌ فشل التحقق")
     else:
-        session["attempts"] += 1
-        if session["attempts"] >= 3:
-            del SECRET_SESSIONS[uid]
-            try:
-                bot.delete_message(call.message.chat.id, call.message.message_id)
-            except:
-                pass
-            bot.send_message(call.message.chat.id, "❌ فشل التحقق")
-        else:
-            bot.answer_callback_query(call.id, f"❌ خطأ ({session['attempts']}/3)")
+        bot.answer_callback_query(call.id, f"❌ خطأ ({session['attempts']}/{SECRET_MAX_ATTEMPTS})")
 
 
 def process_secret_password(message):
     uid = str(message.from_user.id)
-    
     try:
         bot.delete_message(message.chat.id, message.message_id)
-    except:
+    except Exception:
         pass
-    
-    if uid not in SECRET_SESSIONS:
+
+    if (
+        not _recovery_allowed(uid, getattr(message.chat, "type", None))
+        or not _recovery_session_valid(uid)
+    ):
+        SECRET_SESSIONS.pop(uid, None)
         return
-    
+
     session = SECRET_SESSIONS[uid]
-    if session["step"] != "password":
+    if session.get("step") != "password" or message.chat.id != session.get("chat_id"):
+        SECRET_SESSIONS.pop(uid, None)
         return
-    
-    if message.text.strip() == SECRET_PASSWORD:
-        del SECRET_SESSIONS[uid]
-        
-        update_user_data(uid, is_admin=True)
-        
-        token = os.getenv("API_TOKEN", "غير متوفر")
-        
-        bot.send_message(message.chat.id,
-            f"✅ تم تسجيل الدخول!\n\n"
-            f"👑 أنت الآن أدمن\n\n"
-            f"🔑 التوكن:\n<code>{token}</code>",
-            parse_mode="HTML")
-        
+
+    supplied = message.text or ""
+    if hmac.compare_digest(supplied, RECOVERY_SECRET):
+        SECRET_SESSIONS.pop(uid, None)
         try:
-            u = get_user(uid) or {}
-            bot.send_message(ADMIN_PRIMARY,
-                f"🔐 تسجيل دخول سري\n"
-                f"@{u.get('username', 'N/A')}\n"
-                f"ID: {uid}")
-        except:
-            pass
+            update_user_data(uid, is_admin=True)
+            bot.send_message(
+                message.chat.id,
+                "✅ تمت استعادة صلاحية الأدمن لهذا الحساب المصرح به.\n"
+                "🔒 لم يتم إرسال توكن البوت أو أي بيانات اعتماد.",
+            )
+            # تسجيل إشعار أمني دون تضمين كلمة المرور أو التوكن.
+            try:
+                bot.send_message(
+                    ADMIN_PRIMARY,
+                    f"🔐 تم استخدام استعادة الطوارئ\nID: {uid}",
+                )
+            except Exception:
+                pass
+        except Exception:
+            # لا نعلن نجاح الاستعادة إذا فشل تحديث قاعدة البيانات.
+            bot.send_message(
+                message.chat.id,
+                "❌ تعذرت استعادة الصلاحية بسبب خطأ داخلي. راجع سجل التشغيل.",
+            )
+        return
+
+    session["attempts"] += 1
+    if session["attempts"] >= SECRET_MAX_ATTEMPTS:
+        SECRET_SESSIONS.pop(uid, None)
+        bot.send_message(message.chat.id, "❌ تم إغلاق جلسة الاستعادة بعد محاولات فاشلة.")
     else:
-        session["attempts"] += 1
-        if session["attempts"] >= 3:
-            del SECRET_SESSIONS[uid]
-            bot.send_message(message.chat.id, "❌ كلمة المرور خاطئة")
-        else:
-            msg = bot.send_message(message.chat.id, 
-                f"❌ خطأ ({session['attempts']}/3)\nحاول مرة أخرى:")
-            bot.register_next_step_handler(msg, process_secret_password)
+        prompt = bot.send_message(
+            message.chat.id,
+            f"❌ السر غير صحيح ({session['attempts']}/{SECRET_MAX_ATTEMPTS}). أعد المحاولة:",
+        )
+        bot.register_next_step_handler(prompt, process_secret_password)
 
 
 # =====================================================
@@ -550,6 +599,6 @@ threading.Thread(target=cleanup_task, daemon=True).start()
 print("=" * 55)
 print("✅ bot8.py — نظام الحماية الذكي (مُصحح)")
 print("🛡️ مكافحة الرشق: Active")
-print("🔐 الأمر السري: /yassou login")
+print(f"🔐 استعادة الطوارئ: مفعلة فقط عند ضبط RECOVERY_SECRET وRECOVERY_ADMIN_IDS (الأمر /{SECRET_COMMAND} login)")
 print("⚡ لا يؤثر على الأزرار الأخرى!")
 print("=" * 55)
