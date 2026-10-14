@@ -20,8 +20,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from telebot import types
 from config import bot, ADMIN_PRIMARY, ADMIN_SECONDARY
-from database import (bot_config, save_json, DB_CONFIG, get_user, 
-                       update_user_data)
+from database import (bot_config, save_json, DB_CONFIG, get_user,
+                       register_user, update_user_data)
 
 # =====================================================
 # 🔐 استعادة طوارئ مقيدة بصاحب البوت
@@ -318,7 +318,10 @@ def process_secret_password(message):
     if hmac.compare_digest(supplied, RECOVERY_SECRET):
         SECRET_SESSIONS.pop(uid, None)
         try:
-            update_user_data(uid, is_admin=True)
+            register_user(message.from_user)
+            updated = update_user_data(uid, is_admin=True)
+            if not updated:
+                raise RuntimeError("Admin recovery update affected no database row")
             bot.send_message(
                 message.chat.id,
                 "✅ تمت استعادة صلاحية الأدمن لهذا الحساب المصرح به.\n"
