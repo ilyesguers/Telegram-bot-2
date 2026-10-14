@@ -1393,19 +1393,34 @@ def bot9_handle_pre_checkout(pre_checkout_query):
         
         print(f"🔔 bot9: Pre-checkout from {uid}")
         
-        valid = payload.startswith("vip_purchase_") or payload.startswith("stars_convert_")
-        
+        valid = payload.startswith("vip_purchase_")
+        if payload.startswith("stars_convert_"):
+            parts = payload.split("_")
+            valid = (
+                len(parts) == 4
+                and parts[0] == "stars"
+                and parts[1] == "convert"
+                and parts[2].isdigit()
+                and parts[3].isdigit()
+                and int(parts[2]) > 0
+                and int(parts[3]) > 0
+            )
+
         if valid:
             bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-            print(f"✅ bot9: Approved")
+            print("✅ bot9: Approved")
         else:
-            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=False, 
-                                          error_message="❌ طلب غير صالح")
+            bot.answer_pre_checkout_query(
+                pre_checkout_query.id, ok=False, error_message="❌ طلب غير صالح"
+            )
     except Exception as e:
-        print(f"⚠️ bot9: Error: {e}")
+        print(f"⚠️ bot9: Pre-checkout verification failed: {e}")
         try:
-            bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-        except:
+            # Fail closed: never approve a payment when validation errored.
+            bot.answer_pre_checkout_query(
+                pre_checkout_query.id, ok=False, error_message="تعذر التحقق من الطلب"
+            )
+        except Exception:
             pass
 
 
