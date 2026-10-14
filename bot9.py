@@ -1400,7 +1400,8 @@ def bot9_handle_pre_checkout(pre_checkout_query):
         if payload.startswith("stars_convert_"):
             parts = payload.split("_")
             valid = (
-                len(parts) == 5
+                valid_currency
+                and len(parts) == 5
                 and parts[0] == "stars"
                 and parts[1] == "convert"
                 and parts[2] == uid
@@ -1409,6 +1410,7 @@ def bot9_handle_pre_checkout(pre_checkout_query):
                 and int(parts[3]) > 0
                 and int(parts[4]) > 0
                 and int(parts[3]) == int(pre_checkout_query.total_amount)
+                and int(parts[4]) == int(parts[3]) * int(bot_config.get("star_to_points_rate", 2) or 2)
             )
 
         bot.answer_pre_checkout_query(
