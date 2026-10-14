@@ -788,7 +788,7 @@ __all__ = [
 # =====================================================
 # 📦 تصدير/استيراد نسخة كاملة قابلة للنقل بين قواعد Railway
 # =====================================================
-BACKUP_VERSION = 1
+BACKUP_VERSION = 2
 
 
 def export_full_backup():
@@ -806,6 +806,16 @@ def export_full_backup():
         save_json(filename, data)
 
     with _state_lock, engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
+                charge_id TEXT PRIMARY KEY,
+                uid VARCHAR(50) NOT NULL,
+                payment_type VARCHAR(20) NOT NULL,
+                total_amount BIGINT NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
         state_rows = conn.execute(text(
             f"SELECT store_key, data_json FROM {_STATE_TABLE} ORDER BY store_key"
         )).fetchall()
@@ -813,6 +823,10 @@ def export_full_backup():
         user_columns = list(conn.execute(text(
             "SELECT * FROM users LIMIT 0"
         )).keys())
+        payment_rows = conn.execute(text("""
+            SELECT charge_id, uid, payment_type, total_amount, payload
+            FROM bot_processed_star_payments ORDER BY charge_id
+        """)).fetchall()
 
     return {
         "format": "telegram_bot_full_backup",
@@ -823,6 +837,9 @@ def export_full_backup():
             "columns": user_columns,
             "rows": [dict(row._mapping) for row in user_rows],
         },
+        "processed_star_payments": [
+            dict(row._mapping) for row in payment_rows
+        ],
     }
 
 
@@ -841,8 +858,11 @@ def restore_full_backup(backup):
         raise ValueError("invalid_backup_structure")
     user_columns = user_table.get("columns")
     user_rows = user_table.get("rows")
+    payment_rows = backup.get("processed_star_payments")
     if not isinstance(user_columns, list) or not isinstance(user_rows, list):
         raise ValueError("invalid_users_section")
+    if not isinstance(payment_rows, list):
+        raise ValueError("invalid_payment_ledger")
     if any(not isinstance(row, dict) for row in user_rows):
         raise ValueError("invalid_users_rows")
     allowed_user_columns = set(user_columns)
@@ -868,8 +888,29 @@ def restore_full_backup(backup):
     if not required_stores.issubset(seen_keys):
         raise ValueError("missing_required_store")
 
+    seen_charges = set()
+    for row in payment_rows:
+        if not isinstance(row, dict):
+            raise ValueError("invalid_payment_ledger_row")
+        required = {"charge_id", "uid", "payment_type", "total_amount", "payload"}
+        if not required.issubset(row):
+            raise ValueError("invalid_payment_ledger_row")
+        if not row["charge_id"] or row["charge_id"] in seen_charges:
+            raise ValueError("invalid_payment_ledger_row")
+        seen_charges.add(row["charge_id"])
+
     _ensure_state_table()
     with _state_lock, engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_processed_star_payments (
+                charge_id TEXT PRIMARY KEY,
+                uid VARCHAR(50) NOT NULL,
+                payment_type VARCHAR(20) NOT NULL,
+                total_amount BIGINT NOT NULL,
+                payload TEXT NOT NULL,
+                processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
         existing_users = conn.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
         if existing_users:
             raise ValueError("destination_not_empty")
@@ -881,6 +922,7 @@ def restore_full_backup(backup):
         # This function is intended for a fresh destination database only.
         conn.execute(text(f"DELETE FROM {_STATE_TABLE}"))
         conn.execute(text("DELETE FROM users"))
+        conn.execute(text("DELETE FROM bot_processed_star_payments"))
 
         for row in state_rows:
             conn.execute(text(f"""
@@ -894,6 +936,13 @@ def restore_full_backup(backup):
             insert_sql = text(f"INSERT INTO users ({columns_sql}) VALUES ({values_sql})")
             for row in user_rows:
                 conn.execute(insert_sql, row)
+
+        for row in payment_rows:
+            conn.execute(text("""
+                INSERT INTO bot_processed_star_payments
+                    (charge_id, uid, payment_type, total_amount, payload)
+                VALUES (:charge_id, :uid, :payment_type, :total_amount, :payload)
+            """), row)
 
     # Refresh shared dictionaries in-place so modules importing them see restored data.
     global_state_map = {
