@@ -110,9 +110,10 @@ def _restore_all():
             print(f"⚠️ bot5: تعذر مقارنة توقيت مخزن '{store_key}': {exc}")
             continue
 
-        backup_updated_at = backup.get("updated_at")
-        if state_updated_at and backup_updated_at and state_updated_at >= backup_updated_at:
-            print(f"ℹ️ bot5: تجاهل نسخة أقدم لـ '{store_key}' حفاظاً على أحدث بيانات")
+        # bot_state is now the canonical store. Never let the legacy snapshot
+        # overwrite it, even when timestamp precision or process clocks differ.
+        if state_updated_at is not None:
+            print(f"ℹ️ bot5: تجاهل النسخة الاحتياطية القديمة لـ '{store_key}' لأن PostgreSQL الأساسي هو المصدر المعتمد")
             continue
 
         live_dict = getattr(mod, attr)
