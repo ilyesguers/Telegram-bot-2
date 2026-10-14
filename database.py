@@ -794,7 +794,18 @@ BACKUP_VERSION = 1
 def export_full_backup():
     """Export canonical JSON stores and relational user records to a portable JSON object."""
     _ensure_state_table()
-    with engine.begin() as conn:
+    # Flush the current in-memory stores before taking the export snapshot.
+    # This also captures settings that a feature updated just before /backup.
+    for filename, data in (
+        (DB_USERS, users),
+        (DB_KEYS, keys_store),
+        (DB_REDEEM, redeem_codes),
+        (DB_PRICES, prices_config),
+        (DB_CONFIG, bot_config),
+    ):
+        save_json(filename, data)
+
+    with _state_lock, engine.begin() as conn:
         state_rows = conn.execute(text(
             f"SELECT store_key, data_json FROM {_STATE_TABLE} ORDER BY store_key"
         )).fetchall()
