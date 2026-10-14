@@ -853,6 +853,7 @@ def restore_full_backup(backup):
             raise ValueError("unexpected_user_columns")
 
     seen_keys = set()
+    required_stores = {DB_USERS, DB_KEYS, DB_REDEEM, DB_PRICES, DB_CONFIG}
     for row in state_rows:
         if not isinstance(row, dict) or not isinstance(row.get("key"), str) or not isinstance(row.get("data_json"), str):
             raise ValueError("invalid_state_row")
@@ -860,7 +861,12 @@ def restore_full_backup(backup):
             raise ValueError("duplicate_state_key")
         seen_keys.add(row["key"])
         # Refuse malformed state rather than importing a broken backup.
-        json.loads(row["data_json"])
+        decoded = json.loads(row["data_json"])
+        if row["key"] in required_stores and not isinstance(decoded, dict):
+            raise ValueError("invalid_required_store")
+
+    if not required_stores.issubset(seen_keys):
+        raise ValueError("missing_required_store")
 
     _ensure_state_table()
     with _state_lock, engine.begin() as conn:
