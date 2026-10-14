@@ -1,8 +1,79 @@
 import os
 import json
+import tempfile
+import threading
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
 from config import CHANNEL_ID, CHANNEL_LINK
+
+# PostgreSQL is the durable source of truth for the legacy JSON-shaped stores.
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required. Configure PostgreSQL before starting the bot."
+    )
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
+
+_STATE_TABLE = "bot_state"
+_state_lock = threading.RLock()
+_state_table_ready = False
+_file_locks = {}
+_file_locks_guard = threading.Lock()
+
+
+def _ensure_state_table():
+    """Create the generic state table once, safely across concurrent callers."""
+    global _state_table_ready
+    if _state_table_ready:
+        return
+    with _state_lock:
+        if _state_table_ready:
+            return
+        with engine.begin() as conn:
+            conn.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS {_STATE_TABLE} (
+                    store_key VARCHAR(100) PRIMARY KEY,
+                    data_json TEXT NOT NULL,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        _state_table_ready = True
+
+
+def _file_lock(filename):
+    with _file_locks_guard:
+        return _file_locks.setdefault(filename, threading.RLock())
+
+
+def _write_legacy_mirror(filename, data):
+    """Write a best-effort atomic local mirror for migration/older tooling."""
+    directory = os.path.dirname(os.path.abspath(filename))
+    temp_path = None
+    try:
+        with _file_lock(filename):
+            fd, temp_path = tempfile.mkstemp(
+                prefix=".bot-state-", suffix=".tmp", dir=directory
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(data, stream, indent=4, ensure_ascii=False, default=str)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, filename)
+            temp_path = None
+    except Exception as exc:
+        # PostgreSQL already committed; mirror failure must not misreport DB failure.
+        print(f"⚠️ تعذر تحديث النسخة المحلية الاختيارية {filename}: {exc}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 # =====================================================
 # 📁 أسماء ملفات JSON
@@ -14,26 +85,77 @@ DB_PRICES = 'prices_config.json'
 DB_CONFIG = 'bot_config.json'
 
 # =====================================================
-# 🔧 دوال JSON
+# 🔧 توافق JSON مع تخزين دائم وفوري في PostgreSQL
 # =====================================================
 def load_json(filename):
-    """تحميل ملف JSON بأمان"""
+    """
+    Load a store from PostgreSQL. If this is the first migration, import its
+    legacy JSON file into PostgreSQL once. The local file is only a mirror.
+    """
+    _ensure_state_table()
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k"),
+            {"k": filename},
+        ).fetchone()
+
+    if row and row[0] is not None:
+        try:
+            return json.loads(row[0])
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"Stored state for {filename} is invalid JSON; refusing silent reset."
+            ) from exc
+
+    legacy_data = {}
     if os.path.exists(filename):
         try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"⚠️ خطأ في تحميل {filename}: {e}")
-            return {}
-    return {}
+            with _file_lock(filename), open(filename, "r", encoding="utf-8") as stream:
+                legacy_data = json.load(stream)
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(f"Could not read legacy state file {filename}: {exc}") from exc
+
+    # Import legacy data (including an empty object) so future reads are DB-backed.
+    payload = json.dumps(legacy_data, ensure_ascii=False, default=str)
+    with engine.begin() as conn:
+        conn.execute(text(f"""
+            INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+            VALUES (:k, :d, CURRENT_TIMESTAMP)
+            ON CONFLICT (store_key)
+            DO NOTHING
+        """), {"k": filename, "d": payload})
+
+    # Another process may have won the first-write race; read its committed row.
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(f"SELECT data_json FROM {_STATE_TABLE} WHERE store_key = :k"),
+            {"k": filename},
+        ).fetchone()
+    if not row or row[0] is None:
+        raise RuntimeError(f"Failed to initialize persistent state for {filename}")
+    return json.loads(row[0])
+
 
 def save_json(filename, data):
-    """حفظ ملف JSON بأمان"""
-    try:
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"⚠️ خطأ في حفظ {filename}: {e}")
+    """
+    Persist the complete store to PostgreSQL before returning.
+    Local JSON is retained only as an atomic compatibility/migration mirror.
+    Database errors are raised rather than swallowed so callers cannot mistake
+    a failed durable write for a successful save.
+    """
+    _ensure_state_table()
+    payload = json.dumps(data, ensure_ascii=False, default=str)
+    with _state_lock, engine.begin() as conn:
+        conn.execute(text(f"""
+            INSERT INTO {_STATE_TABLE} (store_key, data_json, updated_at)
+            VALUES (:k, :d, CURRENT_TIMESTAMP)
+            ON CONFLICT (store_key)
+            DO UPDATE SET data_json = EXCLUDED.data_json,
+                          updated_at = CURRENT_TIMESTAMP
+        """), {"k": filename, "d": payload})
+
+    _write_legacy_mirror(filename, data)
+
 
 # =====================================================
 # 📦 تحميل البيانات
@@ -123,13 +245,8 @@ if not bot_config.get("force_sub_channels") and CHANNEL_ID:
 save_json(DB_CONFIG, bot_config)
 
 # =====================================================
-# 🔌 الاتصال بقاعدة البيانات PostgreSQL
+# 🔌 اتصال PostgreSQL مهيأ في أعلى الملف
 # =====================================================
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("⚠️ WARNING: DATABASE_URL not set!")
-
-engine = create_engine(DATABASE_URL)
 
 # =====================================================
 # 🗄️ إنشاء الجداول
