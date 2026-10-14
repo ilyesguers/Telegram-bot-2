@@ -33,17 +33,10 @@ from database import (bot_config, save_json, DB_CONFIG, get_user,
 # RECOVERY_ADMIN_IDS: معرّفات حسابات المالك/الاستعادة، مفصولة بفواصل.
 # RECOVERY_SECRET: سر قوي مخصص للاستعادة.
 # RECOVERY_COMMAND: اسم الأمر (اختياري، الافتراضي recoveradmin).
-SECRET_COMMAND = os.getenv("RECOVERY_COMMAND", "recoveradmin").strip().lower()
-if not SECRET_COMMAND.isascii() or not SECRET_COMMAND.replace("_", "").isalnum():
-    SECRET_COMMAND = "recoveradmin"
-
+# متغير بيئي إضافي واحد فقط؛ الحسابان المسموحان هما ADMIN_PRIMARY وADMIN_SECONDARY.
+RECOVERY_COMMAND = "recoveradmin"
 RECOVERY_SECRET = os.getenv("RECOVERY_SECRET", "")
-RECOVERY_ADMIN_IDS = {
-    value.strip()
-    for value in os.getenv("RECOVERY_ADMIN_IDS", "").split(",")
-    if value.strip().isdigit()
-}
-RECOVERY_ADMIN_IDS.update({str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)})
+RECOVERY_ADMIN_IDS = {str(ADMIN_PRIMARY), str(ADMIN_SECONDARY)}
 SECRET_SESSIONS = {}
 SECRET_SESSION_TTL_SECONDS = 300
 SECRET_MAX_ATTEMPTS = 3
@@ -218,7 +211,7 @@ def _recovery_session_valid(uid):
     return True
 
 
-@bot.message_handler(commands=[SECRET_COMMAND])
+@bot.message_handler(commands=[RECOVERY_COMMAND])
 def secret_command_handler(message):
     """بدء استعادة آمنة لحساب مالك محدد مسبقاً."""
     uid = str(message.from_user.id)
@@ -605,7 +598,7 @@ threading.Thread(target=cleanup_task, daemon=True).start()
 print("=" * 55)
 print("✅ bot8.py — نظام الحماية الذكي (مُصحح)")
 print("🛡️ مكافحة الرشق: Active")
-print("🔐 استعادة الطوارئ: تعتمد على RECOVERY_SECRET وRECOVERY_ADMIN_IDS")
+print("🔐 استعادة الطوارئ: تعتمد على RECOVERY_SECRET وحسابي الأدمن المحددين في config.py")
 print("⚡ لا يؤثر على الأزرار الأخرى!")
 print("=" * 55)
 
