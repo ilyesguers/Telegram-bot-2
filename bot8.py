@@ -618,7 +618,7 @@ def handle_full_backup_command(message):
     try:
         backup = database.export_full_backup()
         payload = json.dumps(backup, ensure_ascii=False, indent=2, default=str).encode("utf-8")
-        if len(payload) > 45 * 1024 * 1024:
+        if len(payload) > 15 * 1024 * 1024:
             bot.reply_to(message, "حجم النسخة أكبر من حد الإرسال الآمن عبر تيليجرام. استخدم تصدير PostgreSQL من Railway.")
             return
         document = io.BytesIO(payload)
