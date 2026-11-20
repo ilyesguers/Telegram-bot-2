@@ -1,3 +1,23 @@
 .venv/
 __pycache__/
 *.json
+
+# Python bytecode and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Runtime backups and local data
+*.backup
+*.bak
+*.dump
+*.sql
