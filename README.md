@@ -52,7 +52,7 @@ Feature availability may depend on the bot's configuration and administrator set
    pip install -r requirements.txt
    ```
 
-4. Configure environment variables. Copy `.env.example` to `.env` and set real values. Do not commit `.env`.
+4. Configure environment variables. Copy `.env.example` to `.env` and set real values. The application loads this file locally with `python-dotenv`; on hosting platforms, set the variables in the service settings. Never commit `.env`.
 
    | Variable | Required | Description |
    | --- | --- | --- |
