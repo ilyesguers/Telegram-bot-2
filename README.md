@@ -20,7 +20,11 @@ The current codebase includes modules for:
 
 Feature availability may depend on the bot's configuration and administrator setup.
 
-## Project map\n\nStart with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map, active imports, persistence model, and known coverage limits. Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code.\n\n## Requirements
+## Project map
+
+Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map, active imports, persistence model, and known coverage limits. Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code.
+
+## Requirements
 
 - Python 3.11 (the current CI workflow uses Python 3.11).
 - PostgreSQL.
