@@ -1,5 +1,8 @@
 import os
 import telebot
+from dotenv import load_dotenv
+
+load_dotenv()
 
 API_TOKEN = os.getenv("API_TOKEN", "").strip()
 if not API_TOKEN:
