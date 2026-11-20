@@ -1,7 +1,10 @@
 import os
 import telebot
+from dotenv import load_dotenv
 
-API_TOKEN = os.getenv("API_TOKEN")
+load_dotenv()
+
+API_TOKEN = os.getenv("API_TOKEN", "").strip()
 if not API_TOKEN:
     raise RuntimeError("API_TOKEN is required. Configure your Telegram bot token in the hosting environment.")
 bot = telebot.TeleBot(API_TOKEN, threaded=True)

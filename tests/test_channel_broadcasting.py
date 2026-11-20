@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="telegram-bot-channel-tests-")
-os.environ.setdefault("API_TOKEN", "123456:TEST_TOKEN")
-os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ["API_TOKEN"] = "123456:TEST_TOKEN"
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.chdir(TEST_DATA_DIR)
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -92,8 +92,10 @@ class ChannelBroadcastingTests(unittest.TestCase):
         self.assertEqual(len(self.bot.messages), 3)
 
 
+def tearDownModule():
+    """Remove isolated test data after unittest discovery completes."""
+    shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
+
+
 if __name__ == "__main__":
-    try:
-        unittest.main()
-    finally:
-        shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
+    unittest.main()
